@@ -24,6 +24,9 @@ const COMMON_RELATIONSHIPS = [
   'Son',
   'Granddaughter',
   'Grandson',
+  'Great-Granddaughter',
+  'Great-Grandson',
+  'Great-Grandchild',
   'Mother',
   'Father',
   'Sister',
@@ -697,6 +700,9 @@ export default function MetadataModal({
                   <option value="Couple / Parents">Couple / Parents</option>
                   <option value="Siblings / Children">Siblings / Children</option>
                   <option value="Grandparents & Grandchildren">Grandparents & Grandchildren</option>
+                  <option value="Great-Grandparents & Great-Grandchildren">Great-Grandparents & Great-Grandchildren</option>
+                  <option value="Great-Grandchildren">Great-Grandchildren</option>
+                  <option value="Multi-Generational (3-4 Generations)">Multi-Generational (3-4 Generations)</option>
                   <option value="Solo Portrait">Solo Portrait</option>
                   <option value="Friends & Social">Friends & Social</option>
                   {COMMON_RELATIONSHIPS.map((rel) => (
