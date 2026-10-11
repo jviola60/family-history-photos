@@ -58,40 +58,51 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const debounceTimerRef = useRef(null);
   const isInitialMountRef = useRef(true);
 
-  // 🔍 Interactive Zoom & Synchronized Loupe
-  const [zoomLevel, setZoomLevel] = useState(1); // 1 = Fit, 2 = 2x, 3 = 3x
-  const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
+  // 🔍 Interactive Senior Zoom & Synchronized Pan
+  const [zoomLevel, setZoomLevel] = useState(1); // 1 = Fit (100%), 1.5, 2, 3, 4
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-  const panStartRef = useRef({ clientX: 0, clientY: 0, originX: 50, originY: 50 });
+  const panStartRef = useRef({ startX: 0, startY: 0, originX: 0, originY: 0 });
   const didPanRef = useRef(false);
 
-  const handleImageClick = (e) => {
-    if (didPanRef.current) {
-      didPanRef.current = false;
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = Math.max(5, Math.min(95, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
-    const clickY = Math.max(5, Math.min(95, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+  const handleZoomIn = () => {
+    setZoomLevel(s => Math.min(4, +(s + 0.5).toFixed(1)));
+  };
 
-    if (zoomLevel === 1) {
-      setPanOrigin({ x: clickX, y: clickY });
-      setZoomLevel(2);
-    } else {
-      setZoomLevel(1);
-      setPanOrigin({ x: 50, y: 50 });
-    }
+  const handleZoomOut = () => {
+    setZoomLevel(s => {
+      const next = Math.max(1, +(s - 0.5).toFixed(1));
+      if (next === 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleZoomTo = (level) => {
+    setZoomLevel(level);
+    if (level === 1) setPanOffset({ x: 0, y: 0 });
+  };
+
+  const handleWheelZoom = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.25 : -0.25;
+    setZoomLevel(current => {
+      const next = Math.min(4, Math.max(1, +(current + delta).toFixed(2)));
+      if (next === 1) {
+        setPanOffset({ x: 0, y: 0 });
+      }
+      return next;
+    });
   };
 
   const handleZoomPointerDown = (e) => {
-    if (zoomLevel === 1) return;
+    if (zoomLevel <= 1) return;
     setIsPanning(true);
     didPanRef.current = false;
     panStartRef.current = {
-      clientX: e.clientX,
-      clientY: e.clientY,
-      originX: panOrigin.x,
-      originY: panOrigin.y
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: panOffset.x,
+      originY: panOffset.y
     };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -99,19 +110,16 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   };
 
   const handleZoomPointerMove = (e) => {
-    if (!isPanning || zoomLevel === 1) return;
-    const dx = e.clientX - panStartRef.current.clientX;
-    const dy = e.clientY - panStartRef.current.clientY;
+    if (!isPanning || zoomLevel <= 1) return;
+    const dx = e.clientX - panStartRef.current.startX;
+    const dy = e.clientY - panStartRef.current.startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
       didPanRef.current = true;
     }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const deltaPercentX = (dx / rect.width) * 50;
-    const deltaPercentY = (dy / rect.height) * 50;
-
-    const newX = Math.max(5, Math.min(95, panStartRef.current.originX - deltaPercentX));
-    const newY = Math.max(5, Math.min(95, panStartRef.current.originY - deltaPercentY));
-    setPanOrigin({ x: newX, y: newY });
+    setPanOffset({
+      x: panStartRef.current.originX + dx,
+      y: panStartRef.current.originY + dy
+    });
   };
 
   const handleZoomPointerUp = (e) => {
@@ -126,17 +134,16 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const getZoomStyle = () => {
     if (zoomLevel > 1) {
       return {
-        transform: `scale(${zoomLevel})`,
-        transformOrigin: `${panOrigin.x}% ${panOrigin.y}%`,
-        transition: isPanning ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform-origin 0.15s ease',
+        transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+        transition: isPanning ? 'none' : 'transform 0.15s ease-out',
         cursor: isPanning ? 'grabbing' : 'grab',
         touchAction: 'none'
       };
     }
     return {
-      cursor: 'zoom-in',
-      transition: 'transform 0.2s ease',
-      transform: 'scale(1)'
+      transform: 'scale(1) translate(0px, 0px)',
+      transition: 'transform 0.15s ease-out',
+      cursor: 'default'
     };
   };
 
@@ -338,7 +345,30 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     setSliderPosition(Math.max(2, Math.min(98, pos)));
   };
 
-  const handlePointerDown = (e) => {
+  const handleSplitPointerDown = (e) => {
+    const isDividerTarget = e.target && (
+      e.target.classList?.contains('split-slider-divider') || 
+      e.target.classList?.contains('slider-handle-circle') ||
+      Boolean(e.target.closest?.('.split-slider-divider'))
+    );
+
+    // If zoomed in and not dragging the divider handle directly, pan the photo!
+    if (zoomLevel > 1 && !isDividerTarget) {
+      setIsPanning(true);
+      didPanRef.current = false;
+      panStartRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: panOffset.x,
+        originY: panOffset.y
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      return;
+    }
+
+    // Otherwise, drag the split comparison slider
     e.preventDefault();
     e.stopPropagation();
     isDraggingRef.current = true;
@@ -348,21 +378,38 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     updateSliderPos(e.clientX);
   };
 
-  const handlePointerMove = (e) => {
-    if (!isDraggingRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    updateSliderPos(e.clientX);
-  };
+  const handleSplitPointerMove = (e) => {
+    if (isPanning && zoomLevel > 1) {
+      const dx = e.clientX - panStartRef.current.startX;
+      const dy = e.clientY - panStartRef.current.startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        didPanRef.current = true;
+      }
+      setPanOffset({
+        x: panStartRef.current.originX + dx,
+        y: panStartRef.current.originY + dy
+      });
+      return;
+    }
 
-  const handlePointerUp = (e) => {
     if (isDraggingRef.current) {
       e.preventDefault();
       e.stopPropagation();
+      updateSliderPos(e.clientX);
+    }
+  };
+
+  const handleSplitPointerUp = (e) => {
+    if (isPanning) {
+      setIsPanning(false);
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {}
-      // Keep dragging flag briefly to prevent trailing backdrop click from closing
+    }
+    if (isDraggingRef.current) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {}
       setTimeout(() => {
         isDraggingRef.current = false;
       }, 200);
@@ -516,7 +563,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
           <div className="enhancer-preview-column">
             
             {/* View Mode Bar */}
-            <div className="enhancer-view-mode-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div className="enhancer-view-mode-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
               <div className="enhancer-mode-pills">
                 <button
                   type="button"
@@ -555,62 +602,78 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 </button>
               </div>
 
-              {/* 🔍 Zoom & Synchronized Detail Inspector */}
+              {viewMode === 'slider' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => setSliderPosition(50)}
+                  title="Reset slider to 50/50 center"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <RotateCcw size={12} />
+                  <span>Reset 50/50</span>
+                </button>
+              )}
+            </div>
+
+            {/* Senior-Friendly Magnification Toolbar */}
+            <div className="senior-zoom-toolbar">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  backgroundColor: 'var(--bg-muted)',
-                  borderRadius: 'var(--radius-full)',
-                  padding: '2px 4px',
-                  border: '1px solid var(--border-light)'
-                }}>
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#f59e0b', padding: '0 6px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                    <ZoomIn size={12} />
-                    <span>Zoom:</span>
-                  </span>
-                  {[
-                    { label: 'Fit (1x)', val: 1 },
-                    { label: '1.5x', val: 1.5 },
-                    { label: '2x', val: 2 },
-                    { label: '3x', val: 3 },
-                    { label: '4x', val: 4 }
-                  ].map(z => (
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ZoomIn size={13} />
+                  <span>Magnify:</span>
+                </span>
+                <div className="senior-zoom-group">
+                  <button 
+                    type="button"
+                    onClick={handleZoomOut}
+                    className="senior-zoom-btn senior-zoom-btn-action"
+                    title="Zoom Out (-)"
+                  >
+                    <ZoomOut size={13} />
+                    <span>-</span>
+                  </button>
+
+                  {[1, 1.5, 2, 3, 4].map((level) => (
                     <button
-                      key={z.val}
+                      key={level}
                       type="button"
-                      className={`btn-xs ${zoomLevel === z.val ? 'btn-primary' : 'btn-ghost'}`}
-                      style={{ padding: '3px 8px', borderRadius: '12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: zoomLevel === z.val ? '700' : '500' }}
-                      onClick={() => { setZoomLevel(z.val); setPanOrigin({ x: 50, y: 35 }); }}
-                      title={`Zoom to ${z.label}`}
+                      onClick={() => handleZoomTo(level)}
+                      className={`senior-zoom-btn ${zoomLevel === level ? 'active' : ''}`}
+                      title={`Magnify to ${Math.round(level * 100)}%`}
                     >
-                      {z.label}
+                      {level === 1 ? 'Fit (100%)' : `${Math.round(level * 100)}%`}
                     </button>
                   ))}
-                </div>
 
+                  <button 
+                    type="button"
+                    onClick={handleZoomIn}
+                    className="senior-zoom-btn senior-zoom-btn-action"
+                    title="Zoom In (+)"
+                  >
+                    <ZoomIn size={13} />
+                    <span>+</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {zoomLevel > 1 && (
+                  <span style={{ fontSize: '11px', color: '#93c5fd', fontWeight: '600' }}>
+                    ✋ Click & drag photo to pan
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsMaximized(!isMaximized)}
                   className="senior-zoom-btn senior-zoom-btn-action"
-                  style={{ backgroundColor: isMaximized ? '#2563eb' : 'rgba(255,255,255,0.1)' }}
-                  title={isMaximized ? "Return to standard size" : "Make window full-screen to see photo much bigger"}
+                  style={{ backgroundColor: isMaximized ? '#2563eb' : 'rgba(255,255,255,0.12)' }}
+                  title={isMaximized ? "Return to standard size" : "Expand photo window to full screen"}
                 >
                   {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                  <span>{isMaximized ? 'Standard' : 'Make Bigger ⛶'}</span>
+                  <span>{isMaximized ? 'Standard Size' : 'Big Screen'}</span>
                 </button>
-
-                {viewMode === 'slider' && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-xs"
-                    onClick={() => setSliderPosition(50)}
-                    title="Reset slider to 50/50 center"
-                  >
-                    <RotateCcw size={12} />
-                    <span>50/50</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -620,11 +683,16 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 <div 
                   ref={containerRef}
                   className="split-comparison-container"
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={handlePointerUp}
-                  style={{ touchAction: 'none' }}
+                  onWheel={handleWheelZoom}
+                  onPointerDown={handleSplitPointerDown}
+                  onPointerMove={handleSplitPointerMove}
+                  onPointerUp={handleSplitPointerUp}
+                  onPointerCancel={handleSplitPointerUp}
+                  style={{ 
+                    touchAction: 'none',
+                    cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'ew-resize'
+                  }}
+                  title={zoomLevel > 1 ? "Drag to pan • Mouse wheel to zoom • Drag white center circle to slide comparison" : "Drag slider left/right to compare • Mouse wheel to zoom in"}
                 >
                   {/* Original (Left side) */}
                   <img 
@@ -698,9 +766,9 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   }}
                 >
                   {zoomLevel > 1 ? (
-                    <span>🔍 <strong>{zoomLevel}x Zoom:</strong> Drag the slider left/right to compare up-close details. Click 'Fit' above to zoom out.</span>
+                    <span>🔍 <strong>{Math.round(zoomLevel * 100)}% Zoom:</strong> Mouse wheel to zoom • Drag photo to pan around • Drag white center circle to slide comparison.</span>
                   ) : (
-                    <span><strong>Left side</strong> is Original • <strong>Right side</strong> is Enhanced. Drag slider ◀ LEFT or ▶ RIGHT to compare.</span>
+                    <span>💡 <strong>Mouse wheel zooms in & out.</strong> Drag slider ◀ LEFT or ▶ RIGHT to compare.</span>
                   )}
                 </div>
               </>
@@ -709,16 +777,19 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
             {/* Mode 2: Side-by-Side View */}
             {viewMode === 'side_by_side' && (
               <>
-                <div className="side-by-side-comparison">
+                <div 
+                  className="side-by-side-comparison"
+                  onWheel={handleWheelZoom}
+                >
                   <div 
                     className="side-by-side-box"
-                    onClick={handleImageClick}
+                    onWheel={handleWheelZoom}
                     onPointerDown={handleZoomPointerDown}
                     onPointerMove={handleZoomPointerMove}
                     onPointerUp={handleZoomPointerUp}
                     onPointerCancel={handleZoomPointerUp}
-                    style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'zoom-in', touchAction: 'none' }}
-                    title={zoomLevel > 1 ? "Drag to pan both sides • Click to zoom out" : "Click anywhere to zoom in 2x and inspect faces"}
+                    style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }}
+                    title={zoomLevel > 1 ? "Drag to pan both sides • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                   >
                     <img 
                       src={photo.objectUrl} 
@@ -731,13 +802,13 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   </div>
                   <div 
                     className="side-by-side-box"
-                    onClick={handleImageClick}
+                    onWheel={handleWheelZoom}
                     onPointerDown={handleZoomPointerDown}
                     onPointerMove={handleZoomPointerMove}
                     onPointerUp={handleZoomPointerUp}
                     onPointerCancel={handleZoomPointerUp}
-                    style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'zoom-in', touchAction: 'none' }}
-                    title={zoomLevel > 1 ? "Drag to pan both sides • Click to zoom out" : "Click anywhere to zoom in 2x and inspect faces"}
+                    style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }}
+                    title={zoomLevel > 1 ? "Drag to pan both sides • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                   >
                     {enhancedResultUrl ? (
                       <img 
@@ -771,11 +842,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 >
                   {zoomLevel > 1 ? (
                     <span>
-                      🔍 <strong>{zoomLevel}x Synchronized Zoom Active:</strong> Both photos are locked together! Drag to pan around faces • Click to zoom out.
+                      🔍 <strong>{Math.round(zoomLevel * 100)}% Synchronized Zoom Active:</strong> Both photos move together! Drag to pan • Scroll wheel to zoom.
                     </span>
                   ) : (
                     <span>
-                      💡 <strong>Click directly on either face</strong> to zoom in 2x and inspect eyelashes, eyes, and skin smoothness side-by-side.
+                      💡 <strong>Roll mouse wheel</strong> or use Magnify buttons above to zoom both photos side-by-side in sync.
                     </span>
                   )}
                 </div>
@@ -787,12 +858,13 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
               <>
                 <div 
                   className="split-comparison-container" 
-                  onClick={handleImageClick}
+                  onWheel={handleWheelZoom}
                   onPointerDown={handleZoomPointerDown}
                   onPointerMove={handleZoomPointerMove}
                   onPointerUp={handleZoomPointerUp}
                   onPointerCancel={handleZoomPointerUp}
-                  style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'zoom-in', touchAction: 'none' }}
+                  style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }}
+                  title={zoomLevel > 1 ? "Drag to pan • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                 >
                   <img 
                     src={photo.objectUrl} 
@@ -805,7 +877,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 </div>
                 {zoomLevel > 1 && (
                   <div style={{ textAlign: 'center', fontSize: '11px', color: '#1d4ed8', marginTop: '6px' }}>
-                    🔍 {zoomLevel}x Zoom: Drag to pan • Click to reset
+                    🔍 {Math.round(zoomLevel * 100)}% Zoom: Drag to pan • Mouse wheel to zoom
                   </div>
                 )}
               </>
@@ -816,12 +888,13 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
               <>
                 <div 
                   className="split-comparison-container" 
-                  onClick={handleImageClick}
+                  onWheel={handleWheelZoom}
                   onPointerDown={handleZoomPointerDown}
                   onPointerMove={handleZoomPointerMove}
                   onPointerUp={handleZoomPointerUp}
                   onPointerCancel={handleZoomPointerUp}
-                  style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'zoom-in', touchAction: 'none' }}
+                  style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }}
+                  title={zoomLevel > 1 ? "Drag to pan • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                 >
                   {enhancedResultUrl && (
                     <img 
@@ -836,7 +909,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 </div>
                 {zoomLevel > 1 && (
                   <div style={{ textAlign: 'center', fontSize: '11px', color: '#1d4ed8', marginTop: '6px' }}>
-                    🔍 {zoomLevel}x Zoom: Drag to pan • Click to reset
+                    🔍 {Math.round(zoomLevel * 100)}% Zoom: Drag to pan • Mouse wheel to zoom
                   </div>
                 )}
               </>
