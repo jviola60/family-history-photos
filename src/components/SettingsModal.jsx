@@ -13,7 +13,7 @@ import {
   Sliders,
   Cpu
 } from 'lucide-react';
-import { getAiSettings, saveAiSettings, testFalConnection } from '../lib/aiSettings';
+import { getAiSettings, saveAiSettings, testFalConnection, FAL_MODELS } from '../lib/aiSettings';
 
 export default function SettingsModal({ onClose }) {
   const [settings, setSettings] = useState(getAiSettings());
@@ -37,6 +37,24 @@ export default function SettingsModal({ onClose }) {
     setSettings(updated);
     saveAiSettings(updated);
     setTestStatus(null);
+  };
+
+  const handleModelChange = (falModel) => {
+    const updated = { ...settings, falModel };
+    setSettings(updated);
+    saveAiSettings(updated);
+  };
+
+  const handleResemblanceChange = (val) => {
+    const updated = { ...settings, falResemblance: val };
+    setSettings(updated);
+    saveAiSettings(updated);
+  };
+
+  const handleCreativityChange = (val) => {
+    const updated = { ...settings, falCreativity: val };
+    setSettings(updated);
+    saveAiSettings(updated);
   };
 
   const handleFidelityChange = (val) => {
@@ -163,10 +181,10 @@ export default function SettingsModal({ onClose }) {
                   <Sparkles size={20} color={settings.provider === 'fal' ? '#2563eb' : 'var(--text-muted)'} />
                   <div>
                     <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>
-                      Fal.ai (Cloud AI - CodeFormer)
+                      Fal.ai (Cloud AI - Studio Restoration)
                     </strong>
                     <span className="badge" style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb' }}>
-                      Fastest & Cheapest
+                      Highest Quality
                     </span>
                   </div>
                 </div>
@@ -178,7 +196,7 @@ export default function SettingsModal({ onClose }) {
                 />
               </div>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0 30px', lineHeight: 1.45 }}>
-                Connects to Fal.ai cloud GPUs running CodeFormer. Reconstructs true modern 4K camera quality in <strong>~1.5 seconds</strong> (~$0.0015 per photo).
+                Connects to Fal.ai cloud GPUs running state-of-the-art models (<strong>Clarity Ultra-HD, CCSR, or CodeFormer</strong>) for authentic studio-grade photographic recovery.
               </p>
             </div>
           </div>
@@ -260,37 +278,162 @@ export default function SettingsModal({ onClose }) {
                   borderRadius: '6px',
                   backgroundColor: testStatus.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                   color: testStatus.success ? '#059669' : '#dc2626',
-                  marginBottom: '12px'
+                  marginBottom: '14px'
                 }}>
                   {testStatus.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
                   <span>{testStatus.message}</span>
                 </div>
               )}
 
-              {/* Fidelity / Likeness slider */}
-              <div style={{ marginTop: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sliders size={14} />
-                    <span>Facial Fidelity / Likeness:</span>
-                  </label>
-                  <span style={{ fontSize: '12px', fontWeight: '700' }}>{Math.round(settings.falFidelity * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.4"
-                  max="0.95"
-                  step="0.05"
-                  value={settings.falFidelity}
-                  onChange={(e) => handleFidelityChange(parseFloat(e.target.value))}
-                  className="range-input"
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                  <span>0.4 (Strongest AI Detail)</span>
-                  <span>0.75 (Recommended)</span>
-                  <span>0.95 (Maximum Original Likeness)</span>
+              {/* Model Selection Selector */}
+              <div style={{ marginTop: '16px', marginBottom: '14px' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                  <Sparkles size={14} className="text-accent" />
+                  <span>Choose Fal.ai AI Model:</span>
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {FAL_MODELS.map((model) => {
+                    const isSelected = (settings.falModel || 'fal-ai/clarity-upscaler') === model.id;
+                    return (
+                      <div
+                        key={model.id}
+                        onClick={() => handleModelChange(model.id)}
+                        style={{
+                          border: isSelected ? '2px solid #2563eb' : '1px solid var(--border-medium)',
+                          backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg-card)',
+                          borderRadius: '8px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ fontSize: '13px', color: isSelected ? '#1d4ed8' : 'var(--text-main)' }}>
+                              {model.name}
+                            </strong>
+                            <span className="badge" style={{
+                              fontSize: '9px',
+                              backgroundColor: isSelected ? '#2563eb' : 'var(--bg-hover)',
+                              color: isSelected ? '#ffffff' : 'var(--text-muted)'
+                            }}>
+                              {model.badge}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-subtle)' }}>
+                              {model.cost}
+                            </span>
+                            <input
+                              type="radio"
+                              name="falModel"
+                              checked={isSelected}
+                              onChange={() => handleModelChange(model.id)}
+                            />
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                          {model.desc}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+
+              {/* Sliders tailored to the selected model */}
+              {(settings.falModel || 'fal-ai/clarity-upscaler') === 'fal-ai/clarity-upscaler' && (
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label className="form-label" style={{ margin: 0, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Sliders size={13} />
+                        <span>Facial Resemblance / Original Likeness:</span>
+                      </label>
+                      <span style={{ fontSize: '12px', fontWeight: '700' }}>{Math.round((settings.falResemblance ?? 0.75) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="0.95"
+                      step="0.05"
+                      value={settings.falResemblance ?? 0.75}
+                      onChange={(e) => handleResemblanceChange(parseFloat(e.target.value))}
+                      className="range-input"
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                      <span>50% (More AI Freedom)</span>
+                      <span>75% (Recommended)</span>
+                      <span>95% (Strict Likeness)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label className="form-label" style={{ margin: 0, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Sliders size={13} />
+                        <span>Texture & Pore Detail (Creativity):</span>
+                      </label>
+                      <span style={{ fontSize: '12px', fontWeight: '700' }}>{Math.round((settings.falCreativity ?? 0.30) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.15"
+                      max="0.50"
+                      step="0.05"
+                      value={settings.falCreativity ?? 0.30}
+                      onChange={(e) => handleCreativityChange(parseFloat(e.target.value))}
+                      className="range-input"
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                      <span>15% (Gentle Polish)</span>
+                      <span>30% (Recommended)</span>
+                      <span>50% (Max Micro-Textures)</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settings.falModel === 'fal-ai/codeformer' && (
+                <div style={{ marginTop: '12px', backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label className="form-label" style={{ margin: 0, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sliders size={13} />
+                      <span>CodeFormer Facial Fidelity:</span>
+                    </label>
+                    <span style={{ fontSize: '12px', fontWeight: '700' }}>{Math.round((settings.falFidelity ?? 0.75) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.4"
+                    max="0.95"
+                    step="0.05"
+                    value={settings.falFidelity ?? 0.75}
+                    onChange={(e) => handleFidelityChange(parseFloat(e.target.value))}
+                    className="range-input"
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                    <span>0.4 (Strongest AI Detail)</span>
+                    <span>0.75 (Recommended)</span>
+                    <span>0.95 (Maximum Likeness)</span>
+                  </div>
+                </div>
+              )}
+
+              {settings.falModel === 'fal-ai/ccsr' && (
+                <div style={{
+                  marginTop: '12px',
+                  backgroundColor: 'var(--bg-card)',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.45
+                }}>
+                  💡 <strong>CCSR Mode:</strong> Applies continuous contrastive 4K super-resolution across the entire image (foreground & background), preserving facial structure while enhancing optical focus.
+                </div>
+              )}
 
               {/* Quick 3-Step Guide */}
               <div style={{

@@ -5,12 +5,42 @@ import { fal } from '@fal-ai/client';
  * Safely persists keys in localStorage so each user has their own private configuration.
  */
 
-const SETTINGS_KEY = 'who_is_this_ai_settings';
+const SETTINGS_KEY = 'family_history_ai_settings';
+
+export const FAL_MODELS = [
+  {
+    id: 'fal-ai/clarity-upscaler',
+    name: 'Clarity Ultra-HD (Generative AI)',
+    badge: 'Breathtaking Detail',
+    cost: '~$0.015 / photo',
+    time: '~5-8s',
+    desc: 'Replaces blurry pixels with real photorealistic textures: skin pores, eyelashes, hair strands, and fabric weaves.'
+  },
+  {
+    id: 'fal-ai/ccsr',
+    name: 'CCSR (Real-World Super-Resolution)',
+    badge: 'Full Photo 4K',
+    cost: '~$0.005 / photo',
+    time: '~3-5s',
+    desc: 'Contrastive Continuous Super-Resolution. Restores the entire photograph (background & people) with natural sharpness.'
+  },
+  {
+    id: 'fal-ai/codeformer',
+    name: 'CodeFormer (Face Restoration)',
+    badge: 'Fast & Cheap',
+    cost: '~$0.0015 / photo',
+    time: '~1.5s',
+    desc: 'Traditional lightweight face-only GAN repair. Best for quick touch-ups on low budgets.'
+  }
+];
 
 export const DEFAULT_AI_SETTINGS = {
   provider: 'self_contained', // 'self_contained' | 'fal' | 'replicate'
   falApiKey: '',
-  falFidelity: 0.75, // 0.0 (maximum enhancement) to 1.0 (strict original likeness)
+  falModel: 'fal-ai/clarity-upscaler', // Default to Clarity for breathtaking results!
+  falFidelity: 0.75, // For CodeFormer (0.0 to 1.0)
+  falResemblance: 0.75, // For Clarity (0.0 to 1.0, higher = closer to original face)
+  falCreativity: 0.30, // For Clarity (0.0 to 1.0, higher = more fine texture generated)
   replicateApiKey: ''
 };
 
@@ -131,39 +161,65 @@ export async function restoreWithCloudAi(imageSource, settings, onProgress) {
         uploadedUrl = await fal.storage.upload(blob);
       }
 
-      if (onProgress) onProgress('⚡ Running CodeFormer AI face reconstruction on cloud GPU...');
+      const chosenModelId = currentSettings.falModel || 'fal-ai/clarity-upscaler';
+      const modelMeta = FAL_MODELS.find(m => m.id === chosenModelId) || FAL_MODELS[0];
 
-      // Direct fast HTTP request (~1.5s, no websocket queue polling hang)
+      if (onProgress) onProgress(`⚡ Running ${modelMeta.name} on cloud GPU (${modelMeta.time})...`);
+
+      // Prepare input payload tailored to each specific Fal.ai model
+      let inputPayload = { image_url: uploadedUrl };
+
+      if (chosenModelId === 'fal-ai/clarity-upscaler') {
+        inputPayload = {
+          image_url: uploadedUrl,
+          upscale_factor: 2,
+          prompt: "masterpiece, highly detailed authentic photograph, natural facial textures, clean eyes, sharp film scan, restored vintage portrait, 4k 8k uhd",
+          resemblance: typeof currentSettings.falResemblance === 'number' ? currentSettings.falResemblance : 0.75,
+          creativity: typeof currentSettings.falCreativity === 'number' ? currentSettings.falCreativity : 0.30,
+          enable_safety_checker: true
+        };
+      } else if (chosenModelId === 'fal-ai/ccsr') {
+        inputPayload = {
+          image_url: uploadedUrl,
+          scale: 2
+        };
+      } else if (chosenModelId === 'fal-ai/codeformer') {
+        inputPayload = {
+          image_url: uploadedUrl,
+          fidelity: typeof currentSettings.falFidelity === 'number' ? currentSettings.falFidelity : 0.75,
+          face_upscale: true,
+          upscale_factor: 2
+        };
+      }
+
+      // Execute request (fal.subscribe is best for generative models with queues)
       let result;
       try {
-        result = await fal.run('fal-ai/codeformer', {
-          input: {
-            image_url: uploadedUrl,
-            fidelity: typeof currentSettings.falFidelity === 'number' ? currentSettings.falFidelity : 0.75,
-            face_upscale: true,
-            upscale_factor: 2
-          }
+        result = await fal.subscribe(chosenModelId, {
+          input: inputPayload,
+          pollInterval: 1000
         });
-      } catch (runErr) {
-        console.warn('fal.run direct call error, trying fal.subscribe:', runErr);
-        result = await fal.subscribe('fal-ai/codeformer', {
-          input: {
-            image_url: uploadedUrl,
-            fidelity: typeof currentSettings.falFidelity === 'number' ? currentSettings.falFidelity : 0.75,
-            face_upscale: true,
-            upscale_factor: 2
-          }
+      } catch (subErr) {
+        console.warn('fal.subscribe fallback to fal.run:', subErr);
+        result = await fal.run(chosenModelId, {
+          input: inputPayload
         });
       }
 
       console.log('Fal.ai restoration response:', result);
 
-      const outputUrl = result?.data?.image?.url || result?.image?.url || (typeof result?.data?.image === 'string' ? result.data.image : null);
+      const outputUrl = result?.data?.image?.url 
+        || result?.image?.url 
+        || result?.images?.[0]?.url 
+        || result?.data?.images?.[0]?.url 
+        || (typeof result?.data?.image === 'string' ? result.data.image : null)
+        || (typeof result?.image === 'string' ? result.image : null);
+
       if (outputUrl) {
         return {
           success: true,
           url: outputUrl,
-          provider: 'Fal.ai (CodeFormer)'
+          provider: `Fal.ai (${modelMeta.name})`
         };
       } else {
         throw new Error('Fal.ai response did not contain an output image URL: ' + JSON.stringify(result));

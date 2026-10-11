@@ -19,10 +19,11 @@ import {
   ZoomOut
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
-import { getAiSettings, restoreWithCloudAi } from '../lib/aiSettings';
+import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings }) {
   const [aiSettings, setAiSettings] = useState(getAiSettings());
+  const activeFalModel = FAL_MODELS.find(m => m.id === (aiSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
   const [cloudError, setCloudError] = useState(null);
   const [targetRes, setTargetRes] = useState('4k'); // Default to 4K
   const [styleMode, setStyleMode] = useState(photo.faces && photo.faces.length > 0 ? 'portrait' : 'portrait'); // 'portrait' | 'natural' | 'shadow'
@@ -389,9 +390,10 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
       if (onOpenSettings) onOpenSettings();
       return;
     }
+    const currentModel = FAL_MODELS.find(m => m.id === (currentSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
     setIsCloudProcessing(true);
     setCloudError(null);
-    setPassProgressMessage('⚡ Connecting to Fal.ai cloud GPU (CodeFormer)...');
+    setPassProgressMessage(`⚡ Connecting to Fal.ai cloud GPU (${currentModel.name})...`);
     try {
       const chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl;
       const res = await restoreWithCloudAi(chosenBase, currentSettings, (msg) => {
@@ -910,16 +912,42 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Sparkles size={18} color="#2563eb" />
                     <strong style={{ fontSize: '13px', color: '#1e40af' }}>
-                      Fal.ai Cloud AI (CodeFormer)
+                      Fal.ai Cloud AI
                     </strong>
                   </div>
-                  <span className="badge" style={{ backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb', fontSize: '11px', fontWeight: '700' }}>
-                    Active Provider
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="badge" style={{ backgroundColor: '#2563eb', color: '#ffffff', fontSize: '10px', fontWeight: '700' }}>
+                      {activeFalModel.badge}
+                    </span>
+                    <span className="badge" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#1e40af', fontSize: '10px', fontWeight: '600' }}>
+                      {activeFalModel.cost}
+                    </span>
+                  </div>
                 </div>
 
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
-                  True generative face & portrait restoration on cloud A100 GPUs in <strong>~1.5s</strong> (~$0.0015/photo).
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '4px 0 8px 0' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-main)' }}>
+                    Model: {activeFalModel.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2563eb',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      padding: 0
+                    }}
+                  >
+                    Change Model
+                  </button>
+                </div>
+
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                  {activeFalModel.desc}
                 </p>
 
                 {aiSettings.falApiKey ? (
@@ -943,7 +971,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                     }}
                   >
                     <Sparkles size={16} />
-                    <span>{isCloudProcessing ? (passProgressMessage || '⚡ Connecting to Fal.ai cloud GPU...') : '⚡ Reconstruct Face with Fal.ai (~1.5s)'}</span>
+                    <span>{isCloudProcessing ? (passProgressMessage || '⚡ Connecting to Fal.ai cloud GPU...') : `⚡ Restore with ${activeFalModel.name} (${activeFalModel.time})`}</span>
                   </button>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -976,17 +1004,6 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                     {cloudError}
                   </div>
                 )}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={onOpenSettings}
-                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
-                  >
-                    <Settings size={12} />
-                    <span>Configure Provider Settings</span>
-                  </button>
-                </div>
               </div>
             ) : (
               <div style={{
