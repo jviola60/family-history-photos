@@ -28,6 +28,11 @@ import {
   downloadPhotoWithEmbeddedMetadata,
   formatFamilySearchSummary 
 } from '../lib/photoMetadata';
+import { 
+  savePhotoDraft, 
+  loadPhotoDraft, 
+  clearPhotoDraft 
+} from '../lib/db';
 
 const COMMON_RELATIONSHIPS = [
   'Self / Me',
@@ -101,35 +106,99 @@ export default function MetadataModal({
   const [faceSuggestion, setFaceSuggestion] = useState(null);
   const imgRef = useRef(null);
 
-  // Sync state when photo changes (e.g. Next/Prev button)
+  // Auto-Save and Draft states
+  const [autoSaveStatus, setAutoSaveStatus] = useState(''); // 'saving' | 'saved' | ''
+  const [draftNotice, setDraftNotice] = useState('');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const isInitialSyncRef = useRef(true);
+
+  // Sync state when photo changes (e.g. Next/Prev button or initial mount)
   useEffect(() => {
-    setPeople(photo.people || []);
-    setCurrentNameInput('');
-    setRelationship(photo.relationship || '');
-    setDecade(photo.decade || '');
-    setDate(photo.date || '');
-    setStory(photo.story || '');
-    setLocation(photo.location || '');
-    setFamilyBranch(photo.familyBranch || '');
-    setDetectedFaces(photo.faces || []);
+    isInitialSyncRef.current = true;
+    setAutoSaveStatus('');
+
+    // Check if an in-progress draft exists for this photo
+    const draft = loadPhotoDraft(photo.id || photo.name);
+    if (draft && (draft.story || draft.people?.length || draft.date || draft.location)) {
+      setPeople(draft.people || []);
+      setCurrentNameInput('');
+      setRelationship(draft.relationship || '');
+      setDecade(draft.decade || '');
+      setDate(draft.date || '');
+      setStory(draft.story || '');
+      setLocation(draft.location || '');
+      setFamilyBranch(draft.familyBranch || '');
+      setPersonRelationships(draft.personRelationships || {});
+      setDetectedFaces(draft.faces || photo.faces || []);
+      setDraftNotice('Restored your in-progress notes from where you left off.');
+      setHasUnsavedChanges(true);
+    } else {
+      setPeople(photo.people || []);
+      setCurrentNameInput('');
+      setRelationship(photo.relationship || '');
+      setDecade(photo.decade || '');
+      setDate(photo.date || '');
+      setStory(photo.story || '');
+      setLocation(photo.location || '');
+      setFamilyBranch(photo.familyBranch || '');
+      setDetectedFaces(photo.faces || []);
+      setDraftNotice('');
+      setHasUnsavedChanges(false);
+
+      // Initialize person-specific relationships from directory
+      const initialRels = { ...(photo.personRelationships || {}) };
+      if (peopleDirectory) {
+        (photo.people || []).forEach(name => {
+          if (!initialRels[name]) {
+            const person = Object.values(peopleDirectory).find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (person && person.relationship) {
+              initialRels[name] = person.relationship;
+            }
+          }
+        });
+      }
+      setPersonRelationships(initialRels);
+    }
+
     setFaceSuggestion(null);
     setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
-
-    // Initialize person-specific relationships
-    const initialRels = { ...(photo.personRelationships || {}) };
-    if (peopleDirectory) {
-      (photo.people || []).forEach(name => {
-        if (!initialRels[name]) {
-          const person = Object.values(peopleDirectory).find(p => p.name.toLowerCase() === name.toLowerCase());
-          if (person && person.relationship) {
-            initialRels[name] = person.relationship;
-          }
-        }
-      });
-    }
-    setPersonRelationships(initialRels);
   }, [photo, peopleDirectory]);
+
+  // Continuous Auto-Save: debounced write to draft and parent state whenever user types
+  useEffect(() => {
+    if (isInitialSyncRef.current) {
+      isInitialSyncRef.current = false;
+      return;
+    }
+
+    setHasUnsavedChanges(true);
+    setAutoSaveStatus('saving');
+
+    const draftData = {
+      title: photo.name,
+      people,
+      relationship,
+      personRelationships,
+      decade,
+      date,
+      story,
+      location,
+      familyBranch,
+      faces: detectedFaces
+    };
+
+    // Save instant local draft in case of refresh or accidental navigation
+    savePhotoDraft(photo.id || photo.name, draftData);
+
+    // Debounce save to parent photo catalog (1000ms)
+    const timer = setTimeout(() => {
+      onSave(photo.id, draftData);
+      setAutoSaveStatus('saved');
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [people, relationship, personRelationships, decade, date, story, location, familyBranch, detectedFaces]);
 
   // 🔍 Senior Magnification & Fullscreen View States
   const [isMaximized, setIsMaximized] = useState(false);
@@ -430,6 +499,18 @@ export default function MetadataModal({
       });
     }
 
+    clearPhotoDraft(photo.id || photo.name);
+    setHasUnsavedChanges(false);
+    onClose();
+  };
+
+  const handleRequestClose = () => {
+    if (hasUnsavedChanges) {
+      const confirmLeave = window.confirm(
+        'You have in-progress edits for this photo.\n\nYour notes are auto-saved as a draft so you can resume anytime.\n\nClick OK to close this window, or Cancel to keep editing.'
+      );
+      if (!confirmLeave) return;
+    }
     onClose();
   };
 
@@ -437,7 +518,7 @@ export default function MetadataModal({
   const knownPeople = peopleDirectory ? Object.values(peopleDirectory).map(p => p.name) : [];
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className={`metadata-modal-dialog ${isMaximized ? 'modal-dialog-maximized' : ''}`} onClick={(e) => e.stopPropagation()}>
         
         {/* Modal Header */}
@@ -492,7 +573,7 @@ export default function MetadataModal({
               </button>
             </div>
 
-            <button onClick={onClose} className="btn-icon-close" title="Close dialog">
+            <button onClick={handleRequestClose} className="btn-icon-close" title="Close dialog">
               <X size={20} />
             </button>
           </div>
@@ -796,6 +877,16 @@ export default function MetadataModal({
           {/* Form Column */}
           <div className="modal-form-column">
             
+            {draftNotice && (
+              <div style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '13px', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Check size={16} />
+                  <span>{draftNotice}</span>
+                </div>
+                <button type="button" onClick={() => setDraftNotice('')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#15803d', fontWeight: 'bold' }}>✕</button>
+              </div>
+            )}
+
             {/* 1. Who is in this photo? */}
             <div className="form-group">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1087,8 +1178,19 @@ export default function MetadataModal({
             </button>
           </div>
 
-          <div className="flex items-center gap-10">
-            <button onClick={onClose} className="btn btn-secondary">
+          <div className="flex items-center gap-10" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {autoSaveStatus === 'saved' && (
+              <span style={{ fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                <Check size={14} />
+                <span>Auto-saved</span>
+              </span>
+            )}
+            {autoSaveStatus === 'saving' && (
+              <span style={{ fontSize: '12px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>Saving draft...</span>
+              </span>
+            )}
+            <button onClick={handleRequestClose} className="btn btn-secondary">
               Cancel
             </button>
             <button onClick={handleSave} className="btn btn-primary btn-save">

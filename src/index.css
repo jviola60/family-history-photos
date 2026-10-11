@@ -2505,3 +2505,23 @@
   }
 }
 
+/* ==========================================================================
+   Resume Album Session Banner
+   ========================================================================== */
+
+.resume-session-banner {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 2px solid #f59e0b;
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 15px rgba(217, 119, 6, 0.12);
+  width: 100%;
+}
+
+

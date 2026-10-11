@@ -1,7 +1,18 @@
 import React, { useRef } from 'react';
 import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap, Cloud, BookOpen } from 'lucide-react';
 
-export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoadSample, onOpenCloudModal, onOpenHelpGuide, isScanning, scanProgress }) {
+export default function FolderPickerHero({ 
+  onPickFolder, 
+  onFilesSelected, 
+  onLoadSample, 
+  onOpenCloudModal, 
+  onOpenHelpGuide, 
+  pendingResumeSession,
+  onResumeAlbum,
+  onDismissResume,
+  isScanning, 
+  scanProgress 
+}) {
   const fileInputRef = useRef(null);
 
   const handleFallbackFileChange = (e) => {
@@ -12,6 +23,42 @@ export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoad
 
   return (
     <div className="hero-container">
+      {/* 1-Click Resume Album Banner */}
+      {pendingResumeSession && (
+        <div className="resume-session-banner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', backgroundColor: 'rgba(217, 119, 6, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+              <FolderOpen size={24} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: 'var(--text-main)' }}>
+                Welcome back! Continue album: "{pendingResumeSession.info?.folderName || 'Previous Album'}"
+              </h3>
+              <p style={{ margin: '3px 0 0 0', fontSize: '13px', color: 'var(--text-subtle)' }}>
+                Resume right where you left off ({pendingResumeSession.info?.photoCount || 0} photos)
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button 
+              type="button" 
+              onClick={onResumeAlbum} 
+              className="btn btn-primary"
+              style={{ padding: '10px 22px', fontSize: '14px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <span>▶️ Resume Album (1-Click)</span>
+            </button>
+            <button 
+              type="button" 
+              onClick={onDismissResume} 
+              className="btn btn-secondary btn-sm"
+            >
+              Choose Another Folder
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="hero-card">
         <div className="hero-heart-badge">
           <Heart size={24} className="heart-icon" />

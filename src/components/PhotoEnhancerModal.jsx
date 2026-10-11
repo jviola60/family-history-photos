@@ -523,7 +523,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   };
 
   return (
-    <div className="modal-backdrop" onClick={handleBackdropClick}>
+    <div className="modal-backdrop">
       <div 
         className={`enhancer-modal-dialog ${isMaximized ? 'modal-dialog-maximized' : ''}`} 
         onClick={(e) => e.stopPropagation()}

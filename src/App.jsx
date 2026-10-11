@@ -35,7 +35,14 @@ import {
   saveIgnoredDuplicatesToDB,
   loadIgnoredDuplicatesFromDB,
   saveIgnoredJunkToDB,
-  loadIgnoredJunkFromDB
+  loadIgnoredJunkFromDB,
+  saveLastSessionInfo,
+  loadLastSessionInfo,
+  saveStoredDirectoryHandle,
+  loadStoredDirectoryHandle,
+  clearStoredDirectoryHandle,
+  saveCloudPhotosToDB,
+  loadCloudPhotosFromDB
 } from './lib/db';
 import { 
   permanentlyDeleteFromDuplicatesReview, 
@@ -54,6 +61,7 @@ export default function App() {
   const [duplicateScanProgress, setDuplicateScanProgress] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
+  const [pendingResumeSession, setPendingResumeSession] = useState(null);
 
   // Modals
   const [activeMetadataPhoto, setActiveMetadataPhoto] = useState(null);
@@ -113,6 +121,40 @@ export default function App() {
           });
           savedMetadataMapRef.current = map;
         }
+
+        // Restore previous album session where user left off
+        const lastSession = await loadLastSessionInfo();
+        if (lastSession && isMounted) {
+          if (lastSession.type === 'directory') {
+            const storedHandle = await loadStoredDirectoryHandle();
+            if (storedHandle) {
+              try {
+                // If browser already granted permission (e.g. within session or persisted origin)
+                const perm = await storedHandle.queryPermission({ mode: 'readwrite' });
+                if (perm === 'granted') {
+                  await loadFolderFromHandle(storedHandle);
+                  return;
+                }
+              } catch {}
+              // Browser security needs 1 user click to activate folder access:
+              setPendingResumeSession({
+                handle: storedHandle,
+                info: lastSession
+              });
+            }
+          } else if (lastSession.type === 'cloud') {
+            const cachedCloud = await loadCloudPhotosFromDB();
+            if (cachedCloud && cachedCloud.length > 0) {
+              setPhotos(cachedCloud);
+              setFolderName(lastSession.folderName || 'Cloud Photos');
+              checkDuplicates(cachedCloud);
+            }
+          } else if (lastSession.type === 'sample') {
+            setPhotos(SAMPLE_PHOTOS);
+            setFolderName('Sample Vintage Family Album');
+            checkDuplicates(SAMPLE_PHOTOS);
+          }
+        }
       } catch (err) {
         console.warn('Failed to load initial cache from IndexedDB:', err);
       }
@@ -148,24 +190,23 @@ export default function App() {
   }, [peopleDirectory]);
 
   const handleClearAlbum = async () => {
-    if (window.confirm('Do you want to reset and close this cached album? You can open another folder at any time.')) {
-      await clearAllLocalData();
-      if (savedMetadataMapRef.current) savedMetadataMapRef.current.clear();
+    if (window.confirm('Do you want to close this album and choose another? (Your saved notes and tags are preserved)')) {
+      await clearStoredDirectoryHandle();
+      setPendingResumeSession(null);
       setPhotos([]);
       setFolderName('');
+      setRootDirHandle(null);
       setDuplicateGroups([]);
       setIgnoredPairs(new Set());
       setIgnoredJunkIds(new Set());
-      setPeopleDirectory(SAMPLE_PEOPLE);
     }
   };
 
-  // Open local directory with File System Access API
-  const handlePickFolder = async () => {
+  // Core loader that populates photos from a FileSystemDirectoryHandle
+  const loadFolderFromHandle = async (dirHandle) => {
     try {
       setIsScanning(true);
       setScanProgress('Opening folder...');
-      const dirHandle = await pickLocalDirectory();
       setRootDirHandle(dirHandle);
       setFolderName(dirHandle.name);
 
@@ -200,11 +241,58 @@ export default function App() {
 
       // Auto-scan duplicates in background
       checkDuplicates(mergedImages);
+      setPendingResumeSession(null);
+
+      // Save for subsequent visits so user leaves off where they were
+      await saveStoredDirectoryHandle(dirHandle);
+      await saveLastSessionInfo({
+        type: 'directory',
+        folderName: dirHandle.name,
+        photoCount: mergedImages.length,
+        lastOpened: Date.now()
+      });
+    } catch (err) {
+      console.warn('Folder loading cancelled or failed:', err);
+      setIsScanning(false);
+      setScanProgress('');
+    }
+  };
+
+  // Open local directory with File System Access API
+  const handlePickFolder = async () => {
+    try {
+      const dirHandle = await pickLocalDirectory();
+      await loadFolderFromHandle(dirHandle);
     } catch (err) {
       console.warn('Folder selection cancelled or failed:', err);
       setIsScanning(false);
       setScanProgress('');
     }
+  };
+
+  // 1-Click Resume previous album
+  const handleResumePreviousAlbum = async () => {
+    if (!pendingResumeSession?.handle) return;
+    try {
+      setIsScanning(true);
+      setScanProgress('Reconnecting to your folder...');
+      const perm = await pendingResumeSession.handle.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        await loadFolderFromHandle(pendingResumeSession.handle);
+      } else {
+        alert('Permission was not granted to open this folder.');
+        setIsScanning(false);
+      }
+    } catch (err) {
+      console.warn('Could not resume folder:', err);
+      setIsScanning(false);
+      alert('Could not resume previous folder automatically. Please use "Open My Photos Folder" to select it.');
+    }
+  };
+
+  const handleDismissResume = async () => {
+    setPendingResumeSession(null);
+    await clearStoredDirectoryHandle();
   };
 
   // Fallback for file input
@@ -259,30 +347,50 @@ export default function App() {
   };
 
   // Import photos from cloud (OneDrive, Google Photos, Apple iCloud, ZIP unpacker)
-  const handleImportCloudPhotos = (importedPhotos, sourceName = 'Cloud Import') => {
+  const handleImportCloudPhotos = async (importedPhotos, sourceName = 'Cloud Import') => {
     if (!importedPhotos || importedPhotos.length === 0) return;
+    let combined = [];
     setPhotos(prev => {
       if (prev.length === 0) {
+        combined = importedPhotos;
         checkDuplicates(importedPhotos);
         return importedPhotos;
       }
       const existingKeys = new Set(prev.map(p => `${p.name}_${p.size}`));
       const unique = importedPhotos.filter(p => !existingKeys.has(`${p.name}_${p.size}`));
-      const combined = [...prev, ...unique];
+      combined = [...prev, ...unique];
       checkDuplicates(combined);
       return combined;
     });
     if (!folderName) {
       setFolderName(sourceName);
     }
+    setPendingResumeSession(null);
+
+    // Save cloud photos to IndexedDB so they persist across page reloads!
+    const toSave = combined.length > 0 ? combined : importedPhotos;
+    await saveCloudPhotosToDB(toSave);
+    await saveLastSessionInfo({
+      type: 'cloud',
+      folderName: sourceName,
+      photoCount: toSave.length,
+      lastOpened: Date.now()
+    });
   };
 
   // Load sample album
-  const handleLoadSampleAlbum = () => {
+  const handleLoadSampleAlbum = async () => {
     setPhotos(SAMPLE_PHOTOS);
     setPeopleDirectory(SAMPLE_PEOPLE);
     setFolderName('Sample Vintage Family Album');
     checkDuplicates(SAMPLE_PHOTOS);
+    setPendingResumeSession(null);
+    await saveLastSessionInfo({
+      type: 'sample',
+      folderName: 'Sample Vintage Family Album',
+      photoCount: SAMPLE_PHOTOS.length,
+      lastOpened: Date.now()
+    });
   };
 
   // Run high-performance duplicate detector
@@ -731,6 +839,9 @@ export default function App() {
             onPickFolder={handlePickFolder}
             onOpenCloudModal={() => setShowCloudModal(true)}
             onOpenHelpGuide={() => setShowHelpGuideModal(true)}
+            pendingResumeSession={pendingResumeSession}
+            onResumeAlbum={handleResumePreviousAlbum}
+            onDismissResume={handleDismissResume}
             onFilesSelected={handleFallbackFilesSelected}
             onLoadSample={handleLoadSampleAlbum}
             isScanning={isScanning}

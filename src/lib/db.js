@@ -159,3 +159,133 @@ export async function clearAllLocalData() {
     // Non-critical
   }
 }
+
+/* ==========================================================================
+   Last Session & Directory Handle Persistence
+   ========================================================================== */
+
+const LAST_DIR_HANDLE_KEY = 'last_opened_dir_handle';
+const LAST_SESSION_INFO_KEY = 'last_album_session_info';
+const CLOUD_PHOTOS_CACHE_KEY = 'cloud_photos_cache';
+
+export async function saveLastSessionInfo(info) {
+  if (!info) return;
+  await safeDb(store => set(LAST_SESSION_INFO_KEY, info, store));
+}
+
+export async function loadLastSessionInfo() {
+  return await safeDb(store => get(LAST_SESSION_INFO_KEY, store), null);
+}
+
+export async function saveStoredDirectoryHandle(handle) {
+  if (!handle) return;
+  try {
+    await safeDb(store => set(LAST_DIR_HANDLE_KEY, handle, store));
+  } catch (e) {
+    console.warn('Could not store directory handle in IndexedDB:', e);
+  }
+}
+
+export async function loadStoredDirectoryHandle() {
+  return await safeDb(store => get(LAST_DIR_HANDLE_KEY, store), null);
+}
+
+export async function clearStoredDirectoryHandle() {
+  await safeDb(store => del(LAST_DIR_HANDLE_KEY, store));
+  await safeDb(store => del(LAST_SESSION_INFO_KEY, store));
+  await safeDb(store => del(CLOUD_PHOTOS_CACHE_KEY, store));
+}
+
+export async function saveCloudPhotosToDB(photos) {
+  if (!Array.isArray(photos)) return;
+  try {
+    const serialized = await Promise.all(photos.map(async p => {
+      let fileBlob = p.file;
+      if (!fileBlob && p.objectUrl && p.objectUrl.startsWith('blob:')) {
+        try {
+          const r = await fetch(p.objectUrl);
+          fileBlob = await r.blob();
+        } catch {}
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        size: p.size,
+        lastModified: p.lastModified,
+        relativePath: p.relativePath,
+        width: p.width,
+        height: p.height,
+        people: p.people || [],
+        relationship: p.relationship || '',
+        personRelationships: p.personRelationships || {},
+        decade: p.decade || '',
+        date: p.date || '',
+        story: p.story || '',
+        location: p.location || '',
+        familyBranch: p.familyBranch || '',
+        tags: p.tags || [],
+        enhanced: !!p.enhanced,
+        isMarkedDuplicate: !!p.isMarkedDuplicate,
+        blob: fileBlob
+      };
+    }));
+    await safeDb(store => set(CLOUD_PHOTOS_CACHE_KEY, serialized, store));
+  } catch (err) {
+    console.warn('Could not cache cloud photos:', err);
+  }
+}
+
+export async function loadCloudPhotosFromDB() {
+  const cached = await safeDb(store => get(CLOUD_PHOTOS_CACHE_KEY, store), []);
+  if (!Array.isArray(cached) || cached.length === 0) return [];
+  return cached.map(item => {
+    let objectUrl = null;
+    let file = null;
+    if (item.blob) {
+      objectUrl = URL.createObjectURL(item.blob);
+      file = new File([item.blob], item.name, {
+        type: item.blob.type || 'image/jpeg',
+        lastModified: item.lastModified || Date.now()
+      });
+    }
+    return {
+      ...item,
+      file,
+      objectUrl,
+      handle: null,
+      parentDirHandle: null
+    };
+  });
+}
+
+/* ==========================================================================
+   In-Progress Photo Draft Autosave Helpers
+   ========================================================================== */
+
+export function savePhotoDraft(photoKey, draftData) {
+  if (!photoKey || !draftData) return;
+  try {
+    localStorage.setItem(`fhp_draft_${photoKey}`, JSON.stringify({
+      ...draftData,
+      savedAt: Date.now()
+    }));
+  } catch {}
+}
+
+export function loadPhotoDraft(photoKey) {
+  if (!photoKey) return null;
+  try {
+    const raw = localStorage.getItem(`fhp_draft_${photoKey}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPhotoDraft(photoKey) {
+  if (!photoKey) return;
+  try {
+    localStorage.removeItem(`fhp_draft_${photoKey}`);
+  } catch {}
+}
+
