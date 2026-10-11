@@ -12,7 +12,12 @@ import {
   Sparkles, 
   UserPlus,
   Trash2,
-  UserX
+  UserX,
+  Maximize2,
+  Minimize2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw
 } from 'lucide-react';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
 
@@ -100,6 +105,8 @@ export default function MetadataModal({
     setFamilyBranch(photo.familyBranch || '');
     setDetectedFaces(photo.faces || []);
     setFaceSuggestion(null);
+    setZoomScale(1);
+    setPanOffset({ x: 0, y: 0 });
 
     // Initialize person-specific relationships
     const initialRels = { ...(photo.personRelationships || {}) };
@@ -115,6 +122,68 @@ export default function MetadataModal({
     }
     setPersonRelationships(initialRels);
   }, [photo, peopleDirectory]);
+
+  // 🔍 Senior Magnification & Fullscreen View States
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ startX: 0, startY: 0, originX: 0, originY: 0 });
+
+  const handleZoomIn = () => {
+    setZoomScale(s => Math.min(4, +(s + 0.5).toFixed(1)));
+  };
+
+  const handleZoomOut = () => {
+    setZoomScale(s => {
+      const next = Math.max(1, +(s - 0.5).toFixed(1));
+      if (next === 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleZoomTo = (level) => {
+    setZoomScale(level);
+    if (level === 1) setPanOffset({ x: 0, y: 0 });
+  };
+
+  const handleWheelZoom = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.25 : -0.25;
+    setZoomScale(current => {
+      const next = Math.min(4, Math.max(1, +(current + delta).toFixed(2)));
+      if (next === 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handlePointerDown = (e) => {
+    if (zoomScale <= 1) return;
+    setIsPanning(true);
+    panStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: panOffset.x,
+      originY: panOffset.y
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isPanning || zoomScale <= 1) return;
+    const dx = e.clientX - panStartRef.current.startX;
+    const dy = e.clientY - panStartRef.current.startY;
+    setPanOffset({
+      x: panStartRef.current.originX + dx,
+      y: panStartRef.current.originY + dy
+    });
+  };
+
+  const handlePointerUp = () => {
+    setIsPanning(false);
+  };
 
   // Run strict face scan when image loads & auto-clean past false detections
   const handleImageLoad = async () => {
@@ -297,7 +366,7 @@ export default function MetadataModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="metadata-modal-dialog" onClick={(e) => e.stopPropagation()}>
+      <div className={`metadata-modal-dialog ${isMaximized ? 'modal-dialog-maximized' : ''}`} onClick={(e) => e.stopPropagation()}>
         
         {/* Modal Header */}
         <div className="modal-header">
@@ -307,6 +376,17 @@ export default function MetadataModal({
           </div>
 
           <div className="modal-header-actions">
+            {/* Big Screen / Fullscreen Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="btn-header-maximize"
+              title={isMaximized ? "Return to standard size" : "Make window full-screen to see photo much bigger"}
+            >
+              {isMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <span>{isMaximized ? 'Standard Size' : 'Big Screen'}</span>
+            </button>
+
             {onOpenEnhancer && (
               <button
                 type="button"
@@ -351,14 +431,95 @@ export default function MetadataModal({
           
           {/* Photo Display Column */}
           <div className="modal-photo-column">
-            <div className="photo-display-container">
-              <img
-                ref={imgRef}
-                src={photo.enhancedUrl || photo.objectUrl}
-                alt={photo.name}
-                className="modal-photo-img"
-                onLoad={handleImageLoad}
-              />
+            {/* Senior-Friendly Magnification Toolbar */}
+            <div className="senior-zoom-toolbar">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ZoomIn size={13} />
+                  <span>Magnify:</span>
+                </span>
+                <div className="senior-zoom-group">
+                  <button 
+                    type="button"
+                    onClick={handleZoomOut}
+                    className="senior-zoom-btn senior-zoom-btn-action"
+                    title="Zoom Out (-)"
+                  >
+                    <ZoomOut size={13} />
+                    <span>-</span>
+                  </button>
+
+                  {[1, 1.5, 2, 3].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => handleZoomTo(level)}
+                      className={`senior-zoom-btn ${zoomScale === level ? 'active' : ''}`}
+                      title={`Magnify to ${Math.round(level * 100)}%`}
+                    >
+                      {level === 1 ? 'Fit (100%)' : `${Math.round(level * 100)}%`}
+                    </button>
+                  ))}
+
+                  <button 
+                    type="button"
+                    onClick={handleZoomIn}
+                    className="senior-zoom-btn senior-zoom-btn-action"
+                    title="Zoom In (+)"
+                  >
+                    <ZoomIn size={13} />
+                    <span>+</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {zoomScale > 1 && (
+                  <span style={{ fontSize: '11px', color: '#93c5fd', fontWeight: '600' }}>
+                    ✋ Click & drag photo to pan
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsMaximized(!isMaximized)}
+                  className="senior-zoom-btn senior-zoom-btn-action"
+                  style={{ backgroundColor: isMaximized ? '#2563eb' : 'rgba(255,255,255,0.12)' }}
+                  title={isMaximized ? "Return to standard size" : "Expand photo window to full screen"}
+                >
+                  {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  <span>{isMaximized ? 'Standard Size' : 'Make Bigger ⛶'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div 
+              className="photo-display-container"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onWheel={handleWheelZoom}
+              style={{ 
+                cursor: zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default',
+                touchAction: 'none' 
+              }}
+              title={zoomScale > 1 ? "Drag with mouse to pan around • Scroll wheel to zoom" : "Use Magnify buttons above to zoom in on faces"}
+            >
+              <div 
+                className="modal-photo-viewport"
+                style={{
+                  transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
+                  cursor: zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'
+                }}
+              >
+                <img
+                  ref={imgRef}
+                  src={photo.enhancedUrl || photo.objectUrl}
+                  alt={photo.name}
+                  className="modal-photo-img"
+                  onLoad={handleImageLoad}
+                  draggable={false}
+                />
 
               {/* Face Bounding Box Overlays */}
               {detectedFaces.map((f, idx) => (
@@ -445,6 +606,7 @@ export default function MetadataModal({
                   </div>
                 </div>
               ))}
+              </div>
             </div>
 
             {/* 4K Restoration Quick Action Card */}

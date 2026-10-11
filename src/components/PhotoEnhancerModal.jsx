@@ -16,12 +16,15 @@ import {
   Settings,
   ShieldCheck,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings }) {
+  const [isMaximized, setIsMaximized] = useState(false);
   const [aiSettings, setAiSettings] = useState(getAiSettings());
   const activeFalModel = FAL_MODELS.find(m => m.id === (aiSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
   const [cloudError, setCloudError] = useState(null);
@@ -475,7 +478,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   return (
     <div className="modal-backdrop" onClick={handleBackdropClick}>
       <div 
-        className="enhancer-modal-dialog" 
+        className={`enhancer-modal-dialog ${isMaximized ? 'modal-dialog-maximized' : ''}`} 
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -490,9 +493,21 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
               Progressive multi-octave AI upscaling to 3840×2160 (4K Ultra HD) with shadow detail recovery.
             </p>
           </div>
-          <button onClick={onClose} className="btn-icon-close" title="Close dialog">
-            <X size={20} />
-          </button>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="btn-header-maximize"
+              title={isMaximized ? "Restore standard size" : "Make window full-screen to see photo much bigger"}
+            >
+              {isMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <span>{isMaximized ? 'Standard Size' : 'Big Screen'}</span>
+            </button>
+            <button onClick={onClose} className="btn-icon-close" title="Close dialog">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="enhancer-modal-body">
@@ -527,21 +542,21 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   title="View full Original photo"
                 >
                   <Eye size={14} />
-                  <span>Original</span>
+                  <span>Original Only</span>
                 </button>
                 <button
                   type="button"
                   className={`enhancer-mode-btn ${viewMode === 'enhanced' ? 'active' : ''}`}
                   onClick={() => setViewMode('enhanced')}
-                  title="View full Enhanced photo"
+                  title="View full Enhanced photo at maximum size"
                 >
                   <Sparkles size={14} />
-                  <span>Enhanced ({targetRes.toUpperCase()})</span>
+                  <span>✨ Big View (Enhanced)</span>
                 </button>
               </div>
 
               {/* 🔍 Zoom & Synchronized Detail Inspector */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -550,38 +565,40 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   padding: '2px 4px',
                   border: '1px solid var(--border-light)'
                 }}>
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', padding: '0 4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#f59e0b', padding: '0 6px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <ZoomIn size={12} />
                     <span>Zoom:</span>
                   </span>
-                  <button
-                    type="button"
-                    className={`btn-xs ${zoomLevel === 1 ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: zoomLevel === 1 ? '700' : '500' }}
-                    onClick={() => { setZoomLevel(1); setPanOrigin({ x: 50, y: 50 }); }}
-                    title="Fit image to window (1x)"
-                  >
-                    Fit
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn-xs ${zoomLevel === 2 ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: zoomLevel === 2 ? '700' : '500' }}
-                    onClick={() => { setZoomLevel(2); setPanOrigin({ x: 50, y: 35 }); }}
-                    title="Zoom in 2x to inspect face details"
-                  >
-                    2x
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn-xs ${zoomLevel === 3 ? 'btn-primary' : 'btn-ghost'}`}
-                    style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: zoomLevel === 3 ? '700' : '500' }}
-                    onClick={() => { setZoomLevel(3); setPanOrigin({ x: 50, y: 35 }); }}
-                    title="Zoom in 3x for close-up pixel inspection"
-                  >
-                    3x
-                  </button>
+                  {[
+                    { label: 'Fit (1x)', val: 1 },
+                    { label: '1.5x', val: 1.5 },
+                    { label: '2x', val: 2 },
+                    { label: '3x', val: 3 },
+                    { label: '4x', val: 4 }
+                  ].map(z => (
+                    <button
+                      key={z.val}
+                      type="button"
+                      className={`btn-xs ${zoomLevel === z.val ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ padding: '3px 8px', borderRadius: '12px', fontSize: '11px', border: 'none', cursor: 'pointer', fontWeight: zoomLevel === z.val ? '700' : '500' }}
+                      onClick={() => { setZoomLevel(z.val); setPanOrigin({ x: 50, y: 35 }); }}
+                      title={`Zoom to ${z.label}`}
+                    >
+                      {z.label}
+                    </button>
+                  ))}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsMaximized(!isMaximized)}
+                  className="senior-zoom-btn senior-zoom-btn-action"
+                  style={{ backgroundColor: isMaximized ? '#2563eb' : 'rgba(255,255,255,0.1)' }}
+                  title={isMaximized ? "Return to standard size" : "Make window full-screen to see photo much bigger"}
+                >
+                  {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  <span>{isMaximized ? 'Standard' : 'Make Bigger ⛶'}</span>
+                </button>
 
                 {viewMode === 'slider' && (
                   <button
