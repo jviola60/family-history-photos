@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
-import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap } from 'lucide-react';
+import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap, Cloud } from 'lucide-react';
 
-export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoadSample, isScanning, scanProgress }) {
+export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoadSample, onOpenCloudModal, isScanning, scanProgress }) {
   const fileInputRef = useRef(null);
 
   const handleFallbackFileChange = (e) => {
@@ -40,7 +40,21 @@ export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoad
               <FolderOpen size={24} />
               <div className="btn-label-group">
                 <span className="btn-title">Open My Photos Folder</span>
-                <span className="btn-subtitle">Select your pictures from your hard drive</span>
+                <span className="btn-subtitle">Select pictures from your computer</span>
+              </div>
+            </button>
+
+            {/* Cloud Storage Picker */}
+            <button 
+              onClick={onOpenCloudModal} 
+              className="btn btn-hero-secondary"
+              style={{ borderColor: 'rgba(59, 130, 246, 0.45)', backgroundColor: 'rgba(59, 130, 246, 0.08)' }}
+              title="Import photos from OneDrive, Google Photos, or Apple iCloud"
+            >
+              <Cloud size={24} style={{ color: '#2563eb' }} />
+              <div className="btn-label-group">
+                <span className="btn-title" style={{ color: '#1d4ed8' }}>Import from Cloud</span>
+                <span className="btn-subtitle">OneDrive, Google Photos, Apple iCloud</span>
               </div>
             </button>
 

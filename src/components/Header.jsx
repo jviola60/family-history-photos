@@ -8,12 +8,14 @@ import {
   FolderX,
   Sparkles,
   FolderCheck,
-  Settings
+  Settings,
+  Cloud
 } from 'lucide-react';
 
 export default function Header({ 
   folderName, 
   onPickFolder, 
+  onOpenCloudModal,
   onOpenDuplicates, 
   duplicateCount, 
   onOpenJunkCleaner,
@@ -52,6 +54,16 @@ export default function Header({
         >
           <FolderOpen size={18} />
           <span>{folderName ? `Folder: ${folderName}` : 'Open Folder'}</span>
+        </button>
+
+        {/* Cloud Import button */}
+        <button 
+          onClick={onOpenCloudModal} 
+          className="btn btn-secondary header-btn"
+          title="Import photos from OneDrive, Google Photos, or Apple iCloud"
+        >
+          <Cloud size={18} style={{ color: '#2563eb' }} />
+          <span>Cloud Import</span>
         </button>
 
         {/* Duplicates button with badge */}

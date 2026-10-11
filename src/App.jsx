@@ -11,6 +11,7 @@ import PhotoEnhancerModal from './components/PhotoEnhancerModal';
 import PeopleDirectoryModal from './components/PeopleDirectoryModal';
 import JunkCleanerModal from './components/JunkCleanerModal';
 import SettingsModal from './components/SettingsModal';
+import CloudStorageModal from './components/CloudStorageModal';
 
 import { 
   pickLocalDirectory, 
@@ -61,6 +62,7 @@ export default function App() {
   const [showJunkModal, setShowJunkModal] = useState(false);
   const [showPeopleModal, setShowPeopleModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showCloudModal, setShowCloudModal] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
   // Ignored junk / low-value photos (user chose to keep)
@@ -252,6 +254,25 @@ export default function App() {
     setFolderName('Imported Photos');
     setIsScanning(false);
     checkDuplicates(imageItems);
+  };
+
+  // Import photos from cloud (OneDrive, Google Photos, Apple iCloud, ZIP unpacker)
+  const handleImportCloudPhotos = (importedPhotos, sourceName = 'Cloud Import') => {
+    if (!importedPhotos || importedPhotos.length === 0) return;
+    setPhotos(prev => {
+      if (prev.length === 0) {
+        checkDuplicates(importedPhotos);
+        return importedPhotos;
+      }
+      const existingKeys = new Set(prev.map(p => `${p.name}_${p.size}`));
+      const unique = importedPhotos.filter(p => !existingKeys.has(`${p.name}_${p.size}`));
+      const combined = [...prev, ...unique];
+      checkDuplicates(combined);
+      return combined;
+    });
+    if (!folderName) {
+      setFolderName(sourceName);
+    }
   };
 
   // Load sample album
@@ -665,6 +686,7 @@ export default function App() {
       <Header
         folderName={folderName}
         onPickFolder={handlePickFolder}
+        onOpenCloudModal={() => setShowCloudModal(true)}
         onOpenDuplicates={() => {
           setDuplicateModalInitialTab('found');
           setShowDuplicateModal(true);
@@ -703,6 +725,7 @@ export default function App() {
         {photos.length === 0 ? (
           <FolderPickerHero
             onPickFolder={handlePickFolder}
+            onOpenCloudModal={() => setShowCloudModal(true)}
             onFilesSelected={handleFallbackFilesSelected}
             onLoadSample={handleLoadSampleAlbum}
             isScanning={isScanning}
@@ -926,6 +949,13 @@ export default function App() {
           onClose={() => setShowSettingsModal(false)}
         />
       )}
+
+      {/* Cloud Storage & Non-Synced Photos Modal */}
+      <CloudStorageModal
+        isOpen={showCloudModal}
+        onClose={() => setShowCloudModal(false)}
+        onImportPhotos={handleImportCloudPhotos}
+      />
     </div>
   );
 }
