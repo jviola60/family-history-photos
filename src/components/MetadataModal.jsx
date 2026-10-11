@@ -17,9 +17,12 @@ import {
   Minimize2,
   ZoomIn,
   ZoomOut,
-  RotateCcw
+  RotateCcw,
+  Download,
+  ShieldCheck
 } from 'lucide-react';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
+import { writeMetadataToPhotoHandle, downloadPhotoWithEmbeddedMetadata } from '../lib/photoMetadata';
 
 const COMMON_RELATIONSHIPS = [
   'Self / Me',
@@ -321,8 +324,29 @@ export default function MetadataModal({
     }
   };
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadEmbedded = async () => {
+    setIsDownloading(true);
+    try {
+      await downloadPhotoWithEmbeddedMetadata(photo, {
+        story,
+        people,
+        date,
+        decade,
+        location,
+        familyBranch
+      });
+    } catch (err) {
+      console.warn('Download error:', err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleSave = () => {
-    onSave(photo.id, {
+    const updatedMetadata = {
+      title: photo.name,
       people,
       relationship,
       personRelationships,
@@ -332,7 +356,20 @@ export default function MetadataModal({
       location,
       familyBranch,
       faces: detectedFaces
-    });
+    };
+
+    onSave(photo.id, updatedMetadata);
+
+    // Automatically embed standard XMP/IPTC metadata into local JPEG on disk!
+    if (photo.handle) {
+      writeMetadataToPhotoHandle(photo.handle, updatedMetadata).then(ok => {
+        if (ok) {
+          console.log(`✓ Embedded FamilySearch metadata into ${photo.name}`);
+        }
+      }).catch(err => {
+        console.warn('Could not write metadata into photo handle:', err);
+      });
+    }
 
     // 1. Register face embeddings specifically for the assigned person
     if (detectedFaces.length > 0 && onRegisterFaceMatch && imgRef.current) {
@@ -950,29 +987,47 @@ export default function MetadataModal({
                 onChange={(e) => setStory(e.target.value)}
                 placeholder="What do you remember about this day? Any funny memories, who was visiting, or what was happening?"
               />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', color: '#15803d', fontWeight: '500' }}>
+                <ShieldCheck size={14} style={{ color: '#16a34a' }} />
+                <span>Memories & people are automatically embedded directly into this JPEG file (FamilySearch & archive ready)</span>
+              </div>
             </div>
 
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          {onMoveToReview ? (
-            <button 
-              type="button" 
-              onClick={() => {
-                if (window.confirm(`Move "${photo.name}" to the Review folder? You can restore it anytime.`)) {
-                  onMoveToReview([photo]);
-                  onClose();
-                }
-              }} 
-              className="btn btn-danger-outline btn-sm"
-              title="Move this photo out of the album into the Review folder"
+        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onMoveToReview && (
+              <button 
+                type="button" 
+                onClick={() => {
+                  if (window.confirm(`Move "${photo.name}" to the Review folder? You can restore it anytime.`)) {
+                    onMoveToReview([photo]);
+                    onClose();
+                  }
+                }} 
+                className="btn btn-danger-outline btn-sm"
+                title="Move this photo out of the album into the Review folder"
+              >
+                <Trash2 size={16} />
+                <span>Move to Review</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDownloadEmbedded}
+              disabled={isDownloading}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              title="Download a copy of this JPEG with all stories, dates, and people baked directly into the file for FamilySearch"
             >
-              <Trash2 size={16} />
-              <span>Move Photo to Review</span>
+              <Download size={14} />
+              <span>{isDownloading ? 'Baking Metadata...' : 'Download for FamilySearch'}</span>
             </button>
-          ) : <div />}
+          </div>
 
           <div className="flex items-center gap-10">
             <button onClick={onClose} className="btn btn-secondary">

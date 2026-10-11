@@ -2,6 +2,8 @@
  * File System Access API & Folder Reader with fallback
  */
 
+import { extractMetadataFromFile } from './photoMetadata';
+
 const IMAGE_EXTENSIONS = new Set([
   'jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'avif', 'tiff'
 ]);
@@ -62,6 +64,14 @@ export async function scanDirectoryForImages(dirHandle, path = '', onProgress = 
           const relativePath = `${currentPath}${name}`;
           const isMarkedDuplicate = currentPath.includes('_Duplicates_Review');
 
+          // Check for embedded FamilySearch XMP/IPTC metadata inside the JPEG file
+          let embeddedMeta = null;
+          if (ext === 'jpg' || ext === 'jpeg') {
+            try {
+              embeddedMeta = await extractMetadataFromFile(file);
+            } catch {}
+          }
+
           const imageItem = {
             id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name,
@@ -75,15 +85,15 @@ export async function scanDirectoryForImages(dirHandle, path = '', onProgress = 
             objectUrl: null, // lazily created when displayed
             width: 0,
             height: 0,
-            // User metadata
-            people: [],
+            // User metadata - auto-filled from embedded XMP if photo was previously tagged!
+            people: embeddedMeta?.people || [],
             relationship: '',
-            decade: '',
-            date: '',
-            story: '',
-            location: '',
-            familyBranch: '',
-            tags: [],
+            decade: embeddedMeta?.decade || '',
+            date: embeddedMeta?.date || '',
+            story: embeddedMeta?.story || '',
+            location: embeddedMeta?.location || '',
+            familyBranch: embeddedMeta?.familyBranch || '',
+            tags: embeddedMeta?.tags || [],
             enhanced: false,
             enhancedUrl: null
           };

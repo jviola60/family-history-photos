@@ -21,6 +21,7 @@ import {
   saveCatalogToFileSystem,
   getImageDimensions
 } from './lib/fileSystem';
+import { writeMetadataToPhotoHandle } from './lib/photoMetadata';
 import { findDuplicateGroups, getPairKey } from './lib/duplicateDetector';
 import { scanPhotoLibraryForJunk, isScreenshotPhoto } from './lib/junkDetector';
 import { 
@@ -498,13 +499,27 @@ export default function App() {
   // Export catalog
   const handleExportCatalog = async () => {
     if (rootDirHandle) {
+      // 1. Save JSON catalog to folder
       const saved = await saveCatalogToFileSystem(rootDirHandle, photos);
-      if (saved) {
-        alert('Album memories and catalog saved directly to your folder as .family_memories_catalog.json!');
+
+      // 2. Batch-embed standard FamilySearch XMP metadata into each tagged photo on disk
+      let embeddedCount = 0;
+      const taggedPhotos = photos.filter(p => (p.people && p.people.length > 0) || p.story || p.date || p.location);
+      for (const p of taggedPhotos) {
+        if (p.handle) {
+          try {
+            const ok = await writeMetadataToPhotoHandle(p.handle, p);
+            if (ok) embeddedCount++;
+          } catch {}
+        }
+      }
+
+      if (saved || embeddedCount > 0) {
+        alert(`✓ Album Saved & Preserved!\n\n• Album catalog saved to your folder as .family_memories_catalog.json\n• Standard FamilySearch XMP metadata embedded directly into ${embeddedCount} photo files.\n\nYour photos can now be shared or uploaded to FamilySearch.org with all stories and names intact!`);
         return;
       }
     }
-    // Download as JSON
+    // Fallback: Download as JSON
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(photos, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
