@@ -364,9 +364,8 @@ export async function downloadPhotoWithEmbeddedMetadata(photo, metadata) {
     const a = document.createElement('a');
     a.href = url;
     
-    // Give descriptive filename (e.g. "photo_with_memories.jpg")
-    const cleanBaseName = (photo.name || 'photo').replace(/\.[^/.]+$/, '');
-    a.download = `${cleanBaseName}_with_memories.jpg`;
+    // Auto-generate descriptive name for FamilySearch (e.g. Arthur_Viola_Rose_Viola_1974.jpg)
+    a.download = generateFamilySearchFilename(photo, metadata);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -376,4 +375,65 @@ export async function downloadPhotoWithEmbeddedMetadata(photo, metadata) {
     console.error('Failed to download photo with embedded metadata:', err);
     return false;
   }
+}
+
+/**
+ * Creates clean, descriptive filename suitable for FamilySearch "Use file names as titles"
+ */
+export function generateFamilySearchFilename(photo, metadata = {}) {
+  const parts = [];
+  
+  if (metadata.people && metadata.people.length > 0) {
+    // Up to 3 names
+    const names = metadata.people.slice(0, 3).map(p => p.trim().replace(/[^a-zA-Z0-9]/g, '_'));
+    parts.push(names.join('_and_'));
+  }
+  
+  if (metadata.date || metadata.decade) {
+    const d = (metadata.date || metadata.decade).trim().replace(/[^a-zA-Z0-9]/g, '_');
+    parts.push(d);
+  }
+  
+  if (metadata.location) {
+    const loc = metadata.location.split(',')[0].trim().replace(/[^a-zA-Z0-9]/g, '_');
+    if (loc) parts.push(loc);
+  }
+
+  if (parts.length > 0) {
+    return `${parts.filter(Boolean).join('_')}.jpg`;
+  }
+
+  const cleanBase = (photo.name || 'family_photo').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `${cleanBase}_FamilySearch.jpg`;
+}
+
+/**
+ * Formats a clean summary ready for 1-click clipboard paste into FamilySearch Memories Description box
+ */
+export function formatFamilySearchSummary(photo, metadata = {}) {
+  const sections = [];
+
+  const details = [];
+  if (metadata.people && metadata.people.length > 0) {
+    details.push(`People: ${metadata.people.join(', ')}`);
+  }
+  if (metadata.date || metadata.decade) {
+    details.push(`Date: ${metadata.date || metadata.decade}`);
+  }
+  if (metadata.location) {
+    details.push(`Location: ${metadata.location}`);
+  }
+  if (metadata.familyBranch) {
+    details.push(`Family Branch: ${metadata.familyBranch}`);
+  }
+
+  if (details.length > 0) {
+    sections.push(details.join('\n'));
+  }
+
+  if (metadata.story && metadata.story.trim()) {
+    sections.push(`Memories & Story:\n${metadata.story.trim()}`);
+  }
+
+  return sections.join('\n\n');
 }

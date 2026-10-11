@@ -19,10 +19,15 @@ import {
   ZoomOut,
   RotateCcw,
   Download,
-  ShieldCheck
+  ShieldCheck,
+  Copy
 } from 'lucide-react';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
-import { writeMetadataToPhotoHandle, downloadPhotoWithEmbeddedMetadata } from '../lib/photoMetadata';
+import { 
+  writeMetadataToPhotoHandle, 
+  downloadPhotoWithEmbeddedMetadata,
+  formatFamilySearchSummary 
+} from '../lib/photoMetadata';
 
 const COMMON_RELATIONSHIPS = [
   'Self / Me',
@@ -325,6 +330,36 @@ export default function MetadataModal({
   };
 
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopyFamilySearch = async () => {
+    const text = formatFamilySearchSummary(photo, {
+      story,
+      people,
+      date,
+      decade,
+      location,
+      familyBranch
+    });
+    if (!text) {
+      alert('Enter some memories or family details first before copying.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 3000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 3000);
+    }
+  };
 
   const handleDownloadEmbedded = async () => {
     setIsDownloading(true);
@@ -976,10 +1011,22 @@ export default function MetadataModal({
 
             {/* 5. Family Story & Memories */}
             <div className="form-group">
-              <label className="form-label">
-                <BookOpen size={16} />
-                <span>Family Story & Memories</span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>
+                  <BookOpen size={16} />
+                  <span>Family Story & Memories</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCopyFamilySearch}
+                  className="btn btn-secondary btn-xs"
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '3px 8px', fontSize: '11px', color: isCopied ? '#16a34a' : 'inherit' }}
+                  title="Copy formatted story, date, and people to your clipboard ready to paste into FamilySearch Memories Description box"
+                >
+                  {isCopied ? <Check size={12} style={{ color: '#16a34a' }} /> : <Copy size={12} />}
+                  <span>{isCopied ? '✓ Copied for FamilySearch!' : '📋 Copy for FamilySearch'}</span>
+                </button>
+              </div>
               <textarea
                 className="form-textarea"
                 rows={3}
@@ -998,7 +1045,7 @@ export default function MetadataModal({
 
         {/* Modal Footer */}
         <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {onMoveToReview && (
               <button 
                 type="button" 
@@ -1015,6 +1062,17 @@ export default function MetadataModal({
                 <span>Move to Review</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={handleCopyFamilySearch}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: isCopied ? '#16a34a' : 'inherit' }}
+              title="Copy formatted story and people list to clipboard ready to paste into FamilySearch Memories"
+            >
+              {isCopied ? <Check size={14} style={{ color: '#16a34a' }} /> : <Copy size={14} />}
+              <span>{isCopied ? '✓ Copied for FamilySearch!' : 'Copy for FamilySearch'}</span>
+            </button>
 
             <button
               type="button"
