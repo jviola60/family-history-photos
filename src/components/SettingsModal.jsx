@@ -1,0 +1,353 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  X, 
+  Settings, 
+  Sparkles, 
+  ShieldCheck, 
+  Key, 
+  ExternalLink, 
+  CheckCircle2, 
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Sliders,
+  Cpu
+} from 'lucide-react';
+import { getAiSettings, saveAiSettings, testFalConnection } from '../lib/aiSettings';
+
+export default function SettingsModal({ onClose }) {
+  const [settings, setSettings] = useState(getAiSettings());
+  const [showKey, setShowKey] = useState(false);
+  const [testStatus, setTestStatus] = useState(null); // { loading: bool, success: bool, message: string }
+  const [savedMessage, setSavedMessage] = useState(false);
+
+  useEffect(() => {
+    setSettings(getAiSettings());
+  }, []);
+
+  const handleProviderChange = (provider) => {
+    const updated = { ...settings, provider };
+    setSettings(updated);
+    saveAiSettings(updated);
+    setTestStatus(null);
+  };
+
+  const handleKeyChange = (val) => {
+    const updated = { ...settings, falApiKey: val };
+    setSettings(updated);
+    saveAiSettings(updated);
+    setTestStatus(null);
+  };
+
+  const handleFidelityChange = (val) => {
+    const updated = { ...settings, falFidelity: val };
+    setSettings(updated);
+    saveAiSettings(updated);
+  };
+
+  const handleTestKey = async () => {
+    setTestStatus({ loading: true, message: 'Testing connection to Fal.ai...' });
+    const res = await testFalConnection(settings.falApiKey);
+    if (res.success) {
+      saveAiSettings(settings);
+      setSavedMessage(true);
+    }
+    setTestStatus({ loading: false, success: res.success, message: res.message });
+  };
+
+  const handleClose = () => {
+    saveAiSettings(settings);
+    onClose();
+  };
+
+  const handleSaveAndClose = () => {
+    saveAiSettings(settings);
+    setSavedMessage(true);
+    setTimeout(() => {
+      onClose();
+    }, 300);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={handleClose}>
+      <div 
+        className="settings-modal-dialog" 
+        style={{ maxWidth: '640px', width: '92%', backgroundColor: '#FFFFFF' }} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(234, 88, 12, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent)'
+            }}>
+              <Settings size={20} />
+            </div>
+            <div>
+              <h2 className="modal-title" style={{ margin: 0 }}>App Settings & AI Providers</h2>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                Choose how photos are enhanced: 100% offline or with fast cloud AI
+              </p>
+            </div>
+          </div>
+          <button onClick={handleClose} className="modal-close-btn" aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="modal-body" style={{ padding: '20px' }}>
+          
+          <label className="section-label" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Cpu size={16} className="text-accent" />
+            <span>Photo Enhancement Provider:</span>
+          </label>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+            
+            {/* Option 1: Self-Contained (Default) */}
+            <div 
+              onClick={() => handleProviderChange('self_contained')}
+              style={{
+                border: settings.provider === 'self_contained' ? '2px solid var(--accent)' : '1px solid var(--border-medium)',
+                backgroundColor: settings.provider === 'self_contained' ? 'rgba(234, 88, 12, 0.05)' : 'var(--bg-card)',
+                borderRadius: '10px',
+                padding: '14px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <ShieldCheck size={20} color={settings.provider === 'self_contained' ? 'var(--accent)' : 'var(--text-muted)'} />
+                  <div>
+                    <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>
+                      Self-Contained (100% Offline & Free)
+                    </strong>
+                    <span className="badge badge-success" style={{ marginLeft: '8px', fontSize: '10px' }}>Default</span>
+                  </div>
+                </div>
+                <input 
+                  type="radio" 
+                  name="provider" 
+                  checked={settings.provider === 'self_contained'} 
+                  onChange={() => handleProviderChange('self_contained')} 
+                />
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0 30px', lineHeight: 1.45 }}>
+                Runs directly in your browser. No account, no API key, and no internet required. Uses instant client-side tone mapping, shadow lifting, and skin smoothing.
+              </p>
+            </div>
+
+            {/* Option 2: Fal.ai (Cloud AI - CodeFormer) */}
+            <div 
+              onClick={() => handleProviderChange('fal')}
+              style={{
+                border: settings.provider === 'fal' ? '2px solid #2563eb' : '1px solid var(--border-medium)',
+                backgroundColor: settings.provider === 'fal' ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg-card)',
+                borderRadius: '10px',
+                padding: '14px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Sparkles size={20} color={settings.provider === 'fal' ? '#2563eb' : 'var(--text-muted)'} />
+                  <div>
+                    <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>
+                      Fal.ai (Cloud AI - CodeFormer)
+                    </strong>
+                    <span className="badge" style={{ marginLeft: '8px', fontSize: '10px', backgroundColor: 'rgba(37, 99, 235, 0.15)', color: '#2563eb' }}>
+                      Fastest & Cheapest
+                    </span>
+                  </div>
+                </div>
+                <input 
+                  type="radio" 
+                  name="provider" 
+                  checked={settings.provider === 'fal'} 
+                  onChange={() => handleProviderChange('fal')} 
+                />
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0 30px', lineHeight: 1.45 }}>
+                Connects to Fal.ai cloud GPUs running CodeFormer. Reconstructs true modern 4K camera quality in <strong>~1.5 seconds</strong> (~$0.0015 per photo).
+              </p>
+            </div>
+          </div>
+
+          {/* Fal.ai Configuration Panel (shown when Fal.ai is active) */}
+          {settings.provider === 'fal' && (
+            <div style={{
+              background: 'var(--bg-card-subtle)',
+              border: '1px solid rgba(37, 99, 235, 0.25)',
+              borderRadius: '10px',
+              padding: '16px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Key size={14} className="text-accent" />
+                  <span>Fal.ai API Key:</span>
+                </label>
+                <a 
+                  href="https://fal.ai/dashboard/keys" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  style={{ fontSize: '12px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                >
+                  <span>Get Free Key at Fal.ai</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+
+              {/* API Key Input */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="form-input"
+                    value={settings.falApiKey}
+                    onChange={(e) => handleKeyChange(e.target.value)}
+                    placeholder="Paste your Fal.ai key here (e.g. 5e9b...:c8a4...)"
+                    style={{ paddingRight: '36px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--text-muted)'
+                    }}
+                    title={showKey ? 'Hide key' : 'Show key'}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={!settings.falApiKey || (testStatus && testStatus.loading)}
+                  className="btn btn-secondary"
+                  style={{ minWidth: '100px' }}
+                >
+                  {testStatus && testStatus.loading ? 'Testing...' : 'Test Key'}
+                </button>
+              </div>
+
+              {/* Test Status feedback */}
+              {testStatus && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: testStatus.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  color: testStatus.success ? '#059669' : '#dc2626',
+                  marginBottom: '12px'
+                }}>
+                  {testStatus.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                  <span>{testStatus.message}</span>
+                </div>
+              )}
+
+              {/* Fidelity / Likeness slider */}
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sliders size={14} />
+                    <span>Facial Fidelity / Likeness:</span>
+                  </label>
+                  <span style={{ fontSize: '12px', fontWeight: '700' }}>{Math.round(settings.falFidelity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.4"
+                  max="0.95"
+                  step="0.05"
+                  value={settings.falFidelity}
+                  onChange={(e) => handleFidelityChange(parseFloat(e.target.value))}
+                  className="range-input"
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                  <span>0.4 (Strongest AI Detail)</span>
+                  <span>0.75 (Recommended)</span>
+                  <span>0.95 (Maximum Original Likeness)</span>
+                </div>
+              </div>
+
+              {/* Quick 3-Step Guide */}
+              <div style={{
+                marginTop: '14px',
+                padding: '10px 12px',
+                backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                borderLeft: '3px solid #2563eb',
+                borderRadius: '0 6px 6px 0',
+                fontSize: '11px',
+                color: 'var(--text-muted)'
+              }}>
+                <strong>How to try Fal.ai in 60 seconds:</strong>
+                <ol style={{ margin: '4px 0 0 16px', padding: 0, lineHeight: 1.5 }}>
+                  <li>Go to <a href="https://fal.ai" target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>fal.ai</a> and sign in with Google or GitHub (includes free trial credits).</li>
+                  <li>Click <strong>Keys</strong> in the sidebar, click <strong>Create Key</strong>, and copy it.</li>
+                  <li>Paste the key into the box above and click <strong>Test Key</strong>.</li>
+                </ol>
+              </div>
+
+            </div>
+          )}
+
+          {/* Privacy Note */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '8px',
+            fontSize: '11px',
+            color: 'var(--text-subtle)',
+            backgroundColor: 'var(--bg-card-subtle)',
+            padding: '10px 12px',
+            borderRadius: '6px'
+          }}>
+            <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+            <span>
+              Your API key is saved only in your personal browser's local storage. It is never stored on external databases or shared between users. Each family member uses their own setting.
+            </span>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="modal-footer" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: '#10b981', fontWeight: '600' }}>
+            {savedMessage ? '✓ Settings Saved!' : ''}
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={onClose} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button onClick={handleSaveAndClose} className="btn btn-primary">
+              Save Settings
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
