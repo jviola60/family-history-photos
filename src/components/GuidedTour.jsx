@@ -1,7 +1,7 @@
 import React from 'react';
-import { FolderOpen, Copy, Tag, Sparkles, X, CheckCircle, ShieldCheck } from 'lucide-react';
+import { FolderOpen, Copy, Tag, Sparkles, X, CheckCircle, ShieldCheck, BookOpen } from 'lucide-react';
 
-export default function GuidedTour({ onClose, onSampleClick, hasPhotos }) {
+export default function GuidedTour({ onClose, onSampleClick, onOpenFullGuide, hasPhotos }) {
   const steps = [
     {
       num: 1,
@@ -60,11 +60,25 @@ export default function GuidedTour({ onClose, onSampleClick, hasPhotos }) {
           <span><strong>100% Private & Safe:</strong> Everything stays on your computer. No photos are sent to the internet.</span>
         </div>
 
-        {!hasPhotos && (
-          <button onClick={onSampleClick} className="btn btn-primary btn-sm">
-            Load Sample Family Album to Try Now
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {onOpenFullGuide && (
+            <button 
+              type="button" 
+              onClick={onOpenFullGuide} 
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <BookOpen size={15} className="text-primary" />
+              <span>Complete User Guide</span>
+            </button>
+          )}
+
+          {!hasPhotos && (
+            <button onClick={onSampleClick} className="btn btn-primary btn-sm">
+              Load Sample Family Album to Try Now
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

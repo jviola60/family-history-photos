@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
-import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap, Cloud } from 'lucide-react';
+import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap, Cloud, BookOpen } from 'lucide-react';
 
-export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoadSample, onOpenCloudModal, isScanning, scanProgress }) {
+export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoadSample, onOpenCloudModal, onOpenHelpGuide, isScanning, scanProgress }) {
   const fileInputRef = useRef(null);
 
   const handleFallbackFileChange = (e) => {
@@ -101,6 +101,20 @@ export default function FolderPickerHero({ onPickFolder, onFilesSelected, onLoad
             <span>Restores Old Photos to 4K</span>
           </div>
         </div>
+
+        {onOpenHelpGuide && (
+          <div style={{ marginTop: '22px', display: 'flex', justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={onOpenHelpGuide}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 18px', fontSize: '13px', borderRadius: '999px', backgroundColor: 'var(--bg-subtle)' }}
+            >
+              <BookOpen size={16} className="text-primary" />
+              <span>Want to learn how everything works? <strong>Open Complete User Guide</strong></span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

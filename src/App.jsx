@@ -12,6 +12,7 @@ import PeopleDirectoryModal from './components/PeopleDirectoryModal';
 import JunkCleanerModal from './components/JunkCleanerModal';
 import SettingsModal from './components/SettingsModal';
 import CloudStorageModal from './components/CloudStorageModal';
+import HelpGuideModal from './components/HelpGuideModal';
 
 import { 
   pickLocalDirectory, 
@@ -63,6 +64,7 @@ export default function App() {
   const [showPeopleModal, setShowPeopleModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+  const [showHelpGuideModal, setShowHelpGuideModal] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
   // Ignored junk / low-value photos (user chose to keep)
@@ -687,6 +689,7 @@ export default function App() {
         folderName={folderName}
         onPickFolder={handlePickFolder}
         onOpenCloudModal={() => setShowCloudModal(true)}
+        onOpenHelpGuide={() => setShowHelpGuideModal(true)}
         onOpenDuplicates={() => {
           setDuplicateModalInitialTab('found');
           setShowDuplicateModal(true);
@@ -717,6 +720,7 @@ export default function App() {
           <GuidedTour
             onClose={() => setShowHelp(false)}
             onSampleClick={handleLoadSampleAlbum}
+            onOpenFullGuide={() => setShowHelpGuideModal(true)}
             hasPhotos={photos.length > 0}
           />
         )}
@@ -726,6 +730,7 @@ export default function App() {
           <FolderPickerHero
             onPickFolder={handlePickFolder}
             onOpenCloudModal={() => setShowCloudModal(true)}
+            onOpenHelpGuide={() => setShowHelpGuideModal(true)}
             onFilesSelected={handleFallbackFilesSelected}
             onLoadSample={handleLoadSampleAlbum}
             isScanning={isScanning}
@@ -955,6 +960,12 @@ export default function App() {
         isOpen={showCloudModal}
         onClose={() => setShowCloudModal(false)}
         onImportPhotos={handleImportCloudPhotos}
+      />
+
+      {/* Complete Help Center & User Guide Modal */}
+      <HelpGuideModal
+        isOpen={showHelpGuideModal}
+        onClose={() => setShowHelpGuideModal(false)}
       />
     </div>
   );

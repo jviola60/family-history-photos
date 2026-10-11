@@ -9,13 +9,15 @@ import {
   Sparkles,
   FolderCheck,
   Settings,
-  Cloud
+  Cloud,
+  BookOpen
 } from 'lucide-react';
 
 export default function Header({ 
   folderName, 
   onPickFolder, 
   onOpenCloudModal,
+  onOpenHelpGuide,
   onOpenDuplicates, 
   duplicateCount, 
   onOpenJunkCleaner,
@@ -169,6 +171,17 @@ export default function Header({
           <span>Settings</span>
         </button>
 
+        {/* Complete Help Menu & User Guide Modal */}
+        <button 
+          onClick={onOpenHelpGuide} 
+          className="btn btn-secondary header-btn"
+          title="Open complete User Guide explaining all features"
+          style={{ borderColor: 'rgba(217, 119, 6, 0.45)', backgroundColor: 'rgba(217, 119, 6, 0.08)' }}
+        >
+          <BookOpen size={18} className="text-primary" />
+          <span>User Guide</span>
+        </button>
+
         {/* Help & Guided Tour toggle */}
         <button 
           onClick={onToggleHelp} 
@@ -176,7 +189,7 @@ export default function Header({
           title="Show guided instructions and tips"
         >
           <HelpCircle size={18} />
-          <span>{showHelp ? 'Hide Guide' : 'Guided Help'}</span>
+          <span>{showHelp ? 'Hide Tips' : 'Quick Tips'}</span>
         </button>
       </div>
     </header>
