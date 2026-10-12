@@ -812,7 +812,9 @@
 .duplicate-modal-dialog, 
 .enhancer-modal-dialog, 
 .people-modal-dialog,
-.settings-modal-dialog {
+.settings-modal-dialog,
+.cloud-modal-dialog,
+.modal-content {
   background-color: var(--bg-surface);
   border-radius: var(--radius-lg);
   width: 100%;
@@ -827,6 +829,167 @@
 .duplicate-modal-dialog { max-width: 980px; }
 .enhancer-modal-dialog { max-width: 1100px; }
 .people-modal-dialog { max-width: 780px; }
+.cloud-modal-dialog { max-width: 720px; }
+
+/* Cloud Import Modal Dedicated High-Contrast Styling */
+.cloud-modal-dialog {
+  background-color: #FFFFFF !important;
+  color: #1C1917;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+.cloud-tabs-nav {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background-color: #F5EFEB;
+  border: 1px solid #E7DDD2;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.cloud-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: #57534E;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cloud-tab-btn:hover {
+  color: #1C1917;
+  background-color: rgba(255, 255, 255, 0.7);
+}
+
+.cloud-tab-btn.active {
+  background-color: #FFFFFF;
+  color: #1C1917;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  border-color: #E7DDD2;
+}
+
+.cloud-info-box {
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.cloud-info-box.onedrive {
+  background-color: #F0F9FF;
+  border: 1px solid #BAE6FD;
+}
+.cloud-info-box.onedrive h4 {
+  color: #0369A1;
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-info-box.onedrive p {
+  color: #0C4A6E;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cloud-info-box.google {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+}
+.cloud-info-box.google h4 {
+  color: #B91C1C;
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-info-box.google p {
+  color: #7F1D1D;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cloud-info-box.apple {
+  background-color: #ECFDF5;
+  border: 1px solid #A7F3D0;
+}
+.cloud-info-box.apple h4 {
+  color: #047857;
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-info-box.apple p {
+  color: #064E3B;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cloud-info-box.zip {
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+}
+.cloud-info-box.zip h4 {
+  color: #B45309;
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-info-box.zip p {
+  color: #78350F;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cloud-dropzone {
+  border: 2px dashed #CBD5E1;
+  border-radius: var(--radius-md);
+  padding: 26px 20px;
+  text-align: center;
+  cursor: pointer;
+  background-color: #FAF7F2;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cloud-dropzone:hover {
+  border-color: #0284C7;
+  background-color: #F8FAFC;
+}
+
+.cloud-dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1C1917;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.cloud-dropzone-subtitle {
+  font-size: 12px;
+  color: #57534E;
+}
 
 .modal-header {
   padding: 18px 24px;

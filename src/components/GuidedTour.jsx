@@ -1,13 +1,13 @@
 import React from 'react';
 import { FolderOpen, Copy, Tag, Sparkles, X, CheckCircle, ShieldCheck, BookOpen } from 'lucide-react';
 
-export default function GuidedTour({ onClose, onSampleClick, onOpenFullGuide, hasPhotos }) {
+export default function GuidedTour({ onClose, onOpenFullGuide, hasPhotos }) {
   const steps = [
     {
       num: 1,
       icon: <FolderOpen className="step-icon" size={24} />,
       title: '1. Choose Photos',
-      desc: 'Click "Open Folder" to pick your pictures from your hard drive, or click "Sample Album" below to try it out first.'
+      desc: 'Click "Open My Photos Folder" to pick your pictures from your computer, USB drive, or connect Cloud Photos.'
     },
     {
       num: 2,
@@ -70,12 +70,6 @@ export default function GuidedTour({ onClose, onSampleClick, onOpenFullGuide, ha
             >
               <BookOpen size={15} className="text-primary" />
               <span>Complete User Guide</span>
-            </button>
-          )}
-
-          {!hasPhotos && (
-            <button onClick={onSampleClick} className="btn btn-primary btn-sm">
-              Load Sample Family Album to Try Now
             </button>
           )}
         </div>

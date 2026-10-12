@@ -4,7 +4,6 @@ import { FolderOpen, Sparkles, ShieldCheck, Heart, UserCheck, Zap, Cloud, BookOp
 export default function FolderPickerHero({ 
   onPickFolder, 
   onFilesSelected, 
-  onLoadSample, 
   onOpenCloudModal, 
   onOpenHelpGuide, 
   pendingResumeSession,
@@ -116,15 +115,16 @@ export default function FolderPickerHero({
               onChange={handleFallbackFileChange} 
             />
 
-            {/* Sample album button for instant preview */}
+            {/* Help & User Guide button */}
             <button 
-              onClick={onLoadSample} 
+              onClick={onOpenHelpGuide} 
               className="btn btn-hero-secondary"
+              title="Learn how all features work"
             >
-              <Sparkles size={24} />
+              <BookOpen size={24} style={{ color: 'var(--primary)' }} />
               <div className="btn-label-group">
-                <span className="btn-title">Try Sample Album</span>
-                <span className="btn-subtitle">Explore with test vintage family photos</span>
+                <span className="btn-title">Help & User Guide</span>
+                <span className="btn-subtitle">Step-by-step features & tips</span>
               </div>
             </button>
           </div>

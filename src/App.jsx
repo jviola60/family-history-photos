@@ -48,7 +48,7 @@ import {
   permanentlyDeleteFromDuplicatesReview, 
   emptyDuplicatesReviewFolder 
 } from './lib/fileSystem';
-import { SAMPLE_PHOTOS, SAMPLE_PEOPLE } from './lib/sampleAlbum';
+// Sample album removed per user request
 
 export default function App() {
   const [photos, setPhotos] = useState([]);
@@ -107,9 +107,23 @@ export default function App() {
         }
 
         if (cachedPeople && Object.keys(cachedPeople).length > 0) {
-          setPeopleDirectory(cachedPeople);
+          // Clean out any legacy sample people from previous sessions
+          const cleaned = {};
+          for (const [id, person] of Object.entries(cachedPeople)) {
+            const isSample = ['person_1', 'person_2', 'person_3', 'person_4'].includes(id) ||
+              person?.branch?.includes('Miller Family') ||
+              person?.name === 'Grandpa Arthur' ||
+              person?.name === 'Grandma Rose' ||
+              person?.name === 'Uncle David' ||
+              person?.name === 'Aunt Evelyn';
+            if (!isSample) {
+              cleaned[id] = person;
+            }
+          }
+          setPeopleDirectory(cleaned);
+          await savePeopleDirectoryToDB(cleaned);
         } else {
-          setPeopleDirectory(SAMPLE_PEOPLE);
+          setPeopleDirectory({});
         }
         isPeopleLoadedRef.current = true;
 
@@ -150,9 +164,8 @@ export default function App() {
               checkDuplicates(cachedCloud);
             }
           } else if (lastSession.type === 'sample') {
-            setPhotos(SAMPLE_PHOTOS);
-            setFolderName('Sample Vintage Family Album');
-            checkDuplicates(SAMPLE_PHOTOS);
+            // Ignore legacy sample album session
+            await clearStoredDirectoryHandle();
           }
         }
       } catch (err) {
@@ -378,20 +391,7 @@ export default function App() {
     });
   };
 
-  // Load sample album
-  const handleLoadSampleAlbum = async () => {
-    setPhotos(SAMPLE_PHOTOS);
-    setPeopleDirectory(SAMPLE_PEOPLE);
-    setFolderName('Sample Vintage Family Album');
-    checkDuplicates(SAMPLE_PHOTOS);
-    setPendingResumeSession(null);
-    await saveLastSessionInfo({
-      type: 'sample',
-      folderName: 'Sample Vintage Family Album',
-      photoCount: SAMPLE_PHOTOS.length,
-      lastOpened: Date.now()
-    });
-  };
+  // Sample album loader removed per user request
 
   // Run high-performance duplicate detector
   const checkDuplicates = async (photoList = photos, mode = 'all') => {
@@ -827,7 +827,6 @@ export default function App() {
         {showHelp && (
           <GuidedTour
             onClose={() => setShowHelp(false)}
-            onSampleClick={handleLoadSampleAlbum}
             onOpenFullGuide={() => setShowHelpGuideModal(true)}
             hasPhotos={photos.length > 0}
           />
@@ -843,7 +842,6 @@ export default function App() {
             onResumeAlbum={handleResumePreviousAlbum}
             onDismissResume={handleDismissResume}
             onFilesSelected={handleFallbackFilesSelected}
-            onLoadSample={handleLoadSampleAlbum}
             isScanning={isScanning}
             scanProgress={scanProgress}
           />

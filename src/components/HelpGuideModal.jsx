@@ -30,7 +30,7 @@ const GUIDE_SECTIONS = [
     icon: FolderOpen,
     title: '1. Quick Start Guide',
     badge: 'Basics',
-    summary: 'How to open your photos, start an album, or explore with sample pictures.',
+    summary: 'How to open your photos, start an album, or connect cloud pictures.',
     content: (
       <div className="help-section-body">
         <h4>Getting Started in 3 Simple Steps</h4>
@@ -48,8 +48,8 @@ const GUIDE_SECTIONS = [
 
           <div className="help-step-box">
             <div className="help-step-num">Step 2</div>
-            <h5>Or Try the Sample Album</h5>
-            <p>Click <strong>"Try Sample Album"</strong> to practice with real vintage family photos without changing any files on your computer.</p>
+            <h5>Or Import from the Cloud</h5>
+            <p>Click <strong>"Import from Cloud"</strong> to pull pictures from OneDrive, Google Photos, or Apple iCloud archives.</p>
           </div>
 
           <div className="help-step-box">
