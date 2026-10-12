@@ -23,6 +23,7 @@ import {
   Copy
 } from 'lucide-react';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
+import { removeRedEyesFromImage } from '../lib/redEyeRemover';
 import { 
   writeMetadataToPhotoHandle, 
   downloadPhotoWithEmbeddedMetadata,
@@ -100,10 +101,12 @@ export default function MetadataModal({
   
   const [personRelationships, setPersonRelationships] = useState(photo.personRelationships || {});
   
-  // Face detection states
+  // Face detection & Red-Eye states
   const [detectedFaces, setDetectedFaces] = useState(photo.faces || []);
   const [isScanningFaces, setIsScanningFaces] = useState(false);
   const [faceSuggestion, setFaceSuggestion] = useState(null);
+  const [isFixingRedEyes, setIsFixingRedEyes] = useState(false);
+  const [redEyeMessage, setRedEyeMessage] = useState('');
   const imgRef = useRef(null);
 
   // Auto-Save and Draft states
@@ -381,6 +384,51 @@ export default function MetadataModal({
       console.warn('Re-scan failed:', err);
     } finally {
       setIsScanningFaces(false);
+    }
+  };
+
+  const handleQuickRedEyeFix = async () => {
+    const currentSrc = photo.enhancedUrl || photo.objectUrl;
+    if (!currentSrc) return;
+
+    setIsFixingRedEyes(true);
+    setRedEyeMessage('');
+    try {
+      const result = await removeRedEyesFromImage(currentSrc, {
+        faceBoxes: detectedFaces.length > 0 ? detectedFaces : (photo.faces || []),
+        autoDetect: true
+      });
+
+      if (result.fixedCount > 0) {
+        onSave(photo.id, {
+          enhancedUrl: result.dataUrl,
+          enhanced: true
+        });
+        setRedEyeMessage(`✓ Successfully removed red eyes from ${result.fixedCount} eye${result.fixedCount === 1 ? '' : 's'}!`);
+        setTimeout(() => setRedEyeMessage(''), 7000);
+      } else {
+        setRedEyeMessage('No high-intensity red eyes found automatically. Click "Re-Enhance / Add Pass" above to use the manual Click-to-Fix eye tool!');
+        setTimeout(() => setRedEyeMessage(''), 7000);
+      }
+    } catch (err) {
+      console.warn('Red eye fix failed:', err);
+      setRedEyeMessage('Could not process red eye removal.');
+      setTimeout(() => setRedEyeMessage(''), 5000);
+    } finally {
+      setIsFixingRedEyes(false);
+    }
+  };
+
+  const handleRevertOriginal = () => {
+    if (!photo.enhancedUrl) return;
+    const confirmRevert = window.confirm('Revert this photo back to the untouched original version?');
+    if (confirmRevert) {
+      onSave(photo.id, {
+        enhancedUrl: null,
+        enhanced: false
+      });
+      setRedEyeMessage('Reverted photo back to untouched original.');
+      setTimeout(() => setRedEyeMessage(''), 5000);
     }
   };
 
@@ -989,8 +1037,67 @@ export default function MetadataModal({
                   <Sparkles size={12} />
                   <span>{isScanningFaces ? 'Scanning...' : 'Re-scan Faces'}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleQuickRedEyeFix}
+                  disabled={isFixingRedEyes}
+                  className="btn btn-xs"
+                  style={{
+                    backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                    color: '#fecaca',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                  title="Automatically detect and remove camera flash red eyes"
+                >
+                  <span style={{ fontSize: '11px' }}>🔴</span>
+                  <span>{isFixingRedEyes ? 'Fixing Eyes...' : 'Remove Red Eyes'}</span>
+                </button>
+                {photo.enhancedUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRevertOriginal}
+                    className="btn btn-xs"
+                    style={{
+                      backgroundColor: 'transparent',
+                      color: 'var(--text-subtle)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      cursor: 'pointer'
+                    }}
+                    title="Revert back to untouched original photo"
+                  >
+                    <span>Revert to Original</span>
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* Red Eye Quick Fix Notice */}
+            {redEyeMessage && (
+              <div style={{
+                marginTop: '8px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                backgroundColor: redEyeMessage.startsWith('✓') ? 'rgba(34, 197, 94, 0.15)' : 'rgba(217, 119, 6, 0.15)',
+                border: redEyeMessage.startsWith('✓') ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(217, 119, 6, 0.4)',
+                color: redEyeMessage.startsWith('✓') ? '#15803d' : '#b45309',
+                fontSize: '12px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <span>{redEyeMessage}</span>
+                <button
+                  type="button"
+                  onClick={() => setRedEyeMessage('')}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Form Column */}

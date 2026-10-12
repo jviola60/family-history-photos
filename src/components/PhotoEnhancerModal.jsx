@@ -18,9 +18,11 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Crosshair
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
+import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings }) {
@@ -47,6 +49,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const [showManualControls, setShowManualControls] = useState(true);
 
   const [enhancedResultUrl, setEnhancedResultUrl] = useState(photo.enhancedUrl || null);
+  // 🔴 Red-Eye Removal states
+  const [isRedEyeClickMode, setIsRedEyeClickMode] = useState(false);
+  const [redEyeHistory, setRedEyeHistory] = useState([]);
+  const [redEyeStatusMsg, setRedEyeStatusMsg] = useState('');
+
   const [isLocalProcessing, setIsLocalProcessing] = useState(false);
   const [isCloudProcessing, setIsCloudProcessing] = useState(false);
   const isProcessing = isLocalProcessing || isCloudProcessing;
@@ -314,6 +321,95 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     }
   };
 
+  // 🔴 Red-Eye Removal Handlers
+  const handleAutoFixRedEyes = async () => {
+    const currentSrc = enhancedResultUrl || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl);
+    if (!currentSrc || isProcessing) return;
+
+    setIsLocalProcessing(true);
+    setPassProgressMessage('Scanning facial landmarks & removing red eye reflection...');
+    setRedEyeStatusMsg('');
+
+    try {
+      const res = await removeRedEyesFromImage(currentSrc, {
+        faceBoxes: photo.faces || [],
+        autoDetect: true
+      });
+
+      if (res.fixedCount > 0) {
+        setRedEyeHistory(prev => [...prev, currentSrc]);
+        setEnhancedResultUrl(res.dataUrl);
+        setRedEyeStatusMsg(`✓ Corrected ${res.fixedCount} red eye${res.fixedCount === 1 ? '' : 's'} with natural pupil restoration!`);
+      } else {
+        setRedEyeStatusMsg('No high-intensity red eyes found automatically. Turn on "Click-to-Fix Mode" below to click directly on any eye!');
+      }
+    } catch (err) {
+      console.warn('Auto red-eye fix failed:', err);
+      setRedEyeStatusMsg('Could not process red eye removal.');
+    } finally {
+      setIsLocalProcessing(false);
+      setPassProgressMessage('');
+    }
+  };
+
+  const handleImageClickForRedEye = async (e) => {
+    if (!isRedEyeClickMode || didPanRef.current || isProcessing) return;
+
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const normX = Math.max(0, Math.min(1, clickX / rect.width));
+    const normY = Math.max(0, Math.min(1, clickY / rect.height));
+
+    const currentSrc = enhancedResultUrl || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl);
+    if (!currentSrc) return;
+
+    try {
+      const htmlImg = await loadImage(currentSrc);
+      const canvas = document.createElement('canvas');
+      canvas.width = htmlImg.naturalWidth;
+      canvas.height = htmlImg.naturalHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(htmlImg, 0, 0);
+
+      const pixelX = normX * canvas.width;
+      const pixelY = normY * canvas.height;
+      const radius = Math.max(14, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
+
+      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius);
+      if (fixRes.success) {
+        const newUrl = canvas.toDataURL('image/jpeg', 0.96);
+        setRedEyeHistory(prev => [...prev, currentSrc]);
+        setEnhancedResultUrl(newUrl);
+        setRedEyeStatusMsg(`✓ Corrected red pupil at (${Math.round(pixelX)}, ${Math.round(pixelY)})!`);
+      } else {
+        setRedEyeStatusMsg('No red reflection found at click. Click directly on the red center of the pupil.');
+      }
+    } catch (err) {
+      console.warn('Click red-eye fix error:', err);
+    }
+  };
+
+  const handleUndoRedEye = () => {
+    if (redEyeHistory.length === 0) return;
+    const previous = redEyeHistory[redEyeHistory.length - 1];
+    setRedEyeHistory(prev => prev.slice(0, prev.length - 1));
+    setEnhancedResultUrl(previous);
+    setRedEyeStatusMsg('Undid last red-eye correction.');
+  };
+
+  const toggleRedEyeClickMode = () => {
+    const next = !isRedEyeClickMode;
+    setIsRedEyeClickMode(next);
+    if (next && viewMode === 'slider') {
+      setViewMode('side_by_side');
+    }
+  };
+
   // Live interactive debounced auto-update on slider movements
   useEffect(() => {
     if (isInitialMountRef.current) {
@@ -561,6 +657,44 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
           
           {/* Main Comparison Area with Split Slider or Side-by-Side */}
           <div className="enhancer-preview-column">
+
+            {/* Red Eye Click Mode Active Banner */}
+            {isRedEyeClickMode && (
+              <div style={{
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                marginBottom: '10px',
+                boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '13px',
+                fontWeight: '700'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Crosshair size={18} />
+                  <span>🎯 Click Directly on Eyes: Click on any red pupil to neutralize red flash!</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsRedEyeClickMode(false)}
+                  style={{
+                    backgroundColor: '#ffffff',
+                    color: '#dc2626',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '3px 10px',
+                    fontSize: '12px',
+                    fontWeight: '800',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Done with Eye Tool
+                </button>
+              </div>
+            )}
             
             {/* View Mode Bar */}
             <div className="enhancer-view-mode-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
@@ -716,8 +850,12 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                         src={enhancedResultUrl} 
                         alt="Enhanced" 
                         className="comparison-slide-img enhanced-img" 
-                        style={getZoomStyle()}
+                        style={{
+                          ...getZoomStyle(),
+                          cursor: isRedEyeClickMode ? 'crosshair' : (zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
+                        }}
                         draggable={false}
+                        onClick={isRedEyeClickMode ? handleImageClickForRedEye : undefined}
                       />
                       <span className="slide-label label-after">
                         ✨ Enhanced ({targetRes.toUpperCase()})
@@ -815,8 +953,12 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                         src={enhancedResultUrl} 
                         alt="Enhanced" 
                         className="comparison-slide-img" 
-                        style={getZoomStyle()}
+                        style={{
+                          ...getZoomStyle(),
+                          cursor: isRedEyeClickMode ? 'crosshair' : (zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
+                        }}
                         draggable={false}
+                        onClick={isRedEyeClickMode ? handleImageClickForRedEye : undefined}
                       />
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999' }}>
@@ -896,15 +1038,19 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   style={{ cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }}
                   title={zoomLevel > 1 ? "Drag to pan • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                 >
-                  {enhancedResultUrl && (
-                    <img 
-                      src={enhancedResultUrl} 
-                      alt="Enhanced" 
-                      className="comparison-slide-img" 
-                      style={getZoomStyle()}
-                      draggable={false}
-                    />
-                  )}
+                    {enhancedResultUrl && (
+                      <img 
+                        src={enhancedResultUrl} 
+                        alt="Enhanced" 
+                        className="comparison-slide-img" 
+                        style={{
+                          ...getZoomStyle(),
+                          cursor: isRedEyeClickMode ? 'crosshair' : (zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
+                        }}
+                        draggable={false}
+                        onClick={isRedEyeClickMode ? handleImageClickForRedEye : undefined}
+                      />
+                    )}
                   <span className="slide-label label-after">✨ Enhanced ({targetRes.toUpperCase()} • {appliedPassesCount} Passes)</span>
                 </div>
                 {zoomLevel > 1 && (
@@ -1239,6 +1385,97 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 }}>
                   <span>⚡ <strong>Live Preview:</strong> Adjusting sliders updates the photo automatically.</span>
                   {isLiveUpdating && <RefreshCw size={12} className="spin-icon text-warning" />}
+                </div>
+
+                {/* 🔴 Red-Eye Removal Tool */}
+                <div className="enhancer-control-section" style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.06)',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: isRedEyeClickMode ? '2px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.25)',
+                  marginBottom: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '15px' }}>🔴</span>
+                      <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+                        Red-Eye Removal
+                      </strong>
+                    </div>
+                    {redEyeHistory.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-xs"
+                        onClick={handleUndoRedEye}
+                        title="Undo last red-eye fix"
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <RotateCcw size={12} />
+                        <span>Undo Last Eye</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                    Removes camera flash red reflections while keeping natural catchlight reflections and pupil depth.
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={handleAutoFixRedEyes}
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontWeight: '700',
+                        backgroundColor: '#ffffff',
+                        borderColor: 'rgba(239, 68, 68, 0.4)'
+                      }}
+                      title="Automatically scan faces and remove red eyes"
+                    >
+                      <Sparkles size={14} className="text-accent" />
+                      <span>Auto-Remove Red Eyes (1-Click)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={toggleRedEyeClickMode}
+                      className={`btn btn-xs ${isRedEyeClickMode ? 'btn-primary' : 'btn-outline'}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontWeight: '700',
+                        backgroundColor: isRedEyeClickMode ? '#dc2626' : undefined,
+                        borderColor: '#dc2626',
+                        color: isRedEyeClickMode ? '#ffffff' : '#dc2626'
+                      }}
+                      title="Click directly on any red eye to fix it"
+                    >
+                      <Crosshair size={13} />
+                      <span>{isRedEyeClickMode ? '🎯 Click Mode ON: Click on pupil' : '🎯 Click-to-Fix Mode (Click on Eyes)'}</span>
+                    </button>
+                  </div>
+
+                  {redEyeStatusMsg && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '5px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      backgroundColor: redEyeStatusMsg.startsWith('✓') ? 'rgba(34, 197, 94, 0.15)' : 'rgba(217, 119, 6, 0.15)',
+                      color: redEyeStatusMsg.startsWith('✓') ? '#15803d' : '#b45309'
+                    }}>
+                      {redEyeStatusMsg}
+                    </div>
+                  )}
                 </div>
 
                 {/* 1. Portrait Skin Smoothing */}
