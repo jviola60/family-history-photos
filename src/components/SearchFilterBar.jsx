@@ -18,7 +18,19 @@ export default function SearchFilterBar({
   selectedSubfolder = 'all',
   onSubfolderChange
 }) {
+  const standardChipIds = [
+    'all', 'review_folder', 'screenshots', 'untagged', 
+    'needs_enhancement', 'with_people', 'grandparents', 
+    '1960s', '1970s', '1980s', 'group'
+  ];
+  const isPersonFilterActive = Boolean(activeFilter && !standardChipIds.includes(activeFilter));
+
   const filterChips = [
+    ...(isPersonFilterActive ? [{
+      id: activeFilter,
+      label: `👤 Showing: ${activeFilter} (Click to Clear ✕)`,
+      highlight: true
+    }] : []),
     { id: 'all', label: `All Photos (${totalPhotos.toLocaleString()})` },
     ...(reviewCount > 0 ? [{
       id: 'review_folder',
@@ -118,7 +130,13 @@ export default function SearchFilterBar({
           {filterChips.map((chip) => (
             <button
               key={chip.id}
-              onClick={() => onFilterChange(chip.id)}
+              onClick={() => {
+                if (chip.id === activeFilter && chip.id !== 'all') {
+                  onFilterChange('all');
+                } else {
+                  onFilterChange(chip.id);
+                }
+              }}
               className={`filter-chip ${activeFilter === chip.id ? 'active' : ''} ${chip.highlight ? 'chip-highlight' : ''}`}
             >
               {chip.label}

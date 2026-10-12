@@ -62,6 +62,7 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState('');
   const [pendingResumeSession, setPendingResumeSession] = useState(null);
+  const [savedCatalog, setSavedCatalog] = useState([]);
 
   // Modals
   const [activeMetadataPhoto, setActiveMetadataPhoto] = useState(null);
@@ -128,6 +129,7 @@ export default function App() {
         isPeopleLoadedRef.current = true;
 
         if (cachedCatalog && cachedCatalog.length > 0) {
+          setSavedCatalog(cachedCatalog);
           const map = new Map();
           cachedCatalog.forEach(item => {
             if (item.relativePath) map.set(item.relativePath, item);
@@ -306,6 +308,31 @@ export default function App() {
   const handleDismissResume = async () => {
     setPendingResumeSession(null);
     await clearStoredDirectoryHandle();
+  };
+
+  // 1-Click view relative from Family Directory (auto-reconnects album if needed)
+  const handleSelectPersonFromDirectory = async (personName) => {
+    setActiveFilter(personName);
+    setShowPeopleModal(false);
+
+    // If album photos aren't loaded in memory yet, reconnect folder automatically
+    if (photos.length === 0 && pendingResumeSession?.handle) {
+      try {
+        setIsScanning(true);
+        setScanProgress(`Opening album for ${personName}...`);
+        const perm = await pendingResumeSession.handle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          await loadFolderFromHandle(pendingResumeSession.handle);
+        } else {
+          setIsScanning(false);
+          setScanProgress('');
+        }
+      } catch (err) {
+        console.warn('Could not auto-open album on filter:', err);
+        setIsScanning(false);
+        setScanProgress('');
+      }
+    }
   };
 
   // Fallback for file input
@@ -531,12 +558,16 @@ export default function App() {
 
   // Update photo metadata
   const handleSaveMetadata = (photoId, updatedFields) => {
-    setPhotos(prev => prev.map(p => {
-      if (p.id === photoId) {
-        return { ...p, ...updatedFields };
-      }
-      return p;
-    }));
+    setPhotos(prev => {
+      const next = prev.map(p => {
+        if (p.id === photoId) {
+          return { ...p, ...updatedFields };
+        }
+        return p;
+      });
+      setSavedCatalog(next);
+      return next;
+    });
   };
 
   // Register face match
@@ -1052,8 +1083,12 @@ export default function App() {
         <PeopleDirectoryModal
           peopleDirectory={peopleDirectory}
           photos={photos}
+          savedCatalog={savedCatalog}
+          pendingResumeSession={pendingResumeSession}
+          currentFolderName={folderName || pendingResumeSession?.info?.folderName || ''}
+          onResumeAlbum={handleResumePreviousAlbum}
           onClose={() => setShowPeopleModal(false)}
-          onSelectPersonFilter={(personName) => setActiveFilter(personName)}
+          onSelectPersonFilter={handleSelectPersonFromDirectory}
         />
       )}
 
