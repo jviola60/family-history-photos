@@ -312,7 +312,7 @@ export function findMatchingPerson(faceEmbedding, peopleDirectory) {
     }
   }
 
-  if (highestScore >= 0.82) {
+  if (highestScore >= 0.90) {
     return bestMatch;
   }
 

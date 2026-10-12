@@ -129,11 +129,20 @@ export default function MetadataModal({
       setLocation(draft.location || '');
       setFamilyBranch(draft.familyBranch || '');
       setPersonRelationships(draft.personRelationships || {});
-      setDetectedFaces(draft.faces || photo.faces || []);
+      const draftBaseFaces = draft.faces || photo.faces || [];
+      const draftPeople = draft.people || photo.people || [];
+      const syncedDraftFaces = draftBaseFaces.map(f => {
+        if (!f.name && draftPeople.length === 1 && draftBaseFaces.length === 1) {
+          return { ...f, name: draftPeople[0] };
+        }
+        return f;
+      });
+      setDetectedFaces(syncedDraftFaces);
       setDraftNotice('Restored your in-progress notes from where you left off.');
       setHasUnsavedChanges(true);
     } else {
-      setPeople(photo.people || []);
+      const currentPeople = photo.people || [];
+      setPeople(currentPeople);
       setCurrentNameInput('');
       setRelationship(photo.relationship || '');
       setDecade(photo.decade || '');
@@ -141,7 +150,14 @@ export default function MetadataModal({
       setStory(photo.story || '');
       setLocation(photo.location || '');
       setFamilyBranch(photo.familyBranch || '');
-      setDetectedFaces(photo.faces || []);
+      const baseFaces = photo.faces || [];
+      const syncedFaces = baseFaces.map(f => {
+        if (!f.name && currentPeople.length === 1 && baseFaces.length === 1) {
+          return { ...f, name: currentPeople[0] };
+        }
+        return f;
+      });
+      setDetectedFaces(syncedFaces);
       setDraftNotice('');
       setHasUnsavedChanges(false);
 
@@ -175,6 +191,13 @@ export default function MetadataModal({
     setHasUnsavedChanges(true);
     setAutoSaveStatus('saving');
 
+    const finalizedFaces = detectedFaces.map(face => {
+      if (!face.name && people.length === 1 && detectedFaces.length === 1) {
+        return { ...face, name: people[0] };
+      }
+      return face;
+    });
+
     const draftData = {
       title: photo.name,
       people,
@@ -185,7 +208,8 @@ export default function MetadataModal({
       story,
       location,
       familyBranch,
-      faces: detectedFaces
+      faces: finalizedFaces,
+      facesCascadeVerified: true
     };
 
     // Save instant local draft in case of refresh or accidental navigation
@@ -262,7 +286,7 @@ export default function MetadataModal({
     setIsPanning(false);
   };
 
-  // Run strict face scan when image loads & auto-clean past false detections
+  // Run strict face scan when image loads & preserve all user-assigned names
   const handleImageLoad = async () => {
     if (!imgRef.current) return;
     
@@ -272,21 +296,48 @@ export default function MetadataModal({
       return;
     }
 
+    // 1. If photo already has faces from storage, PRESERVE THEM!
+    // Do not run detection from scratch and blow away user assignments!
+    if (photo.faces && photo.faces.length > 0) {
+      const existing = photo.faces.map(f => {
+        if (!f.name && people.length === 1 && photo.faces.length === 1) {
+          return { ...f, name: people[0] };
+        }
+        return f;
+      });
+      setDetectedFaces(existing);
+      return;
+    }
+
     setIsScanningFaces(true);
     try {
       const faces = await detectFacesInImage(imgRef.current);
-      setDetectedFaces(faces || []);
+      
+      // Merge with previous face names to preserve user assignments
+      const mergedFaces = (faces || []).map((newFace) => {
+        if ((faces || []).length === 1 && people.length === 1) {
+          return { ...newFace, name: people[0] };
+        }
+        const prevMatch = (photo.faces || []).find(pf => {
+          if (!pf.box) return false;
+          const dx = Math.abs(pf.box.x - newFace.box.x);
+          const dy = Math.abs(pf.box.y - newFace.box.y);
+          return dx < 0.20 && dy < 0.20;
+        });
+        if (prevMatch && prevMatch.name) {
+          return { ...newFace, name: prevMatch.name };
+        }
+        return newFace;
+      });
 
-      // If photo had old false detections (e.g. 6 boxes) or count changed, auto-save clean detections!
-      const oldFacesCount = (photo.faces || []).length;
-      const newFacesCount = (faces || []).length;
-      if (oldFacesCount !== newFacesCount || !photo.facesCascadeVerified) {
-        onSave(photo.id, { faces: faces || [], facesCascadeVerified: true });
-      }
+      setDetectedFaces(mergedFaces);
+      onSave(photo.id, { faces: mergedFaces, facesCascadeVerified: true });
 
-      // Check if any genuine face matches registered people
-      if (faces && faces.length > 0) {
-        for (const face of faces) {
+      // ONLY suggest a face if there are UNTAGGED, UNNAMED faces in the photo!
+      // If people.length >= mergedFaces.length, every face in the photo is already accounted for!
+      if (mergedFaces.length > 0 && people.length < mergedFaces.length) {
+        for (const face of mergedFaces) {
+          if (face.name) continue; // Skip already assigned face
           const emb = extractFaceEmbedding(imgRef.current, face.box);
           face.embedding = emb;
           if (emb && peopleDirectory) {
@@ -346,6 +397,14 @@ export default function MetadataModal({
       setPeople(updated);
       setCurrentNameInput('');
 
+      // Auto-assign to face if there is only 1 face box and it is not assigned yet
+      setDetectedFaces(prev => {
+        if (prev.length === 1 && !prev[0].name) {
+          return [{ ...prev[0], name: trimmed }];
+        }
+        return prev;
+      });
+
       // Look up known relationship from directory
       if (peopleDirectory) {
         const existing = Object.values(peopleDirectory).find(p => p.name.toLowerCase() === trimmed.toLowerCase());
@@ -371,13 +430,25 @@ export default function MetadataModal({
   const handleAssignFaceName = (indexToUpdate, name) => {
     setDetectedFaces(prev => prev.map((f, idx) => {
       if (idx === indexToUpdate) {
-        return { ...f, name };
+        return { ...f, name: name || undefined };
       }
       return f;
     }));
     if (name && !people.includes(name)) {
       setPeople(prev => [...prev, name]);
+      if (peopleDirectory) {
+        const existing = Object.values(peopleDirectory).find(p => p.name.toLowerCase() === name.toLowerCase());
+        if (existing) {
+          if (existing.relationship) {
+            setPersonRelationships(prev => ({ ...prev, [name]: existing.relationship }));
+          }
+          if (existing.branch && !familyBranch) {
+            setFamilyBranch(existing.branch);
+          }
+        }
+      }
     }
+    setFaceSuggestion(null);
   };
 
   const handleRemovePerson = (idxToRemove) => {
@@ -390,9 +461,18 @@ export default function MetadataModal({
 
   const handleAcceptSuggestion = () => {
     if (faceSuggestion && faceSuggestion.match) {
-      handleAddPerson(faceSuggestion.match.name);
+      const suggestedName = faceSuggestion.match.name;
+      handleAddPerson(suggestedName);
+      if (faceSuggestion.face) {
+        setDetectedFaces(prev => prev.map(f => {
+          if (f === faceSuggestion.face || (f.box && faceSuggestion.face.box && f.box.x === faceSuggestion.face.box.x && f.box.y === faceSuggestion.face.box.y)) {
+            return { ...f, name: suggestedName };
+          }
+          return f;
+        }));
+      }
       if (faceSuggestion.match.relationship) {
-        handleSetPersonRelationship(faceSuggestion.match.name, faceSuggestion.match.relationship);
+        handleSetPersonRelationship(suggestedName, faceSuggestion.match.relationship);
       }
       setFaceSuggestion(null);
     }
@@ -449,6 +529,13 @@ export default function MetadataModal({
   };
 
   const handleSave = () => {
+    const finalizedFaces = detectedFaces.map(face => {
+      if (!face.name && people.length === 1 && detectedFaces.length === 1) {
+        return { ...face, name: people[0] };
+      }
+      return face;
+    });
+
     const updatedMetadata = {
       title: photo.name,
       people,
@@ -459,7 +546,8 @@ export default function MetadataModal({
       story,
       location,
       familyBranch,
-      faces: detectedFaces
+      faces: finalizedFaces,
+      facesCascadeVerified: true
     };
 
     onSave(photo.id, updatedMetadata);
@@ -697,36 +785,56 @@ export default function MetadataModal({
                       zIndex: 35 + idx
                     }}
                   >
-                    {people.length > 0 ? (
-                      <select
-                        value={f.name || ''}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          handleAssignFaceName(idx, e.target.value);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        style={{
-                          background: '#1c1917',
-                          color: '#ffffff',
-                          border: '1px solid rgba(255,255,255,0.6)',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: 'bold',
-                          padding: '2px 4px',
-                          cursor: 'pointer',
-                          pointerEvents: 'auto'
-                        }}
-                        title="Click to assign which family member this face is"
-                      >
-                        <option value="">{f.name ? `✓ ${f.name}` : `Person ${idx + 1} (Click to Assign...)`}</option>
-                        {people.map(name => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>{f.name || `Person ${idx + 1}`}</span>
-                    )}
+                    {(() => {
+                      const currentFaceName = f.name || (detectedFaces.length === 1 && people.length === 1 ? people[0] : '');
+                      const otherFamily = knownPeople.filter(n => !people.includes(n));
+
+                      return (
+                        <select
+                          value={currentFaceName || ''}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleAssignFaceName(idx, e.target.value);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          style={{
+                            background: '#1c1917',
+                            color: '#ffffff',
+                            border: currentFaceName ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.6)',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            padding: '2px 4px',
+                            cursor: 'pointer',
+                            pointerEvents: 'auto'
+                          }}
+                          title={currentFaceName ? `Assigned to ${currentFaceName}` : "Click to assign which family member this face is"}
+                        >
+                          <option value="">
+                            {currentFaceName ? '-- Clear Assignment --' : `Person ${idx + 1} (Click to Assign...)`}
+                          </option>
+                          {people.length > 0 && (
+                            <optgroup label="People in this photo">
+                              {people.map(name => (
+                                <option key={name} value={name}>
+                                  {name === currentFaceName ? `✓ ${name}` : name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {otherFamily.length > 0 && (
+                            <optgroup label="All Family Members">
+                              {otherFamily.map(name => (
+                                <option key={name} value={name}>
+                                  {name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -815,9 +923,20 @@ export default function MetadataModal({
                     Recognized from previously tagged family photos!
                   </p>
                 </div>
-                <button onClick={handleAcceptSuggestion} className="btn btn-primary btn-sm">
-                  <Check size={14} /> Yes, that's {faceSuggestion.match.name}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button onClick={handleAcceptSuggestion} className="btn btn-primary btn-sm">
+                    <Check size={14} /> Yes, that's {faceSuggestion.match.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFaceSuggestion(null)}
+                    className="btn btn-secondary btn-sm"
+                    style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'var(--text-subtle)' }}
+                    title="Not this person / Dismiss"
+                  >
+                    <X size={14} /> Not them
+                  </button>
+                </div>
               </div>
             )}
 
