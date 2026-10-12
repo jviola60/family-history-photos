@@ -1072,10 +1072,12 @@ export default function App() {
       />
 
       {/* Complete Help Center & User Guide Modal */}
-      <HelpGuideModal
-        isOpen={showHelpGuideModal}
-        onClose={() => setShowHelpGuideModal(false)}
-      />
+      {showHelpGuideModal && (
+        <HelpGuideModal
+          isOpen={showHelpGuideModal}
+          onClose={() => setShowHelpGuideModal(false)}
+        />
+      )}
     </div>
   );
 }

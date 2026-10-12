@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
   X, 
-  HelpCircle, 
   BookOpen, 
   Sparkles, 
   FolderOpen, 
@@ -11,17 +10,14 @@ import {
   ShieldCheck, 
   ZoomIn, 
   Cloud, 
-  ExternalLink, 
   Download, 
   Printer, 
-  CheckCircle2, 
   Heart, 
   FolderCheck, 
   Settings, 
-  Info,
-  Clock,
-  Layers,
-  FileText
+  Clock, 
+  Layers, 
+  FileText 
 } from 'lucide-react';
 
 const GUIDE_SECTIONS = [
@@ -395,9 +391,7 @@ export default function HelpGuideModal({ isOpen, onClose }) {
   const [activeSectionId, setActiveSectionId] = useState('quickstart');
   const [searchQuery, setSearchQuery] = useState('');
 
-  if (!isOpen) return null;
-
-  // Filter sections based on search query
+  // Filter sections based on search query - ALWAYS call hooks unconditionally
   const filteredSections = useMemo(() => {
     if (!searchQuery.trim()) return GUIDE_SECTIONS;
     const q = searchQuery.toLowerCase();
@@ -414,11 +408,12 @@ export default function HelpGuideModal({ isOpen, onClose }) {
     window.print();
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div 
         className="modal-content help-modal-container"
-        onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '960px', width: '94%', height: '88vh', display: 'flex', flexDirection: 'column', padding: 0 }}
       >
         {/* Modal Header */}
