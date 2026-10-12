@@ -536,8 +536,8 @@ export default function HelpGuideModal({ isOpen, onClose }) {
           <button 
             type="button" 
             onClick={onClose} 
-            className="btn btn-primary btn-sm"
-            style={{ padding: '8px 20px' }}
+            className="btn btn-primary"
+            style={{ padding: '12px 28px', fontSize: '15px', fontWeight: 700, borderRadius: '10px', boxShadow: '0 2px 5px rgba(180, 83, 9, 0.25)' }}
           >
             Done Reading
           </button>

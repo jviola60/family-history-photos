@@ -1,6 +1,6 @@
 /* Design System: Warm, accessible, senior-friendly aesthetic (Zero Purple / No violet) */
 :root {
-  --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family: 'Lexend', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
   /* Warm Heritage Palette */
   --bg-main: #FDFBF7;
