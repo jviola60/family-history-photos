@@ -64,6 +64,8 @@ export function sanitizePhotoForStorage(p) {
     id: String(p.id || ''),
     name: String(p.name || ''),
     relativePath: String(p.relativePath || p.name || ''),
+    folderName: String(p.folderName || ''),
+    thumbnailUrl: p.thumbnailUrl ? String(p.thumbnailUrl) : (p.enhancedUrl ? String(p.enhancedUrl) : ''),
     size: Number(p.size) || 0,
     lastModified: Number(p.lastModified) || 0,
     width: Number(p.width) || 0,
@@ -101,14 +103,32 @@ export function isPhotoModifiedByUser(p) {
 
 export async function saveCatalogToDB(catalog) {
   if (!Array.isArray(catalog) || catalog.length === 0) return;
-  // Only persist photos that have actual user customizations or review flags!
-  // This reduces storage size from 16,000+ items to just customized photos (< 50KB)
-  const modifiedOnly = catalog
-    .filter(isPhotoModifiedByUser)
-    .map(sanitizePhotoForStorage)
-    .filter(Boolean);
+  
+  // Load existing catalog so photos tagged across multiple different folders are NEVER erased
+  const existingCatalog = await loadCatalogFromDB();
+  const catalogMap = new Map();
 
-  await safeDb(store => set(CATALOG_KEY, modifiedOnly, store));
+  if (Array.isArray(existingCatalog)) {
+    existingCatalog.forEach(item => {
+      const key = `${item.folderName || ''}::${item.relativePath || item.name}`;
+      catalogMap.set(key, item);
+      if (item.name) catalogMap.set(item.name, item);
+    });
+  }
+
+  // Merge newly modified photos into catalog
+  catalog
+    .filter(isPhotoModifiedByUser)
+    .forEach(item => {
+      const sanitized = sanitizePhotoForStorage(item);
+      if (sanitized) {
+        const key = `${sanitized.folderName || ''}::${sanitized.relativePath || sanitized.name}`;
+        catalogMap.set(key, sanitized);
+      }
+    });
+
+  const merged = Array.from(catalogMap.values());
+  await safeDb(store => set(CATALOG_KEY, merged, store));
 }
 
 export async function loadCatalogFromDB() {
@@ -190,7 +210,32 @@ export async function loadStoredDirectoryHandle() {
   return await safeDb(store => get(LAST_DIR_HANDLE_KEY, store), null);
 }
 
-export async function clearStoredDirectoryHandle() {
+const SAVED_FOLDERS_MAP_KEY = 'saved_folder_handles_map';
+
+export async function saveNamedFolderHandle(folderName, handle) {
+  if (!folderName || !handle) return;
+  try {
+    const existing = (await safeDb(store => get(SAVED_FOLDERS_MAP_KEY, store), {})) || {};
+    existing[folderName] = handle;
+    await safeDb(store => set(SAVED_FOLDERS_MAP_KEY, existing, store));
+  } catch (e) {
+    console.warn('Could not store named folder handle:', e);
+  }
+}
+
+export async function loadSavedFolderHandlesMap() {
+  const map = await safeDb(store => get(SAVED_FOLDERS_MAP_KEY, store), {});
+  return (map && typeof map === 'object') ? map : {};
+}
+
+export async function clearStoredDirectoryHandle(folderNameToClear = null) {
+  if (folderNameToClear) {
+    try {
+      const existing = (await safeDb(store => get(SAVED_FOLDERS_MAP_KEY, store), {})) || {};
+      delete existing[folderNameToClear];
+      await safeDb(store => set(SAVED_FOLDERS_MAP_KEY, existing, store));
+    } catch {}
+  }
   await safeDb(store => del(LAST_DIR_HANDLE_KEY, store));
   await safeDb(store => del(LAST_SESSION_INFO_KEY, store));
   await safeDb(store => del(CLOUD_PHOTOS_CACHE_KEY, store));

@@ -75,6 +75,7 @@ export async function scanDirectoryForImages(dirHandle, path = '', onProgress = 
           const imageItem = {
             id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name,
+            folderName: dirHandle?.name || '',
             file: null, // do not retain raw File blob to prevent OOM
             handle: entry,
             parentDirHandle: currentDirHandle,

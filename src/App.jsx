@@ -23,7 +23,7 @@ import {
   saveCatalogToFileSystem,
   getImageDimensions
 } from './lib/fileSystem';
-import { writeMetadataToPhotoHandle } from './lib/photoMetadata';
+import { writeMetadataToPhotoHandle, createPhotoThumbnail } from './lib/photoMetadata';
 import { findDuplicateGroups, getPairKey } from './lib/duplicateDetector';
 import { scanPhotoLibraryForJunk, isScreenshotPhoto } from './lib/junkDetector';
 import { 
@@ -41,6 +41,8 @@ import {
   saveStoredDirectoryHandle,
   loadStoredDirectoryHandle,
   clearStoredDirectoryHandle,
+  saveNamedFolderHandle,
+  loadSavedFolderHandlesMap,
   saveCloudPhotosToDB,
   loadCloudPhotosFromDB
 } from './lib/db';
@@ -63,6 +65,7 @@ export default function App() {
   const [scanProgress, setScanProgress] = useState('');
   const [pendingResumeSession, setPendingResumeSession] = useState(null);
   const [savedCatalog, setSavedCatalog] = useState([]);
+  const [savedFolderHandles, setSavedFolderHandles] = useState({});
 
   // Modals
   const [activeMetadataPhoto, setActiveMetadataPhoto] = useState(null);
@@ -136,6 +139,11 @@ export default function App() {
             if (item.name) map.set(item.name, item);
           });
           savedMetadataMapRef.current = map;
+        }
+
+        const folderHandles = await loadSavedFolderHandlesMap();
+        if (folderHandles && isMounted) {
+          setSavedFolderHandles(folderHandles);
         }
 
         // Restore previous album session where user left off
@@ -260,6 +268,8 @@ export default function App() {
 
       // Save for subsequent visits so user leaves off where they were
       await saveStoredDirectoryHandle(dirHandle);
+      await saveNamedFolderHandle(dirHandle.name, dirHandle);
+      setSavedFolderHandles(prev => ({ ...prev, [dirHandle.name]: dirHandle }));
       await saveLastSessionInfo({
         type: 'directory',
         folderName: dirHandle.name,
@@ -332,6 +342,48 @@ export default function App() {
         setIsScanning(false);
         setScanProgress('');
       }
+    }
+  };
+
+  // Open a specific folder by name and optionally filter by person
+  const handleOpenFolderByName = async (targetFolderName, personNameToFilter = null) => {
+    setShowPeopleModal(false);
+    if (personNameToFilter) {
+      setActiveFilter(personNameToFilter);
+    }
+
+    if (!targetFolderName) return;
+
+    // 1. If currently open album is already this folder, we are already there
+    if (rootDirHandle && (rootDirHandle.name === targetFolderName || folderName === targetFolderName)) {
+      return;
+    }
+
+    // 2. Check if we have a stored handle for this folder
+    const handle = savedFolderHandles[targetFolderName] || (pendingResumeSession?.handle?.name === targetFolderName ? pendingResumeSession.handle : null);
+    if (handle) {
+      try {
+        setIsScanning(true);
+        setScanProgress(`Opening "${targetFolderName}"...`);
+        const perm = await handle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          await loadFolderFromHandle(handle);
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not auto-open folder from handle:', err);
+      }
+    }
+
+    // 3. Prompt user with folder picker for that exact folder
+    try {
+      alert(`Please select your "${targetFolderName}" folder from your computer.`);
+      const picked = await pickLocalDirectory();
+      await loadFolderFromHandle(picked);
+    } catch (err) {
+      console.warn('Folder selection cancelled:', err);
+      setIsScanning(false);
+      setScanProgress('');
     }
   };
 
@@ -561,7 +613,20 @@ export default function App() {
     setPhotos(prev => {
       const next = prev.map(p => {
         if (p.id === photoId) {
-          return { ...p, ...updatedFields };
+          const updated = {
+            ...p,
+            ...updatedFields,
+            folderName: p.folderName || folderName
+          };
+          if (!updated.thumbnailUrl && (updated.objectUrl || updated.handle)) {
+            createPhotoThumbnail(updated).then(thumb => {
+              if (thumb) {
+                setPhotos(current => current.map(item => item.id === photoId ? { ...item, thumbnailUrl: thumb } : item));
+                setSavedCatalog(current => current.map(item => item.id === photoId ? { ...item, thumbnailUrl: thumb } : item));
+              }
+            });
+          }
+          return updated;
         }
         return p;
       });
@@ -1086,7 +1151,9 @@ export default function App() {
           savedCatalog={savedCatalog}
           pendingResumeSession={pendingResumeSession}
           currentFolderName={folderName || pendingResumeSession?.info?.folderName || ''}
+          savedFolderHandles={savedFolderHandles}
           onResumeAlbum={handleResumePreviousAlbum}
+          onOpenFolderByName={handleOpenFolderByName}
           onClose={() => setShowPeopleModal(false)}
           onSelectPersonFilter={handleSelectPersonFromDirectory}
         />

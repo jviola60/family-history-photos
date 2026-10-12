@@ -437,3 +437,68 @@ export function formatFamilySearchSummary(photo, metadata = {}) {
 
   return sections.join('\n\n');
 }
+
+/**
+ * Creates a lightweight compressed JPEG thumbnail data URL (~12-18KB)
+ * for instant previewing in directory modals and offline caching.
+ */
+export async function createPhotoThumbnail(photo, maxDimension = 200) {
+  try {
+    let url = photo.enhancedUrl || photo.objectUrl;
+    let revokeNeeded = false;
+    if (!url && photo.handle && typeof photo.handle.getFile === 'function') {
+      try {
+        const file = await photo.handle.getFile();
+        url = URL.createObjectURL(file);
+        revokeNeeded = true;
+      } catch {}
+    }
+    if (!url) return null;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let { width, height } = img;
+          if (width > height) {
+            if (width > maxDimension) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            }
+          } else {
+            if (height > maxDimension) {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          if (revokeNeeded) {
+            try { URL.revokeObjectURL(url); } catch {}
+          }
+          resolve(dataUrl);
+        } catch {
+          if (revokeNeeded) {
+            try { URL.revokeObjectURL(url); } catch {}
+          }
+          resolve(null);
+        }
+      };
+      img.onerror = () => {
+        if (revokeNeeded) {
+          try { URL.revokeObjectURL(url); } catch {}
+        }
+        resolve(null);
+      };
+      img.src = url;
+    });
+  } catch {
+    return null;
+  }
+}
+
