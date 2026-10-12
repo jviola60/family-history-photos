@@ -108,27 +108,52 @@ export async function saveCatalogToDB(catalog) {
   const existingCatalog = await loadCatalogFromDB();
   const catalogMap = new Map();
 
+  const getCanonicalKey = (p) => {
+    const f = (p.folderName || '').toLowerCase().trim();
+    const r = (p.relativePath || p.name || p.id || '').toLowerCase().trim();
+    return f ? `${f}::${r}` : `_any_::${r}`;
+  };
+
+  // 1. Populate existing entries (deduplicated by canonical key)
   if (Array.isArray(existingCatalog)) {
     existingCatalog.forEach(item => {
-      const key = `${item.folderName || ''}::${item.relativePath || item.name}`;
-      catalogMap.set(key, item);
-      if (item.name) catalogMap.set(item.name, item);
+      const sanitized = sanitizePhotoForStorage(item);
+      if (sanitized) {
+        const key = getCanonicalKey(sanitized);
+        catalogMap.set(key, sanitized);
+      }
     });
   }
 
-  // Merge newly modified photos into catalog
+  // 2. Merge newly modified photos into catalog
   catalog
     .filter(isPhotoModifiedByUser)
     .forEach(item => {
       const sanitized = sanitizePhotoForStorage(item);
       if (sanitized) {
-        const key = `${sanitized.folderName || ''}::${sanitized.relativePath || sanitized.name}`;
+        const key = getCanonicalKey(sanitized);
+        // Clean up any legacy unnamespaced entry for this exact relative path
+        const r = (sanitized.relativePath || sanitized.name || '').toLowerCase().trim();
+        const legacyKey = `_any_::${r}`;
+        if (sanitized.folderName && catalogMap.has(legacyKey)) {
+          catalogMap.delete(legacyKey);
+        }
         catalogMap.set(key, sanitized);
       }
     });
 
-  const merged = Array.from(catalogMap.values());
-  await safeDb(store => set(CATALOG_KEY, merged, store));
+  // Strict deduplication to ensure exactly one unique record per photo
+  const uniqueItems = [];
+  const seenPaths = new Set();
+  for (const item of catalogMap.values()) {
+    const uniqueId = `${(item.folderName || '').toLowerCase().trim()}::${(item.relativePath || item.name).toLowerCase().trim()}`;
+    if (!seenPaths.has(uniqueId)) {
+      seenPaths.add(uniqueId);
+      uniqueItems.push(item);
+    }
+  }
+
+  await safeDb(store => set(CATALOG_KEY, uniqueItems, store));
 }
 
 export async function loadCatalogFromDB() {

@@ -36,37 +36,66 @@ export default function PeopleDirectoryModal({
   // Retrieve all tagged photos for a person across both active album and saved database catalog
   const getTaggedPhotosForPerson = (name) => {
     if (!name) return [];
-    const map = new Map();
+    const list = [];
+    const seenRelPathsInActiveAlbum = new Set();
+    const seenGlobalKeys = new Set();
 
-    // 1. Live loaded photos in memory
+    // 1. Live loaded photos in memory (highest priority - accurately reflects currently open album)
     if (isAlbumLoaded) {
       photos.forEach(p => {
         if (p.people && Array.isArray(p.people) && p.people.includes(name)) {
-          const key = (p.folderName ? p.folderName + '/' : '') + (p.relativePath || p.name || p.id);
-          map.set(key, {
-            ...p,
-            folderName: p.folderName || activeAlbumName || 'Current Album'
-          });
-        }
-      });
-    }
+          const relPath = (p.relativePath || p.name || p.id || '').toLowerCase().trim();
+          const cleanName = (p.name || '').toLowerCase().trim();
+          const fName = p.folderName || activeAlbumName || 'Current Album';
+          const globalKey = `${fName.toLowerCase()}::${relPath}`;
 
-    // 2. Saved photos in IndexedDB catalog
-    if (Array.isArray(savedCatalog) && savedCatalog.length > 0) {
-      savedCatalog.forEach(p => {
-        if (p.people && Array.isArray(p.people) && p.people.includes(name)) {
-          const key = (p.folderName ? p.folderName + '/' : '') + (p.relativePath || p.name || p.id);
-          if (!map.has(key)) {
-            map.set(key, {
+          if (relPath && !seenGlobalKeys.has(globalKey)) {
+            seenRelPathsInActiveAlbum.add(relPath);
+            if (cleanName) seenRelPathsInActiveAlbum.add(cleanName);
+            seenGlobalKeys.add(globalKey);
+
+            list.push({
               ...p,
-              folderName: p.folderName || (activeAlbumName ? activeAlbumName : 'Saved Album')
+              folderName: fName
             });
           }
         }
       });
     }
 
-    return Array.from(map.values());
+    // 2. Saved photos in IndexedDB catalog (for photos in albums other than the currently active one)
+    if (Array.isArray(savedCatalog) && savedCatalog.length > 0) {
+      savedCatalog.forEach(p => {
+        if (p.people && Array.isArray(p.people) && p.people.includes(name)) {
+          const relPath = (p.relativePath || p.name || p.id || '').toLowerCase().trim();
+          const cleanName = (p.name || '').toLowerCase().trim();
+          const pFolder = (p.folderName || '').toLowerCase().trim();
+
+          // If the active album is open, any saved entry matching this file/relativePath
+          // or belonging to the active album is ALREADY accounted for in step 1!
+          if (isAlbumLoaded) {
+            const isSameAlbum = !pFolder || (activeAlbumName && pFolder === activeAlbumName.toLowerCase());
+            if (isSameAlbum || seenRelPathsInActiveAlbum.has(relPath) || (cleanName && seenRelPathsInActiveAlbum.has(cleanName))) {
+              return; // Skip duplicate!
+            }
+          }
+
+          // If from another distinct folder
+          const effectiveFolder = p.folderName || activeAlbumName || pendingResumeSession?.info?.folderName || 'Saved Album';
+          const globalKey = `${effectiveFolder.toLowerCase()}::${relPath}`;
+
+          if (relPath && !seenGlobalKeys.has(globalKey)) {
+            seenGlobalKeys.add(globalKey);
+            list.push({
+              ...p,
+              folderName: effectiveFolder
+            });
+          }
+        }
+      });
+    }
+
+    return list;
   };
 
   // Group a person's photos by folder
@@ -163,7 +192,7 @@ export default function PeopleDirectoryModal({
             <div className="people-grid-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
               {peopleList.map((person) => {
                 const taggedPhotos = getTaggedPhotosForPerson(person.name);
-                const count = taggedPhotos.length || person.photoCount || 1;
+                const count = taggedPhotos.length;
                 const folderGroups = getPhotosByFolder(taggedPhotos);
                 const folderNames = Object.keys(folderGroups);
                 const isExpanded = expandedPersonId === (person.id || person.name);

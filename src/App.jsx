@@ -375,13 +375,14 @@ export default function App() {
       }
     }
 
-    // 3. Prompt user with folder picker for that exact folder
+    // 3. Prompt user with folder picker directly within the user click gesture
     try {
-      alert(`Please select your "${targetFolderName}" folder from your computer.`);
+      setIsScanning(true);
+      setScanProgress(`Please choose your "${targetFolderName}" folder...`);
       const picked = await pickLocalDirectory();
       await loadFolderFromHandle(picked);
     } catch (err) {
-      console.warn('Folder selection cancelled:', err);
+      console.warn('Folder selection cancelled or failed:', err);
       setIsScanning(false);
       setScanProgress('');
     }
