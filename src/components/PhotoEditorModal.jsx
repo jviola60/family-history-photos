@@ -58,10 +58,9 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
   const didPanRef = useRef(false);
 
   // ✂️ Crop Tool States
-  const [cropBox, setCropBox] = useState({ x: 0.05, y: 0.05, width: 0.90, height: 0.90 }); // Normalized 0..1
+  const [cropBox, setCropBox] = useState({ x: 0, y: 0, width: 1, height: 1 }); // Normalized 0..1 (default: entire photo)
+  const [hasAdjustedCrop, setHasAdjustedCrop] = useState(false);
   const [selectedRatio, setSelectedRatio] = useState('free');
-  const [rotation, setRotation] = useState(0);
-  const [flipH, setFlipH] = useState(false);
   const [activeDragHandle, setActiveDragHandle] = useState(null);
   const dragStartRef = useRef(null);
 
@@ -94,6 +93,8 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
       const nextIndex = historyIndex - 1;
       setHistoryIndex(nextIndex);
       setCurrentImageUrl(history[nextIndex]);
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
       clearMaskCanvas();
       setStatusMessage('Undid previous edit.');
     }
@@ -104,19 +105,20 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
       const nextIndex = historyIndex + 1;
       setHistoryIndex(nextIndex);
       setCurrentImageUrl(history[nextIndex]);
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
       clearMaskCanvas();
       setStatusMessage('Redid edit.');
     }
   };
 
   const handleResetToOriginal = () => {
-    if (window.confirm('Reset this photo back to the untouched original? All crops and object removals will be cleared.')) {
+    if (window.confirm('Reset this photo back to the untouched original? All rotations, crops, and object removals will be cleared.')) {
       setCurrentImageUrl(initialImage);
       setHistory([initialImage]);
       setHistoryIndex(0);
-      setCropBox({ x: 0.05, y: 0.05, width: 0.90, height: 0.90 });
-      setRotation(0);
-      setFlipH(false);
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
       clearMaskCanvas();
       setStatusMessage('Reset to original photo.');
     }
@@ -202,6 +204,7 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
   const handleSelectRatio = (ratioId) => {
     setSelectedRatio(ratioId);
     if (ratioId === 'free') return;
+    setHasAdjustedCrop(true);
     setCropBox(prev => applyAspectRatioToBox(ratioId, prev));
   };
 
@@ -257,6 +260,7 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
     }
 
     setCropBox(next);
+    setHasAdjustedCrop(true);
   };
 
   const handleCropPointerUp = (e) => {
@@ -267,18 +271,60 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
     }
   };
 
+  // 🔄 Immediate Rotation & Flipping Handlers (applies directly to canvas & history)
+  const handleRotate = async (degrees) => {
+    setIsProcessing(true);
+    setStatusMessage(degrees < 0 ? 'Rotating 90° Left...' : 'Rotating 90° Right...');
+    try {
+      const res = await cropImage(currentImageUrl, { x: 0, y: 0, width: 1, height: 1 }, {
+        rotation: degrees,
+        flipH: false
+      });
+      pushToHistory(res.dataUrl);
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
+      clearMaskCanvas();
+      setStatusMessage(`✓ Rotated 90° (${res.width} × ${res.height} px)`);
+    } catch (err) {
+      console.warn('Rotation failed:', err);
+      setStatusMessage('Could not rotate photo.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFlipHorizontal = async () => {
+    setIsProcessing(true);
+    setStatusMessage('Flipping horizontally...');
+    try {
+      const res = await cropImage(currentImageUrl, { x: 0, y: 0, width: 1, height: 1 }, {
+        rotation: 0,
+        flipH: true
+      });
+      pushToHistory(res.dataUrl);
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
+      clearMaskCanvas();
+      setStatusMessage('✓ Photo flipped horizontally.');
+    } catch (err) {
+      console.warn('Flip failed:', err);
+      setStatusMessage('Could not flip photo.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleApplyCrop = async () => {
     setIsProcessing(true);
     setStatusMessage('Applying precision crop...');
     try {
       const res = await cropImage(currentImageUrl, cropBox, {
-        rotation,
-        flipH
+        rotation: 0,
+        flipH: false
       });
       pushToHistory(res.dataUrl);
-      setRotation(0);
-      setFlipH(false);
-      setCropBox({ x: 0.05, y: 0.05, width: 0.90, height: 0.90 });
+      setCropBox({ x: 0, y: 0, width: 1, height: 1 });
+      setHasAdjustedCrop(false);
       setStatusMessage(`✓ Photo cropped to ${res.width} × ${res.height} px!`);
     } catch (err) {
       console.warn('Crop failed:', err);
@@ -399,8 +445,24 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
   };
 
   // --- Save & Commit Edits ---
-  const handleSaveAndClose = () => {
-    onSave(photo.id, currentImageUrl);
+  const handleSaveAndClose = async () => {
+    let finalUrl = currentImageUrl;
+    // If the user modified the crop boundaries in the Crop tab but didn't click "Apply Crop",
+    // automatically bake the crop before saving to the album so changes aren't lost!
+    const isCropped = hasAdjustedCrop && (cropBox.x > 0.005 || cropBox.y > 0.005 || cropBox.width < 0.995 || cropBox.height < 0.995);
+    if (isCropped) {
+      try {
+        setIsProcessing(true);
+        setStatusMessage('Applying crop and saving to album...');
+        const res = await cropImage(currentImageUrl, cropBox, { rotation: 0, flipH: false });
+        finalUrl = res.dataUrl;
+      } catch (err) {
+        console.warn('Auto-crop before save failed:', err);
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+    onSave(photo.id, finalUrl);
     onClose();
   };
 
@@ -593,9 +655,7 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
                     maxHeight: '62vh',
                     maxWidth: '100%',
                     display: 'block',
-                    objectFit: 'contain',
-                    transform: `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1})`,
-                    transition: 'transform 0.2s ease'
+                    objectFit: 'contain'
                   }}
                 />
 
@@ -816,7 +876,8 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button
                       type="button"
-                      onClick={() => setRotation(r => (r - 90) % 360)}
+                      disabled={isProcessing}
+                      onClick={() => handleRotate(-90)}
                       className="btn btn-secondary btn-xs"
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                       title="Rotate 90 degrees counter-clockwise"
@@ -825,7 +886,8 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRotation(r => (r + 90) % 360)}
+                      disabled={isProcessing}
+                      onClick={() => handleRotate(90)}
                       className="btn btn-secondary btn-xs"
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                       title="Rotate 90 degrees clockwise"
@@ -834,8 +896,9 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFlipH(f => !f)}
-                      className={`btn btn-xs ${flipH ? 'btn-primary' : 'btn-secondary'}`}
+                      disabled={isProcessing}
+                      onClick={handleFlipHorizontal}
+                      className="btn btn-secondary btn-xs"
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                       title="Mirror / flip horizontally"
                     >
@@ -1013,12 +1076,13 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
             <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-light)' }}>
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={handleSaveAndClose}
                 className="btn btn-primary"
                 style={{ width: '100%', padding: '11px', fontWeight: '800', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
                 <Check size={18} />
-                <span>Save to Album & Close</span>
+                <span>{isProcessing ? 'Processing & Saving...' : 'Save to Album & Close'}</span>
               </button>
             </div>
           </div>
