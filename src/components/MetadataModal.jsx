@@ -112,6 +112,66 @@ export default function MetadataModal({
   const [redEyeMessage, setRedEyeMessage] = useState('');
   const imgRef = useRef(null);
 
+  // 📷 Resilient image source state with automatic file-handle recovery
+  const [photoSrc, setPhotoSrc] = useState(photo.enhancedUrl || photo.objectUrl || null);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    if (photo.enhancedUrl) {
+      setPhotoSrc(photo.enhancedUrl);
+      setImageLoadFailed(false);
+      return;
+    }
+
+    if (photo.objectUrl && !photo.objectUrl.startsWith('blob:null')) {
+      setPhotoSrc(photo.objectUrl);
+      setImageLoadFailed(false);
+      return;
+    }
+
+    // Lazy/Fresh load from file handle if objectUrl is null, revoked, or lost
+    if (photo.handle && typeof photo.handle.getFile === 'function') {
+      photo.handle.getFile().then((file) => {
+        if (active && file) {
+          const freshUrl = URL.createObjectURL(file);
+          photo.objectUrl = freshUrl;
+          setPhotoSrc(freshUrl);
+          setImageLoadFailed(false);
+        }
+      }).catch((err) => {
+        console.warn('MetadataModal: Failed to read file from handle:', err);
+        if (active) setImageLoadFailed(true);
+      });
+    } else {
+      setImageLoadFailed(true);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [photo.id, photo.enhancedUrl, photo.objectUrl, photo.handle]);
+
+  // Automatic recovery if image fails to load or blob URL was revoked by browser
+  const handleImageError = async () => {
+    if (photo.handle && typeof photo.handle.getFile === 'function') {
+      try {
+        const file = await photo.handle.getFile();
+        if (file) {
+          const freshUrl = URL.createObjectURL(file);
+          photo.objectUrl = freshUrl;
+          setPhotoSrc(freshUrl);
+          setImageLoadFailed(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('MetadataModal: handleImageError recovery failed:', err);
+      }
+    }
+    setImageLoadFailed(true);
+  };
+
   // Auto-Save and Draft states
   const [autoSaveStatus, setAutoSaveStatus] = useState(''); // 'saving' | 'saved' | ''
   const [draftNotice, setDraftNotice] = useState('');
@@ -391,7 +451,7 @@ export default function MetadataModal({
   };
 
   const handleQuickRedEyeFix = async () => {
-    const currentSrc = photo.enhancedUrl || photo.objectUrl;
+    const currentSrc = photoSrc || photo.enhancedUrl || photo.objectUrl;
     if (!currentSrc) return;
 
     setIsFixingRedEyes(true);
@@ -403,6 +463,7 @@ export default function MetadataModal({
       });
 
       if (result.fixedCount > 0) {
+        setPhotoSrc(result.dataUrl);
         onSave(photo.id, {
           enhancedUrl: result.dataUrl,
           enhanced: true
@@ -550,11 +611,30 @@ export default function MetadataModal({
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 3000);
     } catch {
+      // Safe, invisible clipboard fallback that doesn't scroll viewport or disrupt layout
       const ta = document.createElement('textarea');
       ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.width = '1px';
+      ta.style.height = '1px';
+      ta.style.padding = '0';
+      ta.style.border = 'none';
+      ta.style.outline = 'none';
+      ta.style.boxShadow = 'none';
+      ta.style.background = 'transparent';
+      ta.style.opacity = '0';
+      ta.style.pointerEvents = 'none';
       document.body.appendChild(ta);
+      ta.focus();
       ta.select();
-      document.execCommand('copy');
+      try {
+        document.execCommand('copy');
+      } catch (copyErr) {
+        console.warn('execCommand copy fallback failed:', copyErr);
+      }
       document.body.removeChild(ta);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 3000);
@@ -806,12 +886,40 @@ export default function MetadataModal({
               >
                 <img
                   ref={imgRef}
-                  src={photo.enhancedUrl || photo.objectUrl}
+                  src={photoSrc || photo.enhancedUrl || photo.objectUrl}
                   alt={photo.name}
                   className="modal-photo-img"
                   onLoad={handleImageLoad}
+                  onError={handleImageError}
                   draggable={false}
                 />
+
+                {imageLoadFailed && !photoSrc && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#111827',
+                    padding: '24px',
+                    textAlign: 'center',
+                    gap: '12px',
+                    zIndex: 20
+                  }}>
+                    <p style={{ margin: 0, fontSize: '15px', color: '#f87171', fontWeight: '700' }}>
+                      ⚠️ Photo preview lost connection
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleImageError}
+                      className="btn btn-primary btn-sm"
+                    >
+                      Click to Reload Photo
+                    </button>
+                  </div>
+                )}
 
               {/* Face Bounding Box Overlays */}
               {detectedFaces.map((f, idx) => (

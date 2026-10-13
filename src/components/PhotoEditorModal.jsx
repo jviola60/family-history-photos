@@ -38,9 +38,23 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
 
   // History stack for Undo / Redo of full image edits
   const initialImage = photo.enhancedUrl || photo.objectUrl;
-  const [currentImageUrl, setCurrentImageUrl] = useState(initialImage);
-  const [history, setHistory] = useState([initialImage]);
+  const [currentImageUrl, setCurrentImageUrl] = useState(initialImage || '');
+  const [history, setHistory] = useState([initialImage || '']);
   const [historyIndex, setHistoryIndex] = useState(0);
+
+  // Fallback to load fresh URL from file handle if objectUrl was missing or revoked
+  useEffect(() => {
+    if (!currentImageUrl && photo.handle && typeof photo.handle.getFile === 'function') {
+      photo.handle.getFile().then((file) => {
+        if (file) {
+          const fresh = URL.createObjectURL(file);
+          photo.objectUrl = fresh;
+          setCurrentImageUrl(fresh);
+          setHistory([fresh]);
+        }
+      }).catch(err => console.warn('Could not load image from handle in editor:', err));
+    }
+  }, [photo.handle, currentImageUrl]);
 
   // Original untouched image for "Hold to Compare"
   const [isComparingOriginal, setIsComparingOriginal] = useState(false);

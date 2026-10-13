@@ -636,6 +636,13 @@ export default function App() {
       setSavedCatalog(next);
       return next;
     });
+
+    setActiveMetadataPhoto(prev => {
+      if (prev && prev.id === photoId) {
+        return { ...prev, ...updatedFields };
+      }
+      return prev;
+    });
   };
 
   // Register face match
