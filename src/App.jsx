@@ -45,7 +45,9 @@ import {
   saveNamedFolderHandle,
   loadSavedFolderHandlesMap,
   saveCloudPhotosToDB,
-  loadCloudPhotosFromDB
+  loadCloudPhotosFromDB,
+  saveActiveAlbumCacheToDB,
+  loadActiveAlbumCacheFromDB
 } from './lib/db';
 import { 
   permanentlyDeleteFromDuplicatesReview, 
@@ -148,8 +150,18 @@ export default function App() {
           setSavedFolderHandles(folderHandles);
         }
 
-        // Restore previous album session where user left off
+        // 1. Immediately restore cached active album photos so the screen is NEVER blank on refresh!
+        const cachedActivePhotos = await loadActiveAlbumCacheFromDB();
         const lastSession = await loadLastSessionInfo();
+
+        if (cachedActivePhotos && cachedActivePhotos.length > 0 && isMounted) {
+          setPhotos(cachedActivePhotos);
+          if (lastSession?.folderName) {
+            setFolderName(lastSession.folderName);
+          }
+        }
+
+        // 2. Restore previous album session where user left off
         if (lastSession && isMounted) {
           if (lastSession.type === 'directory') {
             const storedHandle = await loadStoredDirectoryHandle();
@@ -158,7 +170,8 @@ export default function App() {
                 // If browser already granted permission (e.g. within session or persisted origin)
                 const perm = await storedHandle.queryPermission({ mode: 'readwrite' });
                 if (perm === 'granted') {
-                  await loadFolderFromHandle(storedHandle);
+                  setRootDirHandle(storedHandle);
+                  setFolderName(storedHandle.name);
                   return;
                 }
               } catch {}
@@ -200,6 +213,7 @@ export default function App() {
     if (photos.length > 0) {
       const timer = setTimeout(() => {
         saveCatalogToDB(photos);
+        saveActiveAlbumCacheToDB(photos);
       }, 1200);
       return () => clearTimeout(timer);
     }
@@ -235,18 +249,25 @@ export default function App() {
       setRootDirHandle(dirHandle);
       setFolderName(dirHandle.name);
 
-      setScanProgress('Scanning for image files...');
+      const savedMap = savedMetadataMapRef.current;
+      const knownPathsSet = new Set(savedMap.keys());
+
+      setScanProgress('Connecting to photos...');
       const { images } = await scanDirectoryForImages(dirHandle, '', (count, name) => {
-        setScanProgress(`Found ${count} photos (Reading ${name})...`);
-      });
+        setScanProgress(`Connected ${count} photos...`);
+      }, knownPathsSet);
 
       // Seamlessly merge saved user metadata (names, stories, review status) with live files
-      const savedMap = savedMetadataMapRef.current;
       const mergedImages = images.map(img => {
         const saved = savedMap.get(img.relativePath) || savedMap.get(img.name);
         if (saved) {
           return {
             ...img,
+            thumbnailUrl: saved.thumbnailUrl || img.thumbnailUrl,
+            width: saved.width || img.width,
+            height: saved.height || img.height,
+            enhanced: !!saved.enhanced,
+            enhancedUrl: saved.enhancedUrl || null,
             people: (saved.people && saved.people.length > 0) ? saved.people : img.people,
             relationship: saved.relationship || img.relationship,
             story: saved.story || img.story,
@@ -261,6 +282,7 @@ export default function App() {
       });
 
       setPhotos(mergedImages);
+      saveActiveAlbumCacheToDB(mergedImages);
       setIsScanning(false);
       setScanProgress('');
 
@@ -953,6 +975,46 @@ export default function App() {
           />
         ) : (
           <div className="album-content-container">
+            {/* Reconnect Folder Banner when photos are loaded from cache and folder handle needs user activation */}
+            {pendingResumeSession && !rootDirHandle && (
+              <div 
+                className="reconnect-folder-banner"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                  border: '1.5px solid rgba(37, 99, 235, 0.35)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '12px 18px',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <FolderCheck size={22} className="text-primary" />
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Album "{folderName || pendingResumeSession.info?.folderName}" Loaded ({photos.length} photos)
+                    </h4>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      All photos and family memories are preserved on screen. Click <strong>"Reconnect Folder"</strong> to enable saving and enhancing directly to disk.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResumePreviousAlbum}
+                  className="btn btn-primary btn-sm"
+                  style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <FolderCheck size={15} />
+                  <span>📁 Reconnect Folder Access</span>
+                </button>
+              </div>
+            )}
+
             {/* Search and Filters */}
             <SearchFilterBar
               searchQuery={searchQuery}

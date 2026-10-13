@@ -253,6 +253,18 @@ export async function loadSavedFolderHandlesMap() {
   return (map && typeof map === 'object') ? map : {};
 }
 
+const ACTIVE_ALBUM_PHOTOS_KEY = 'active_album_photos_cache';
+
+export async function saveActiveAlbumCacheToDB(photos) {
+  if (!Array.isArray(photos) || photos.length === 0) return;
+  const sanitized = photos.map(sanitizePhotoForStorage).filter(Boolean);
+  await safeDb(store => set(ACTIVE_ALBUM_PHOTOS_KEY, sanitized, store));
+}
+
+export async function loadActiveAlbumCacheFromDB() {
+  return await safeDb(store => get(ACTIVE_ALBUM_PHOTOS_KEY, store), []);
+}
+
 export async function clearStoredDirectoryHandle(folderNameToClear = null) {
   if (folderNameToClear) {
     try {
@@ -264,6 +276,7 @@ export async function clearStoredDirectoryHandle(folderNameToClear = null) {
   await safeDb(store => del(LAST_DIR_HANDLE_KEY, store));
   await safeDb(store => del(LAST_SESSION_INFO_KEY, store));
   await safeDb(store => del(CLOUD_PHOTOS_CACHE_KEY, store));
+  await safeDb(store => del(ACTIVE_ALBUM_PHOTOS_KEY, store));
 }
 
 export async function saveCloudPhotosToDB(photos) {

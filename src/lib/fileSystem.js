@@ -30,7 +30,7 @@ export async function pickLocalDirectory() {
 /**
  * Recursively scans directory for image files
  */
-export async function scanDirectoryForImages(dirHandle, path = '', onProgress = null) {
+export async function scanDirectoryForImages(dirHandle, path = '', onProgress = null, knownPathsSet = null) {
   const images = [];
   let duplicateReviewHandle = null;
   let counter = 0;
@@ -64,9 +64,10 @@ export async function scanDirectoryForImages(dirHandle, path = '', onProgress = 
           const relativePath = `${currentPath}${name}`;
           const isMarkedDuplicate = currentPath.includes('_Duplicates_Review');
 
-          // Check for embedded FamilySearch XMP/IPTC metadata inside the JPEG file
+          // Check for embedded FamilySearch XMP/IPTC metadata inside JPEG (skip if already cached)
           let embeddedMeta = null;
-          if (ext === 'jpg' || ext === 'jpeg') {
+          const isAlreadyKnown = knownPathsSet && (knownPathsSet.has(relativePath) || knownPathsSet.has(name));
+          if (!isAlreadyKnown && (ext === 'jpg' || ext === 'jpeg')) {
             try {
               embeddedMeta = await extractMetadataFromFile(file);
             } catch {}
