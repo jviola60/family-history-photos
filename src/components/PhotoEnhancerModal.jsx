@@ -50,6 +50,58 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const [showManualControls, setShowManualControls] = useState(true);
 
   const [enhancedResultUrl, setEnhancedResultUrl] = useState(photo.enhancedUrl || null);
+  // 📷 Resilient Original Image State with Automatic File-Handle Recovery
+  const [originalUrl, setOriginalUrl] = useState(photo.objectUrl || null);
+  const [originalLoadFailed, setOriginalLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    if (photo.objectUrl && !photo.objectUrl.startsWith('blob:null')) {
+      setOriginalUrl(photo.objectUrl);
+      setOriginalLoadFailed(false);
+      return;
+    }
+
+    if (photo.handle && typeof photo.handle.getFile === 'function') {
+      photo.handle.getFile().then((file) => {
+        if (active && file) {
+          const fresh = URL.createObjectURL(file);
+          photo.objectUrl = fresh;
+          setOriginalUrl(fresh);
+          setOriginalLoadFailed(false);
+        }
+      }).catch((err) => {
+        console.warn('PhotoEnhancerModal: failed to load original from handle:', err);
+        if (active) setOriginalLoadFailed(true);
+      });
+    } else {
+      setOriginalLoadFailed(true);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [photo.id, photo.objectUrl, photo.handle]);
+
+  const handleOriginalImageError = async () => {
+    if (photo.handle && typeof photo.handle.getFile === 'function') {
+      try {
+        const file = await photo.handle.getFile();
+        if (file) {
+          const fresh = URL.createObjectURL(file);
+          photo.objectUrl = fresh;
+          setOriginalUrl(fresh);
+          setOriginalLoadFailed(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('PhotoEnhancerModal: handleOriginalImageError recovery failed:', err);
+      }
+    }
+    setOriginalLoadFailed(true);
+  };
+
   // 🔴 Red-Eye Removal states
   const [isRedEyeClickMode, setIsRedEyeClickMode] = useState(false);
   const [redEyeHistory, setRedEyeHistory] = useState([]);
@@ -161,7 +213,18 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     const chosenRes = overrides.targetRes ?? targetRes;
     const chosenPasses = overrides.passes ?? passCount;
     const chosenStyle = overrides.style ?? styleMode;
-    const chosenBase = overrides.baseImage || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl);
+    let chosenBase = overrides.baseImage || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl));
+
+    if (!chosenBase && photo.handle && typeof photo.handle.getFile === 'function') {
+      try {
+        const file = await photo.handle.getFile();
+        if (file) {
+          chosenBase = URL.createObjectURL(file);
+          photo.objectUrl = chosenBase;
+          setOriginalUrl(chosenBase);
+        }
+      } catch {}
+    }
 
     const config = {
       targetRes: chosenRes,
@@ -249,7 +312,18 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     setTargetRes(res);
     setIsLocalProcessing(true);
 
-    const chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl;
+    let chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl);
+
+    if (!chosenBase && photo.handle && typeof photo.handle.getFile === 'function') {
+      try {
+        const file = await photo.handle.getFile();
+        if (file) {
+          chosenBase = URL.createObjectURL(file);
+          photo.objectUrl = chosenBase;
+          setOriginalUrl(chosenBase);
+        }
+      } catch {}
+    }
 
     try {
       const analysis = await analyzeImageLuminance(chosenBase);
@@ -324,7 +398,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
 
   // 🔴 Red-Eye Removal Handlers
   const handleAutoFixRedEyes = async () => {
-    const currentSrc = enhancedResultUrl || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl);
+    const currentSrc = enhancedResultUrl || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl));
     if (!currentSrc || isProcessing) return;
 
     setIsLocalProcessing(true);
@@ -542,7 +616,17 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     setCloudError(null);
     setPassProgressMessage(`⚡ Connecting to Fal.ai cloud GPU (${currentModel.name})...`);
     try {
-      const chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : photo.objectUrl;
+      let chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl);
+      if (!chosenBase && photo.handle && typeof photo.handle.getFile === 'function') {
+        try {
+          const file = await photo.handle.getFile();
+          if (file) {
+            chosenBase = URL.createObjectURL(file);
+            photo.objectUrl = chosenBase;
+            setOriginalUrl(chosenBase);
+          }
+        } catch {}
+      }
       const res = await restoreWithCloudAi(chosenBase, currentSettings, (msg) => {
         setPassProgressMessage(msg);
       });
@@ -846,10 +930,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 >
                   {/* Original (Left side) */}
                   <img 
-                    src={photo.objectUrl} 
+                    src={originalUrl || photo.objectUrl} 
                     alt="Original" 
                     className="comparison-slide-img original-img" 
                     style={getZoomStyle()}
+                    onError={handleOriginalImageError}
                     draggable={false}
                   />
                   <span className="slide-label label-before">
@@ -946,10 +1031,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                     title={zoomLevel > 1 ? "Drag to pan both sides • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                   >
                     <img 
-                      src={photo.objectUrl} 
+                      src={originalUrl || photo.objectUrl} 
                       alt="Original" 
                       className="comparison-slide-img" 
                       style={getZoomStyle()}
+                      onError={handleOriginalImageError}
                       draggable={false}
                     />
                     <span className="slide-label label-before">Original</span>
@@ -1025,10 +1111,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   title={zoomLevel > 1 ? "Drag to pan • Mouse wheel to zoom" : "Use Magnify buttons or mouse wheel to zoom in"}
                 >
                   <img 
-                    src={photo.objectUrl} 
+                    src={originalUrl || photo.objectUrl} 
                     alt="Original" 
                     className="comparison-slide-img" 
                     style={getZoomStyle()}
+                    onError={handleOriginalImageError}
                     draggable={false}
                   />
                   <span className="slide-label label-before">Original Photo</span>
@@ -1141,7 +1228,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                     className={`btn btn-xs ${baseSource === 'original' ? 'btn-primary' : 'btn-outline'}`}
                     onClick={() => {
                       setBaseSource('original');
-                      runEnhancementWith({ baseImage: photo.objectUrl });
+                      runEnhancementWith({ baseImage: originalUrl || photo.objectUrl });
                     }}
                     title="Start fresh from the untouched original"
                   >
