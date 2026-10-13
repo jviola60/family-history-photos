@@ -20,7 +20,9 @@ import {
   RotateCcw,
   Download,
   ShieldCheck,
-  Copy
+  Copy,
+  Crop,
+  Eraser
 } from 'lucide-react';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
 import { removeRedEyesFromImage } from '../lib/redEyeRemover';
@@ -88,7 +90,8 @@ export default function MetadataModal({
   peopleDirectory,
   onRegisterFaceMatch,
   onMoveToReview,
-  onOpenEnhancer
+  onOpenEnhancer,
+  onOpenEditor
 }) {
   const [people, setPeople] = useState(photo.people || []);
   const [currentNameInput, setCurrentNameInput] = useState('');
@@ -946,16 +949,30 @@ export default function MetadataModal({
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenEnhancer(photo)}
-                  className="btn btn-warning btn-sm"
-                  style={{ fontWeight: '700', flexShrink: 0 }}
-                  title="Open 4K Photo Restorer"
-                >
-                  <Sparkles size={14} />
-                  <span>{photo.enhancedUrl ? 'Re-Enhance / Add Pass' : 'Make 4K'}</span>
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenEnhancer(photo)}
+                    className="btn btn-warning btn-sm"
+                    style={{ fontWeight: '700' }}
+                    title="Open 4K Photo Restorer"
+                  >
+                    <Sparkles size={14} />
+                    <span>{photo.enhancedUrl ? 'Re-Enhance / Add Pass' : 'Make 4K'}</span>
+                  </button>
+                  {onOpenEditor && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenEditor(photo)}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Crop photo or erase scratches & unwanted objects"
+                    >
+                      <Crop size={14} />
+                      <span>Crop & Erase</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1054,6 +1071,27 @@ export default function MetadataModal({
                   <span style={{ fontSize: '11px' }}>🔴</span>
                   <span>{isFixingRedEyes ? 'Fixing Eyes...' : 'Remove Red Eyes'}</span>
                 </button>
+                {onOpenEditor && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenEditor(photo)}
+                    className="btn btn-xs"
+                    style={{
+                      backgroundColor: 'rgba(37, 99, 235, 0.18)',
+                      color: '#bfdbfe',
+                      border: '1px solid rgba(59, 130, 246, 0.45)',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Crop photo borders or erase dust, scratches, and unwanted objects"
+                  >
+                    <Crop size={12} />
+                    <span>Crop & Erase</span>
+                  </button>
+                )}
                 {photo.enhancedUrl && (
                   <button
                     type="button"

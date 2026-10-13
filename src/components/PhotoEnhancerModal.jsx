@@ -19,13 +19,14 @@ import {
   ZoomOut,
   Maximize2,
   Minimize2,
-  Crosshair
+  Crosshair,
+  Crop
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
 import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
-export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings }) {
+export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings, onOpenEditor }) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [aiSettings, setAiSettings] = useState(getAiSettings());
   const activeFalModel = FAL_MODELS.find(m => m.id === (aiSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
@@ -638,6 +639,21 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onOpenEditor && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenEditor(photo);
+                }}
+                className="btn btn-secondary btn-sm"
+                style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '5px' }}
+                title="Crop photo borders or erase scratches, blemishes, and unwanted objects"
+              >
+                <Crop size={14} />
+                <span>Crop & Erase Studio</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setIsMaximized(!isMaximized)}

@@ -8,6 +8,7 @@ import PhotoGrid from './components/PhotoGrid';
 import MetadataModal from './components/MetadataModal';
 import DuplicateManagerModal from './components/DuplicateManagerModal';
 import PhotoEnhancerModal from './components/PhotoEnhancerModal';
+import PhotoEditorModal from './components/PhotoEditorModal';
 import PeopleDirectoryModal from './components/PeopleDirectoryModal';
 import JunkCleanerModal from './components/JunkCleanerModal';
 import SettingsModal from './components/SettingsModal';
@@ -70,6 +71,7 @@ export default function App() {
   // Modals
   const [activeMetadataPhoto, setActiveMetadataPhoto] = useState(null);
   const [activeEnhancePhoto, setActiveEnhancePhoto] = useState(null);
+  const [activeEditorPhoto, setActiveEditorPhoto] = useState(null);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateModalInitialTab, setDuplicateModalInitialTab] = useState('found');
   const [showJunkModal, setShowJunkModal] = useState(false);
@@ -1100,6 +1102,10 @@ export default function App() {
             setActiveMetadataPhoto(null);
             setActiveEnhancePhoto(photo);
           }}
+          onOpenEditor={(photo) => {
+            setActiveMetadataPhoto(null);
+            setActiveEditorPhoto(photo);
+          }}
         />
       )}
 
@@ -1141,6 +1147,19 @@ export default function App() {
           onClose={() => setActiveEnhancePhoto(null)}
           onSaveEnhanced={handleSaveEnhancedPhoto}
           onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenEditor={(photo) => {
+            setActiveEnhancePhoto(null);
+            setActiveEditorPhoto(photo);
+          }}
+        />
+      )}
+
+      {/* Crop & Magic Eraser Studio Modal */}
+      {activeEditorPhoto && (
+        <PhotoEditorModal
+          photo={activeEditorPhoto}
+          onClose={() => setActiveEditorPhoto(null)}
+          onSave={handleSaveEnhancedPhoto}
         />
       )}
 
