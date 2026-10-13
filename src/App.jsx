@@ -47,7 +47,8 @@ import {
   saveCloudPhotosToDB,
   loadCloudPhotosFromDB,
   saveActiveAlbumCacheToDB,
-  loadActiveAlbumCacheFromDB
+  loadActiveAlbumCacheFromDB,
+  overwriteCatalogInDB
 } from './lib/db';
 import { 
   permanentlyDeleteFromDuplicatesReview, 
@@ -667,6 +668,162 @@ export default function App() {
     });
   };
 
+  // Bulk rename person across all photos, detected face tags, and albums
+  const handleRenamePerson = async (oldName, newName, personId) => {
+    if (!oldName || !newName) return false;
+    const cleanOld = oldName.trim();
+    const cleanNew = newName.trim();
+    if (!cleanOld || !cleanNew || cleanOld.toLowerCase() === cleanNew.toLowerCase()) return false;
+
+    // 1. Update peopleDirectory
+    let updatedPeople = {};
+    setPeopleDirectory(prev => {
+      const copy = { ...prev };
+      let targetKey = personId && copy[personId] ? personId : null;
+      if (!targetKey) {
+        targetKey = Object.keys(copy).find(
+          k => copy[k].name && copy[k].name.trim().toLowerCase() === cleanOld.toLowerCase()
+        );
+      }
+
+      if (targetKey && copy[targetKey]) {
+        copy[targetKey] = {
+          ...copy[targetKey],
+          name: cleanNew
+        };
+      } else {
+        const newKey = `person_${Date.now()}`;
+        copy[newKey] = {
+          id: newKey,
+          name: cleanNew,
+          relationship: '',
+          branch: '',
+          avatarUrl: null,
+          embeddings: []
+        };
+      }
+      updatedPeople = copy;
+      return copy;
+    });
+
+    if (Object.keys(updatedPeople).length > 0) {
+      await savePeopleDirectoryToDB(updatedPeople);
+    }
+
+    // Helper to rename a person in a photo object
+    const renameInPhoto = (p) => {
+      if (!p) return p;
+      let changed = false;
+
+      // Update people list
+      let updatedPeopleList = p.people;
+      if (Array.isArray(p.people) && p.people.length > 0) {
+        const mapped = p.people.map(person => {
+          if (person && person.trim().toLowerCase() === cleanOld.toLowerCase()) {
+            changed = true;
+            return cleanNew;
+          }
+          return person;
+        });
+        updatedPeopleList = Array.from(new Set(mapped));
+      }
+
+      // Update detected face assignments
+      let updatedFaces = p.detectedFaces || p.faces;
+      if (Array.isArray(updatedFaces) && updatedFaces.length > 0) {
+        updatedFaces = updatedFaces.map(f => {
+          let faceChanged = false;
+          let newF = { ...f };
+          if (f.name && f.name.trim().toLowerCase() === cleanOld.toLowerCase()) {
+            newF.name = cleanNew;
+            faceChanged = true;
+          }
+          if (f.assignedTo && f.assignedTo.trim().toLowerCase() === cleanOld.toLowerCase()) {
+            newF.assignedTo = cleanNew;
+            faceChanged = true;
+          }
+          if (faceChanged) changed = true;
+          return newF;
+        });
+      }
+
+      // Update manual tags
+      let updatedTags = p.manualTags;
+      if (Array.isArray(p.manualTags) && p.manualTags.length > 0) {
+        const mappedTags = p.manualTags.map(tag => {
+          if (tag && tag.trim().toLowerCase() === cleanOld.toLowerCase()) {
+            changed = true;
+            return cleanNew;
+          }
+          return tag;
+        });
+        updatedTags = Array.from(new Set(mappedTags));
+      }
+
+      // Update personRelationships map
+      let updatedPR = p.personRelationships;
+      if (p.personRelationships && typeof p.personRelationships === 'object') {
+        const nextPR = { ...p.personRelationships };
+        for (const [key, val] of Object.entries(nextPR)) {
+          if (key.trim().toLowerCase() === cleanOld.toLowerCase()) {
+            delete nextPR[key];
+            nextPR[cleanNew] = val;
+            changed = true;
+          }
+        }
+        updatedPR = nextPR;
+      }
+
+      if (!changed) return p;
+
+      return {
+        ...p,
+        people: updatedPeopleList,
+        detectedFaces: updatedFaces,
+        faces: updatedFaces,
+        manualTags: updatedTags,
+        personRelationships: updatedPR
+      };
+    };
+
+    // 2. Update photos in active album
+    let updatedActivePhotos = [];
+    setPhotos(prev => {
+      updatedActivePhotos = prev.map(renameInPhoto);
+      saveActiveAlbumCacheToDB(updatedActivePhotos);
+      return updatedActivePhotos;
+    });
+
+    // 3. Update saved catalog across all albums
+    setSavedCatalog(prev => {
+      const updatedCatalog = (prev || []).map(renameInPhoto);
+      overwriteCatalogInDB(updatedCatalog);
+      return updatedCatalog;
+    });
+
+    // 4. Update active metadata modal if currently open
+    setActiveMetadataPhoto(prev => (prev ? renameInPhoto(prev) : prev));
+
+    // 5. Update person filter if currently active
+    setSelectedPersonFilter(prev => {
+      if (prev && prev.trim().toLowerCase() === cleanOld.toLowerCase()) {
+        return cleanNew;
+      }
+      return prev;
+    });
+
+    // 6. Save catalog to disk file if folder is connected
+    if (rootDirHandle && updatedActivePhotos.length > 0) {
+      try {
+        await saveCatalogToFileSystem(rootDirHandle, updatedActivePhotos);
+      } catch (err) {
+        console.warn('Could not update catalog file on disk:', err);
+      }
+    }
+
+    return true;
+  };
+
   // Register face match
   const handleRegisterFaceMatch = (personName, relationship, branch, embedding) => {
     if (!personName) return;
@@ -1245,6 +1402,7 @@ export default function App() {
           onOpenFolderByName={handleOpenFolderByName}
           onClose={() => setShowPeopleModal(false)}
           onSelectPersonFilter={handleSelectPersonFromDirectory}
+          onRenamePerson={handleRenamePerson}
         />
       )}
 

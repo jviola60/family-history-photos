@@ -161,6 +161,12 @@ export async function loadCatalogFromDB() {
   return Array.isArray(data) ? data : [];
 }
 
+export async function overwriteCatalogInDB(catalog) {
+  if (!Array.isArray(catalog)) return;
+  const sanitized = catalog.map(sanitizePhotoForStorage).filter(Boolean);
+  await safeDb(store => set(CATALOG_KEY, sanitized, store));
+}
+
 export async function savePeopleDirectoryToDB(people) {
   if (!people || typeof people !== 'object') return;
   await safeDb(store => set(PEOPLE_KEY, people, store));

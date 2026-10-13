@@ -11,7 +11,9 @@ import {
   MapPin, 
   BookOpen,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Edit2,
+  Check
 } from 'lucide-react';
 
 export default function PeopleDirectoryModal({
@@ -24,10 +26,14 @@ export default function PeopleDirectoryModal({
   onResumeAlbum = null,
   onOpenFolderByName = null,
   onClose,
-  onSelectPersonFilter
+  onSelectPersonFilter,
+  onRenamePerson = null
 }) {
   const [selectedPhotoForPreview, setSelectedPhotoForPreview] = useState(null);
   const [expandedPersonId, setExpandedPersonId] = useState(null);
+  const [editingPersonId, setEditingPersonId] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  const [renameSuccessMsg, setRenameSuccessMsg] = useState('');
 
   const peopleList = Object.values(peopleDirectory || {});
   const activeAlbumName = currentFolderName || '';
@@ -119,6 +125,27 @@ export default function PeopleDirectoryModal({
     }
   };
 
+  const handleStartRename = (person) => {
+    setEditingPersonId(person.id || person.name);
+    setEditingNameValue(person.name || '');
+  };
+
+  const handleSaveRename = async (person) => {
+    const trimmed = (editingNameValue || '').trim();
+    if (!trimmed || trimmed.toLowerCase() === (person.name || '').toLowerCase()) {
+      setEditingPersonId(null);
+      return;
+    }
+    if (onRenamePerson) {
+      const ok = await onRenamePerson(person.name, trimmed, person.id || person.name);
+      if (ok) {
+        setRenameSuccessMsg(`Renamed "${person.name}" to "${trimmed}" across all photos, face tags, and albums!`);
+        setTimeout(() => setRenameSuccessMsg(''), 5000);
+      }
+    }
+    setEditingPersonId(null);
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 9999 }}>
       <div 
@@ -165,6 +192,27 @@ export default function PeopleDirectoryModal({
         {/* Scrollable Body */}
         <div className="people-modal-body" style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, backgroundColor: '#FAF7F2' }}>
           
+          {/* Success Notification after Renaming */}
+          {renameSuccessMsg && (
+            <div style={{
+              backgroundColor: '#ECFDF5',
+              border: '1.5px solid #10B981',
+              borderRadius: '12px',
+              padding: '12px 18px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              color: '#065F46',
+              fontSize: '13px',
+              fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.15)'
+            }}>
+              <Check size={20} style={{ color: '#059669', flexShrink: 0 }} />
+              <div>{renameSuccessMsg}</div>
+            </div>
+          )}
+
           {/* Informational Guidance Banner */}
           <div style={{
             backgroundColor: '#FEF3C7',
@@ -233,9 +281,106 @@ export default function PeopleDirectoryModal({
                       </div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <h4 style={{ fontSize: '18px', fontWeight: 700, color: '#1C1917', margin: '0 0 4px 0', wordBreak: 'break-word', lineHeight: 1.25 }}>
-                          {person.name}
-                        </h4>
+                        {editingPersonId === (person.id || person.name) ? (
+                          <form 
+                            onSubmit={(e) => { 
+                              e.preventDefault(); 
+                              handleSaveRename(person); 
+                            }}
+                            style={{ marginBottom: '10px', width: '100%' }}
+                          >
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <input
+                                type="text"
+                                value={editingNameValue}
+                                onChange={(e) => setEditingNameValue(e.target.value)}
+                                autoFocus
+                                style={{
+                                  padding: '5px 8px',
+                                  fontSize: '14px',
+                                  fontWeight: 700,
+                                  borderRadius: '6px',
+                                  border: '2px solid #B45309',
+                                  outline: 'none',
+                                  flex: 1,
+                                  color: '#1C1917',
+                                  backgroundColor: '#FFFFFF',
+                                  minWidth: 0
+                                }}
+                                placeholder="New Name (e.g. Brittany Viola)"
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: '5px 10px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  backgroundColor: '#047857',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  flexShrink: 0
+                                }}
+                                title="Save new name across all photos, face tags, and albums"
+                              >
+                                <Check size={13} /> Save Everywhere
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingPersonId(null)}
+                                style={{
+                                  padding: '5px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  backgroundColor: '#E7DDD2',
+                                  color: '#57534E',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  flexShrink: 0
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#B45309', marginTop: '4px', fontWeight: 600 }}>
+                              Renames across all photos, face tags, and albums
+                            </div>
+                          </form>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                            <h4 style={{ fontSize: '18px', fontWeight: 700, color: '#1C1917', margin: 0, wordBreak: 'break-word', lineHeight: 1.25 }}>
+                              {person.name}
+                            </h4>
+                            {onRenamePerson && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartRename(person)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  color: '#78716C',
+                                  backgroundColor: '#F5EFEB',
+                                  border: '1px solid #E7DDD2',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  flexShrink: 0
+                                }}
+                                title={`Rename ${person.name} everywhere`}
+                              >
+                                <Edit2 size={11} /> Rename
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
                           {person.relationship && (
