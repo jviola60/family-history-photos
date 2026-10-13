@@ -1494,8 +1494,33 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   )}
                 </div>
 
-                {/* 1. Portrait Skin Smoothing */}
-                <div className="enhancer-control-section" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                {/* 1. Photo & Edge Sharpness */}
+                <div className="enhancer-control-section" style={{ backgroundColor: 'rgba(59, 130, 246, 0.06)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59, 130, 246, 0.25)', marginBottom: '10px' }}>
+                  <div className="slider-range-group">
+                    <div className="range-header">
+                      <span className="flex items-center gap-6" style={{ fontWeight: '700', color: 'var(--text-main)' }}>
+                        <Sparkles size={16} className="text-primary" />
+                        <span>Photo & Edge Sharpness:</span>
+                      </span>
+                      <span className="range-value">{sharpenAmount.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.2"
+                      step="0.05"
+                      value={sharpenAmount}
+                      onChange={(e) => setSharpenAmount(parseFloat(e.target.value))}
+                      className="range-input"
+                    />
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                      Sharpens authentic photo focus and eye/fabric contours (works directly on real pixels, zero fake AI).
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Portrait Skin Smoothing */}
+                <div className="enhancer-control-section" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: '10px' }}>
                   <div className="slider-range-group">
                     <div className="range-header">
                       <span className="flex items-center gap-6" style={{ fontWeight: '700', color: 'var(--text-main)' }}>
@@ -1518,8 +1543,8 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                   </div>
                 </div>
 
-                {/* 2. Shadow Recovery / Lighten Dark Areas */}
-                <div className="enhancer-control-section" style={{ backgroundColor: 'rgba(217, 119, 6, 0.05)', padding: '12px', borderRadius: 'var(--radius-md)', marginTop: '10px' }}>
+                {/* 3. Shadow Recovery & Lighting */}
+                <div className="enhancer-control-section" style={{ backgroundColor: 'rgba(217, 119, 6, 0.05)', padding: '12px', borderRadius: 'var(--radius-md)', marginBottom: '10px' }}>
                   <div className="slider-range-group">
                     <div className="range-header">
                       <span className="flex items-center gap-6" style={{ fontWeight: '700', color: 'var(--text-main)' }}>
@@ -1558,30 +1583,8 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                       className="range-input"
                     />
                   </div>
-                </div>
 
-                {/* 3. Anti-Ringing Edge Sharpening */}
-                <div className="enhancer-control-section" style={{ marginTop: '10px' }}>
-                  <div className="slider-range-group">
-                    <div className="range-header">
-                      <span>Facial & Edge Sharpening (Anti-Ringing):</span>
-                      <span className="range-value">{sharpenAmount.toFixed(2)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.2"
-                      step="0.05"
-                      value={sharpenAmount}
-                      onChange={(e) => setSharpenAmount(parseFloat(e.target.value))}
-                      className="range-input"
-                    />
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                      Strict anti-ringing clamp active: enhances real contours without creating white halos.
-                    </p>
-                  </div>
-
-                  {/* 4. Contrast Tuning */}
+                  {/* Contrast Tuning */}
                   <div className="slider-range-group" style={{ marginTop: '12px' }}>
                     <div className="range-header">
                       <span>Contrast Tuning:</span>
@@ -1601,6 +1604,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                     </p>
                   </div>
                 </div>
+
 
                 {/* 4. Vintage Adjustments */}
                 <div className="enhancer-control-section">
