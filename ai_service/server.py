@@ -325,14 +325,31 @@ def run_realesrgan_tile(pil_img, tile_size=384, overlap=28):
 # HTTP Request Handler
 # ==============================================================================
 
+ALLOWED_ORIGINS = {
+    "https://jviola60.github.io",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+}
+MAX_BODY_BYTES = 60 * 1024 * 1024  # 60 MB cap to prevent memory exhaustion
+
+
 class AIRestorationHandler(BaseHTTPRequestHandler):
+    def _origin_allowed(self):
+        return self.headers.get("Origin", "") in ALLOWED_ORIGINS
+
     def _send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin", "")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
-        self.send_response(204)
+        self.send_response(204 if self._origin_allowed() else 403)
         self._send_cors_headers()
         self.end_headers()
 
@@ -357,7 +374,20 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        content_length = int(self.headers.get("Content-Length", 0))
+        # Block cross-site requests from untrusted web pages
+        if not self._origin_allowed():
+            self.send_response(403)
+            self.end_headers()
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            content_length = -1
+        if content_length < 0 or content_length > MAX_BODY_BYTES:
+            self.send_response(413)
+            self._send_cors_headers()
+            self.end_headers()
+            return
         post_data = self.rfile.read(content_length)
 
         if self.path == "/inpaint":
@@ -517,7 +547,8 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), AIRestorationHandler)
+    # Bind to loopback only so other devices on the network cannot reach it
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), AIRestorationHandler)
     print("==================================================================")
     print("  Family History Photos - 100% Offline AI Restoration Engine v2.0")
     print(f"  URL: http://localhost:{PORT}")

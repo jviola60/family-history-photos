@@ -249,9 +249,10 @@ export async function launchGooglePicker({ apiKey, clientId, onFilesPicked, onEr
                 const fileId = doc[window.google.picker.Document.ID];
                 const fileName = doc[window.google.picker.Document.NAME];
                 try {
-                  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
                     headers: { Authorization: `Bearer ${accessToken}` }
                   });
+                  if (!res.ok) throw new Error(`Drive download failed (${res.status})`);
                   const blob = await res.blob();
                   const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
                   files.push(file);
