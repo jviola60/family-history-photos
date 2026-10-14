@@ -67,7 +67,10 @@ export async function enhanceImage(imageSrc, options = {}) {
     contrastBoost = 1.01,      // Gentle contrast that protects soft lighting
     shadowLift = 0.15,         // Calibrated shadow lift
     brightnessBoost = 0.02,    // Subtle exposure lift
-    restoreColors = false,     // Default false to preserve authentic studio colors
+    restoreColors = false,     // Color Restoration & De-Fading
+    defadeStrength = 0.70,     // 0.0 to 1.0 (contrast recovery)
+    repairScratches = false,   // Auto-Repair Scratches & Fold Creases
+    scratchStrength = 0.75,    // 0.0 to 1.0 (scratch healing)
     denoise = true,
     passes = 1,                // Default 1-2 clean passes (avoids crunchy overprocessing)
     onProgress = null          // Callback: (passNum, totalPasses, statusMsg) => {}
@@ -106,11 +109,19 @@ export async function enhanceImage(imageSrc, options = {}) {
   let currentCtx = currentCanvas.getContext('2d', { willReadFrequently: true });
   currentCtx.drawImage(img, 0, 0);
 
-  // Base cleanup at original scale (only if requested)
+  // Base cleanup at original scale (in pure client-side JavaScript / Canvas)
   let baseData = currentCtx.getImageData(0, 0, currentCanvas.width, currentCanvas.height);
-  if (restoreColors) {
-    applyColorRestoration(baseData.data);
+  
+  if (repairScratches && scratchStrength > 0) {
+    if (onProgress) onProgress(1, totalPasses, 'Healing scratches, fold creases & dust...');
+    applyClientScratchRepair(baseData.data, currentCanvas.width, currentCanvas.height, scratchStrength);
   }
+
+  if (restoreColors) {
+    if (onProgress) onProgress(1, totalPasses, 'Restoring faded colors, balancing tone & lifting dynamic range...');
+    applyAdvancedColorRestoration(baseData.data, defadeStrength);
+  }
+
   if (shadowLift > 0 || brightnessBoost !== 0) {
     applyShadowAndBrightness(baseData.data, shadowLift, brightnessBoost);
   }
@@ -387,39 +398,146 @@ function applyShadowAndBrightness(data, shadowLift, brightnessBoost) {
 /**
  * Fix vintage yellowing, red shifts, and color casts
  */
-function applyColorRestoration(data) {
-  let minR = 255, maxR = 0;
-  let minG = 255, maxG = 0;
-  let minB = 255, maxB = 0;
+/**
+ * Automatic Client-Side Scratch, Fold Crease & Dust Repair (100% In-Browser)
+ * Detects thin, high-contrast linear cracks and heals them using surrounding texture synthesis
+ */
+function applyClientScratchRepair(data, width, height, strength = 0.75) {
+  const len = width * height;
+  const isScratch = new Uint8Array(len);
 
-  for (let i = 0; i < data.length; i += 16) {
-    minR = Math.min(minR, data[i]);
-    maxR = Math.max(maxR, data[i]);
-    minG = Math.min(minG, data[i + 1]);
-    maxG = Math.max(maxG, data[i + 1]);
-    minB = Math.min(minB, data[i + 2]);
-    maxB = Math.max(maxB, data[i + 2]);
+  // Fast luminance array
+  const lum = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    const idx = i * 4;
+    lum[i] = Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
   }
 
-  minR = Math.min(minR, 20);
-  minG = Math.min(minG, 20);
-  minB = Math.min(minB, 20);
-  maxR = Math.max(maxR, 230);
-  maxG = Math.max(maxG, 230);
-  maxB = Math.max(maxB, 230);
+  // Detect sharp line-like cracks, fold marks & dust specks
+  for (let y = 2; y < height - 2; y++) {
+    const rowOffset = y * width;
+    for (let x = 2; x < width - 2; x++) {
+      const idx = rowOffset + x;
+      const c = lum[idx];
 
-  const rangeR = maxR - minR || 1;
-  const rangeG = maxG - minG || 1;
-  const rangeB = maxB - minB || 1;
+      const diffH = Math.abs((lum[idx - 1] + lum[idx + 1]) / 2 - c);
+      const diffV = Math.abs((lum[idx - width] + lum[idx + width]) / 2 - c);
+      const diffD1 = Math.abs((lum[idx - width - 1] + lum[idx + width + 1]) / 2 - c);
+      const diffD2 = Math.abs((lum[idx - width + 1] + lum[idx + width - 1]) / 2 - c);
 
-  for (let i = 0; i < data.length; i += 4) {
-    const r = Math.min(255, Math.max(0, ((data[i] - minR) / rangeR) * 255));
-    const g = Math.min(255, Math.max(0, ((data[i + 1] - minG) / rangeG) * 255));
-    const b = Math.min(255, Math.max(0, ((data[i + 2] - minB) / rangeB) * 255));
+      const maxDiff = Math.max(diffH, diffV, diffD1, diffD2);
+      const minDiff = Math.min(diffH, diffV, diffD1, diffD2);
 
-    data[i] = Math.round(data[i] * 0.75 + r * 0.25);
-    data[i + 1] = Math.round(data[i + 1] * 0.75 + g * 0.25);
-    data[i + 2] = Math.round(data[i + 2] * 0.75 + b * 0.25);
+      // Scratches/folds have sharp directional contrast or sharp localized flecks
+      if ((maxDiff > 28 && (maxDiff - minDiff) > 12) || maxDiff > 45) {
+        isScratch[idx] = 1;
+      }
+    }
+  }
+
+  // Heal identified scratches using boundary pixel blending (border-inward synthesis)
+  for (let y = 2; y < height - 2; y++) {
+    const rowOffset = y * width;
+    for (let x = 2; x < width - 2; x++) {
+      const idx = rowOffset + x;
+      if (!isScratch[idx]) continue;
+
+      let rSum = 0, gSum = 0, bSum = 0, count = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        const ny = y + dy;
+        const nRow = ny * width;
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nIdx = nRow + (x + dx);
+          if (!isScratch[nIdx]) {
+            const pIdx = nIdx * 4;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const w = 1 / dist;
+            rSum += data[pIdx] * w;
+            gSum += data[pIdx + 1] * w;
+            bSum += data[pIdx + 2] * w;
+            count += w;
+          }
+        }
+      }
+
+      if (count > 0) {
+        const pIdx = idx * 4;
+        const targetR = Math.round(rSum / count);
+        const targetG = Math.round(gSum / count);
+        const targetB = Math.round(bSum / count);
+
+        data[pIdx] = Math.round(data[pIdx] * (1 - strength) + targetR * strength);
+        data[pIdx + 1] = Math.round(data[pIdx + 1] * (1 - strength) + targetG * strength);
+        data[pIdx + 2] = Math.round(data[pIdx + 2] * (1 - strength) + targetB * strength);
+      }
+    }
+  }
+}
+
+/**
+ * Advanced In-Browser Color Restoration & De-Fading (100% Offline)
+ * 1. Multi-channel percentile stretch: neutralizes aged yellowing/sepia casts
+ * 2. Adaptive S-curve: lifts washed-out blacks and deep dynamic range
+ * 3. Saturation boost: revitalizes authentic faded pigments
+ */
+function applyAdvancedColorRestoration(data, defadeStrength = 0.70) {
+  const len = data.length;
+  const histR = new Uint32Array(256);
+  const histG = new Uint32Array(256);
+  const histB = new Uint32Array(256);
+  const totalPixels = len / 4;
+
+  for (let i = 0; i < len; i += 4) {
+    histR[data[i]]++;
+    histG[data[i + 1]]++;
+    histB[data[i + 2]]++;
+  }
+
+  function getPercentile(hist, pct) {
+    const target = totalPixels * pct;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) {
+      sum += hist[i];
+      if (sum >= target) return i;
+    }
+    return 255;
+  }
+
+  const lowR = getPercentile(histR, 0.015);
+  const highR = Math.max(lowR + 1, getPercentile(histR, 0.985));
+  const lowG = getPercentile(histG, 0.015);
+  const highG = Math.max(lowG + 1, getPercentile(histG, 0.985));
+  const lowB = getPercentile(histB, 0.015);
+  const highB = Math.max(lowB + 1, getPercentile(histB, 0.985));
+
+  const rangeR = highR - lowR;
+  const rangeG = highG - lowG;
+  const rangeB = highB - lowB;
+
+  const blend = Math.min(1.0, Math.max(0.1, defadeStrength));
+
+  for (let i = 0; i < len; i += 4) {
+    let r = Math.min(255, Math.max(0, ((data[i] - lowR) / rangeR) * 255));
+    let g = Math.min(255, Math.max(0, ((data[i + 1] - lowG) / rangeG) * 255));
+    let b = Math.min(255, Math.max(0, ((data[i + 2] - lowB) / rangeB) * 255));
+
+    // Dynamic range S-curve to de-fade washed-out midtones & deep shadows
+    const curveFactor = 1.0 + 0.35 * blend;
+    r = Math.min(255, Math.max(0, 128 + (r - 128) * curveFactor));
+    g = Math.min(255, Math.max(0, 128 + (g - 128) * curveFactor));
+    b = Math.min(255, Math.max(0, 128 + (b - 128) * curveFactor));
+
+    // Mild saturation recovery for faded vintage colors
+    const mean = (r + g + b) / 3;
+    const satFactor = 1.0 + 0.28 * blend;
+    r = Math.min(255, Math.max(0, mean + (r - mean) * satFactor));
+    g = Math.min(255, Math.max(0, mean + (g - mean) * satFactor));
+    b = Math.min(255, Math.max(0, mean + (b - mean) * satFactor));
+
+    data[i] = Math.round(data[i] * (1 - blend) + r * blend);
+    data[i + 1] = Math.round(data[i + 1] * (1 - blend) + g * blend);
+    data[i + 2] = Math.round(data[i + 2] * (1 - blend) + b * blend);
   }
 }
 

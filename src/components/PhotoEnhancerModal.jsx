@@ -248,6 +248,9 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
       shadowLift: overrides.shadowLift ?? shadowLift,
       brightnessBoost: overrides.brightnessBoost ?? brightnessBoost,
       restoreColors: overrides.restoreColors ?? restoreColors,
+      defadeStrength: overrides.defadeStrength ?? localDefadeStrength,
+      repairScratches: overrides.repairScratches ?? localRepairScratches,
+      scratchStrength: overrides.scratchStrength ?? localScratchStrength,
       denoise: overrides.denoise ?? denoise,
       onProgress: (passNum, total, msg) => {
         setPassProgressMessage(msg);
@@ -265,7 +268,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
       setIsLiveUpdating(false);
       setPassProgressMessage('');
     }
-  }, [photo.objectUrl, photo.enhancedUrl, baseSource, targetRes, passCount, styleMode, skinSmoothing, sharpenAmount, contrastBoost, shadowLift, brightnessBoost, restoreColors, denoise]);
+  }, [photo.objectUrl, photo.enhancedUrl, baseSource, targetRes, passCount, styleMode, skinSmoothing, sharpenAmount, contrastBoost, shadowLift, brightnessBoost, restoreColors, localDefadeStrength, localRepairScratches, localScratchStrength, denoise]);
 
   // Apply one of the 3 calibrated restoration styles
   const applyRestorationStyle = useCallback((style) => {
@@ -514,7 +517,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [shadowLift, brightnessBoost, sharpenAmount, contrastBoost, restoreColors, denoise]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shadowLift, brightnessBoost, sharpenAmount, contrastBoost, restoreColors, localDefadeStrength, localRepairScratches, localScratchStrength, denoise]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-run optimal enhancement when modal opens
   useEffect(() => {
@@ -1432,206 +1435,31 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
               </div>
             ) : (
               <div style={{
-                backgroundColor: localAiHealth?.available ? 'rgba(34, 197, 94, 0.06)' : 'rgba(245, 158, 11, 0.06)',
-                borderRadius: '10px',
-                border: localAiHealth?.available ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)',
-                padding: '12px',
-                marginBottom: '16px'
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                backgroundColor: 'rgba(34, 197, 94, 0.06)',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                border: '1px solid rgba(34, 197, 94, 0.25)'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', color: 'var(--text-main)' }}>
-                    <ShieldCheck size={18} color={localAiHealth?.available ? '#16a34a' : '#d97706'} />
-                    <span>{localAiHealth?.available ? '100% Offline Local AI Engine' : 'Local AI Engine (Offline)'}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <button
-                      type="button"
-                      onClick={refreshLocalAiHealth}
-                      disabled={isCheckingLocalAi}
-                      className="btn btn-secondary btn-xs"
-                      title="Check if local AI python server is running"
-                      style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <RefreshCw size={11} className={isCheckingLocalAi ? 'spin-icon' : ''} />
-                      <span>{isCheckingLocalAi ? 'Checking...' : 'Check Status'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenSettings}
-                      className="btn btn-outline btn-xs"
-                      style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      title="Configure AI settings"
-                    >
-                      <Settings size={11} />
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                  <ShieldCheck size={18} color="#16a34a" />
+                  <span style={{ color: 'var(--text-main)' }}>
+                    Engine: <strong style={{ color: '#16a34a' }}>100% In-Browser & Private (Zero Setup)</strong>
+                  </span>
                 </div>
-
-                {localAiHealth?.available ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '600' }}>
-                      ● Active: CodeFormer + Real-ESRGAN + OpenCV Scratch Inpaint + LAB-CLAHE De-Fading
-                    </div>
-
-                    {/* Face Restoration Model Picker */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: '600' }}>
-                        <span>Face Restoration:</span>
-                        <span style={{ color: 'var(--accent)', fontWeight: '700' }}>
-                          {localFaceModel === 'codeformer' ? 'CodeFormer' : (localFaceModel === 'gfpgan' ? 'GFPGAN v1.4' : 'Disabled')}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
-                        <button
-                          type="button"
-                          className={`btn btn-xs ${localFaceModel === 'codeformer' ? 'btn-primary' : 'btn-outline'}`}
-                          style={{ flex: 1, fontSize: '11px' }}
-                          onClick={() => setLocalFaceModel('codeformer')}
-                        >
-                          CodeFormer (High Likeness)
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn btn-xs ${localFaceModel === 'gfpgan' ? 'btn-primary' : 'btn-outline'}`}
-                          style={{ flex: 1, fontSize: '11px' }}
-                          onClick={() => setLocalFaceModel('gfpgan')}
-                        >
-                          GFPGAN v1.4
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn btn-xs ${localFaceModel === 'none' ? 'btn-primary' : 'btn-outline'}`}
-                          style={{ fontSize: '11px' }}
-                          onClick={() => setLocalFaceModel('none')}
-                        >
-                          Off
-                        </button>
-                      </div>
-
-                      {localFaceModel !== 'none' && (
-                        <div style={{ marginTop: '6px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                            <span>Likeness Fidelity:</span>
-                            <span>{Math.round(localFidelity * 100)}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.30"
-                            max="0.95"
-                            step="0.05"
-                            value={localFidelity}
-                            onChange={(e) => setLocalFidelity(parseFloat(e.target.value))}
-                            className="range-input"
-                            style={{ height: '4px', marginTop: '4px' }}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Local Scratch & Fold Repair */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={localRepairScratches}
-                          onChange={(e) => setLocalRepairScratches(e.target.checked)}
-                        />
-                        <span>Auto-Repair Scratches & Fold Creases (OpenCV)</span>
-                      </label>
-                      {localRepairScratches && (
-                        <div style={{ paddingLeft: '22px', marginTop: '2px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                            <span>Inpainting Strength:</span>
-                            <span>{Math.round(localScratchStrength * 100)}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.2"
-                            max="1.0"
-                            step="0.05"
-                            value={localScratchStrength}
-                            onChange={(e) => setLocalScratchStrength(parseFloat(e.target.value))}
-                            className="range-input"
-                            style={{ height: '4px', marginTop: '4px' }}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Color Restoration & De-Fading */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={localRestoreColor}
-                          onChange={(e) => setLocalRestoreColor(e.target.checked)}
-                        />
-                        <span>Color Restoration & De-Fading (White-Balance + CLAHE)</span>
-                      </label>
-                      {localRestoreColor && (
-                        <div style={{ paddingLeft: '22px', marginTop: '2px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                            <span>De-Fading & Contrast Recovery:</span>
-                            <span>{Math.round(localDefadeStrength * 100)}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.2"
-                            max="1.0"
-                            step="0.05"
-                            value={localDefadeStrength}
-                            onChange={(e) => setLocalDefadeStrength(parseFloat(e.target.value))}
-                            className="range-input"
-                            style={{ height: '4px', marginTop: '4px' }}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 4K Real-ESRGAN Neural Upscaling */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '4px 8px' }}>
-                      <input
-                        type="checkbox"
-                        checked={localUpscale}
-                        onChange={(e) => setLocalUpscale(e.target.checked)}
-                      />
-                      <span>4K Neural Super-Resolution (Real-ESRGAN x4)</span>
-                    </label>
-
-                    {/* Run Local AI Action Button */}
-                    <button
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={handleLocalAiRestoration}
-                      className="btn btn-primary btn-block"
-                      style={{
-                        padding: '10px 14px',
-                        fontWeight: '800',
-                        fontSize: '13px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        background: 'linear-gradient(135deg, #15803d 0%, #16a34a 100%)',
-                        border: 'none',
-                        color: '#fff',
-                        boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
-                      }}
-                    >
-                      <Sparkles size={16} />
-                      <span>⚡ Run 100% Offline AI Restoration</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    <p style={{ margin: '0 0 8px' }}>
-                      <strong>Offline AI Engine Offline:</strong> Run <code style={{ backgroundColor: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>python ai_service/server.py</code> in a terminal to enable local CodeFormer face restoration, OpenCV scratch/fold inpainting, and Real-ESRGAN 4K.
-                    </p>
-                    <p style={{ margin: 0, color: 'var(--text-subtle)' }}>
-                      In the meantime, the built-in browser canvas enhancer below is active and ready to use!
-                    </p>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="btn btn-secondary btn-xs"
+                  style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  title="Configure app settings"
+                >
+                  <Settings size={12} />
+                  <span>Settings</span>
+                </button>
               </div>
             )}
 
@@ -1959,29 +1787,86 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 {/* 4. Vintage Adjustments */}
                 <div className="enhancer-control-section">
                   <div className="restoration-toggle-list">
-                    <label className="enhancer-toggle-row">
-                      <input
-                        type="checkbox"
-                        checked={restoreColors}
-                        onChange={(e) => setRestoreColors(e.target.checked)}
-                      />
-                      <div className="toggle-text">
-                        <span className="toggle-title">Restore Faded Colors & Tone</span>
-                        <span className="toggle-desc">Balances vintage yellow casts</span>
-                      </div>
-                    </label>
+                    {/* Scratch & Fold Repair */}
+                    <div style={{ backgroundColor: 'rgba(28, 25, 23, 0.03)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+                      <label className="enhancer-toggle-row" style={{ margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={localRepairScratches}
+                          onChange={(e) => setLocalRepairScratches(e.target.checked)}
+                        />
+                        <div className="toggle-text">
+                          <span className="toggle-title">Auto-Repair Scratches & Fold Creases</span>
+                          <span className="toggle-desc">Heals cracks, emulsion scratches, and fold marks</span>
+                        </div>
+                      </label>
+                      {localRepairScratches && (
+                        <div style={{ paddingLeft: '28px', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span>Healing Intensity:</span>
+                            <span style={{ fontWeight: '700' }}>{Math.round(localScratchStrength * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="1.0"
+                            step="0.05"
+                            value={localScratchStrength}
+                            onChange={(e) => setLocalScratchStrength(parseFloat(e.target.value))}
+                            className="range-input"
+                            style={{ height: '4px', marginTop: '4px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
 
-                    <label className="enhancer-toggle-row">
-                      <input
-                        type="checkbox"
-                        checked={denoise}
-                        onChange={(e) => setDenoise(e.target.checked)}
-                      />
-                      <div className="toggle-text">
-                        <span className="toggle-title">Clean Film Grain & Dust</span>
-                        <span className="toggle-desc">Smooths noise while keeping edges sharp</span>
-                      </div>
-                    </label>
+                    {/* Color Restoration & De-Fading */}
+                    <div style={{ backgroundColor: 'rgba(28, 25, 23, 0.03)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', marginTop: '8px' }}>
+                      <label className="enhancer-toggle-row" style={{ margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={restoreColors}
+                          onChange={(e) => setRestoreColors(e.target.checked)}
+                        />
+                        <div className="toggle-text">
+                          <span className="toggle-title">Restore Faded Colors & Tone</span>
+                          <span className="toggle-desc">Balances vintage yellow casts & deepens dynamic range</span>
+                        </div>
+                      </label>
+                      {restoreColors && (
+                        <div style={{ paddingLeft: '28px', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span>Contrast & De-Fade Recovery:</span>
+                            <span style={{ fontWeight: '700' }}>{Math.round(localDefadeStrength * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="1.0"
+                            step="0.05"
+                            value={localDefadeStrength}
+                            onChange={(e) => setLocalDefadeStrength(parseFloat(e.target.value))}
+                            className="range-input"
+                            style={{ height: '4px', marginTop: '4px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Clean Film Grain & Dust */}
+                    <div style={{ backgroundColor: 'rgba(28, 25, 23, 0.03)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', marginTop: '8px' }}>
+                      <label className="enhancer-toggle-row" style={{ margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={denoise}
+                          onChange={(e) => setDenoise(e.target.checked)}
+                        />
+                        <div className="toggle-text">
+                          <span className="toggle-title">Clean Film Grain & Dust</span>
+                          <span className="toggle-desc">Smooths noise while keeping edges sharp</span>
+                        </div>
+                      </label>
+                    </div>
                   </div>
 
                   <button 

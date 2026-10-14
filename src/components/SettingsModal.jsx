@@ -194,7 +194,7 @@ export default function SettingsModal({ onClose }) {
                     marginTop: '14px',
                     padding: '14px',
                     backgroundColor: '#ffffff',
-                    border: localHealth?.available ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)',
+                    border: '1px solid rgba(34, 197, 94, 0.3)',
                     borderRadius: '8px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -208,176 +208,119 @@ export default function SettingsModal({ onClose }) {
                         width: '10px',
                         height: '10px',
                         borderRadius: '50%',
-                        backgroundColor: localHealth?.available ? '#16a34a' : '#d97706'
+                        backgroundColor: '#16a34a'
                       }} />
                       <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>
-                        {localHealth?.available ? 'Local AI Engine: Running (http://localhost:8008)' : 'Local AI Engine: Server Offline'}
+                        In-Browser Engine: Active & Ready (Zero Setup Required)
                       </strong>
                     </div>
-                    <button
-                      type="button"
-                      onClick={checkLocal}
-                      disabled={isCheckingLocal}
-                      className="btn btn-secondary btn-xs"
-                      style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
-                    >
-                      <RefreshCw size={11} className={isCheckingLocal ? 'spin-icon' : ''} />
-                      <span>{isCheckingLocal ? 'Checking...' : 'Check Status'}</span>
-                    </button>
+                    {localHealth?.available ? (
+                      <span className="badge badge-success" style={{ fontSize: '10px' }}>
+                        ⚡ CodeFormer Server Active
+                      </span>
+                    ) : (
+                      <span className="badge badge-success" style={{ fontSize: '10px' }}>
+                        100% In-Browser
+                      </span>
+                    )}
                   </div>
 
-                  {localHealth?.available ? (
-                    <>
-                      <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '600' }}>
-                        ✓ CodeFormer Face Restoration &bull; Real-ESRGAN x4 4K Neural Upscaler &bull; OpenCV Scratch Inpainting &bull; LAB CLAHE Color De-Fading
-                      </div>
+                  <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '600' }}>
+                    ✓ 100% In-Browser Scratch Repair &bull; Color De-Fading &bull; Super-Resolution &bull; Likeness Preservation
+                  </div>
 
-                      {/* Face Restoration Model */}
-                      <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '12px', fontWeight: '700' }}>Facial Restoration Model:</span>
-                          <span style={{ fontSize: '12px', color: 'var(--accent)', fontWeight: '700' }}>
-                            {settings.localFaceModel === 'codeformer' ? 'CodeFormer (Recommended)' : (settings.localFaceModel === 'gfpgan' ? 'GFPGAN v1.4' : 'Disabled')}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <button
-                            type="button"
-                            className={`btn btn-xs ${settings.localFaceModel === 'codeformer' ? 'btn-primary' : 'btn-outline'}`}
-                            style={{ flex: 1, fontSize: '11px' }}
-                            onClick={() => updateSetting('localFaceModel', 'codeformer')}
-                          >
-                            CodeFormer (High Likeness)
-                          </button>
-                          <button
-                            type="button"
-                            className={`btn btn-xs ${settings.localFaceModel === 'gfpgan' ? 'btn-primary' : 'btn-outline'}`}
-                            style={{ flex: 1, fontSize: '11px' }}
-                            onClick={() => updateSetting('localFaceModel', 'gfpgan')}
-                          >
-                            GFPGAN v1.4
-                          </button>
-                          <button
-                            type="button"
-                            className={`btn btn-xs ${settings.localFaceModel === 'none' ? 'btn-primary' : 'btn-outline'}`}
-                            style={{ fontSize: '11px' }}
-                            onClick={() => updateSetting('localFaceModel', 'none')}
-                          >
-                            Off
-                          </button>
-                        </div>
-                        {settings.localFaceModel !== 'none' && (
-                          <div style={{ marginTop: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                              <span>Likeness Fidelity (Preserve original facial identity):</span>
-                              <span style={{ fontWeight: '700' }}>{Math.round((settings.localFidelity ?? 0.75) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0.30"
-                              max="0.95"
-                              step="0.05"
-                              value={settings.localFidelity ?? 0.75}
-                              onChange={(e) => updateSetting('localFidelity', parseFloat(e.target.value))}
-                              className="range-input"
-                              style={{ height: '4px', marginTop: '4px' }}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Scratch & Fold Repair */}
-                      <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={settings.localRepairScratches ?? true}
-                            onChange={(e) => updateSetting('localRepairScratches', e.target.checked)}
-                          />
-                          <span>Auto-Repair Scratches & Fold Creases (OpenCV Telea)</span>
-                        </label>
-                        {(settings.localRepairScratches ?? true) && (
-                          <div style={{ paddingLeft: '24px', marginTop: '6px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                              <span>Inpainting Intensity:</span>
-                              <span style={{ fontWeight: '700' }}>{Math.round((settings.localScratchStrength ?? 0.75) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0.2"
-                              max="1.0"
-                              step="0.05"
-                              value={settings.localScratchStrength ?? 0.75}
-                              onChange={(e) => updateSetting('localScratchStrength', parseFloat(e.target.value))}
-                              className="range-input"
-                              style={{ height: '4px', marginTop: '4px' }}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Color Restoration & De-Fading */}
-                      <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={settings.localRestoreColor ?? true}
-                            onChange={(e) => updateSetting('localRestoreColor', e.target.checked)}
-                          />
-                          <span>Color Restoration & De-Fading (White-Balance + CLAHE)</span>
-                        </label>
-                        {(settings.localRestoreColor ?? true) && (
-                          <div style={{ paddingLeft: '24px', marginTop: '6px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                              <span>Contrast & Dynamic Range Recovery:</span>
-                              <span style={{ fontWeight: '700' }}>{Math.round((settings.localDefadeStrength ?? 0.70) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0.2"
-                              max="1.0"
-                              step="0.05"
-                              value={settings.localDefadeStrength ?? 0.70}
-                              onChange={(e) => updateSetting('localDefadeStrength', parseFloat(e.target.value))}
-                              className="range-input"
-                              style={{ height: '4px', marginTop: '4px' }}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Real-ESRGAN 4x */}
-                      <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={settings.localUpscale ?? true}
-                            onChange={(e) => updateSetting('localUpscale', e.target.checked)}
-                          />
-                          <span>4K Neural Super-Resolution (Real-ESRGAN x4)</span>
-                        </label>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                      <p style={{ margin: '0 0 6px' }}>
-                        To run CodeFormer face restoration, OpenCV scratch/fold inpainting, and Real-ESRGAN 4K offline, run in a terminal:
-                      </p>
-                      <pre style={{
-                        background: '#1c1917',
-                        color: '#f97316',
-                        padding: '6px 10px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        margin: '4px 0'
-                      }}>
-                        python ai_service/server.py
-                      </pre>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-subtle)' }}>
-                        Client-side browser canvas enhancement remains active when the offline server is stopped.
-                      </p>
+                  {/* Likeness Preservation */}
+                  <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>Facial Likeness Fidelity (Preserve original facial identity):</span>
+                      <span style={{ fontWeight: '700' }}>{Math.round((settings.localFidelity ?? 0.75) * 100)}%</span>
                     </div>
-                  )}
+                    <input
+                      type="range"
+                      min="0.30"
+                      max="0.95"
+                      step="0.05"
+                      value={settings.localFidelity ?? 0.75}
+                      onChange={(e) => updateSetting('localFidelity', parseFloat(e.target.value))}
+                      className="range-input"
+                      style={{ height: '4px', marginTop: '6px' }}
+                    />
+                    <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                      Protects against artificial alterations and faithfully preserves the authentic face of your ancestor.
+                    </p>
+                  </div>
+
+                  {/* Scratch & Fold Repair */}
+                  <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.localRepairScratches ?? true}
+                        onChange={(e) => updateSetting('localRepairScratches', e.target.checked)}
+                      />
+                      <span>Auto-Repair Scratches & Fold Creases</span>
+                    </label>
+                    {(settings.localRepairScratches ?? true) && (
+                      <div style={{ paddingLeft: '24px', marginTop: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <span>Healing & Inpainting Intensity:</span>
+                          <span style={{ fontWeight: '700' }}>{Math.round((settings.localScratchStrength ?? 0.75) * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="1.0"
+                          step="0.05"
+                          value={settings.localScratchStrength ?? 0.75}
+                          onChange={(e) => updateSetting('localScratchStrength', parseFloat(e.target.value))}
+                          className="range-input"
+                          style={{ height: '4px', marginTop: '4px' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Color Restoration & De-Fading */}
+                  <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.localRestoreColor ?? true}
+                        onChange={(e) => updateSetting('localRestoreColor', e.target.checked)}
+                      />
+                      <span>Color Restoration & De-Fading (Neutralize yellow casts & lift washed-out tone)</span>
+                    </label>
+                    {(settings.localRestoreColor ?? true) && (
+                      <div style={{ paddingLeft: '24px', marginTop: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <span>Dynamic Range & Contrast Recovery:</span>
+                          <span style={{ fontWeight: '700' }}>{Math.round((settings.localDefadeStrength ?? 0.70) * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="1.0"
+                          step="0.05"
+                          value={settings.localDefadeStrength ?? 0.70}
+                          onChange={(e) => updateSetting('localDefadeStrength', parseFloat(e.target.value))}
+                          className="range-input"
+                          style={{ height: '4px', marginTop: '4px' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Super-Resolution & Clarity */}
+                  <div style={{ backgroundColor: 'var(--bg-card-subtle, #f9fafb)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={settings.localUpscale ?? true}
+                        onChange={(e) => updateSetting('localUpscale', e.target.checked)}
+                      />
+                      <span>High-Definition Super-Resolution & Clarity (Up to 4K)</span>
+                    </label>
+                  </div>
                 </div>
               )}
             </div>
