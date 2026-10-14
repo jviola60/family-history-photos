@@ -15,6 +15,9 @@ dist-ssr
 # Large AI model binaries (>100MB exceeds GitHub push limit)
 *.onnx
 ai_service/models/*.onnx
+__pycache__/
+*.pyc
+*test_*_out.jpg
 
 # Editor directories and files
 .vscode/*

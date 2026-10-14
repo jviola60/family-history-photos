@@ -36,6 +36,13 @@ export const FAL_MODELS = [
 
 export const DEFAULT_AI_SETTINGS = {
   provider: 'self_contained', // 'self_contained' | 'fal' | 'replicate'
+  localFaceModel: 'codeformer', // 'codeformer' | 'gfpgan' | 'none'
+  localFidelity: 0.75,
+  localRepairScratches: true,
+  localScratchStrength: 0.75,
+  localRestoreColor: true,
+  localDefadeStrength: 0.70,
+  localUpscale: true,
   falApiKey: '',
   falModel: 'fal-ai/clarity-upscaler', // Default to Clarity for breathtaking results!
   falFidelity: 0.75, // For CodeFormer (0.0 to 1.0)

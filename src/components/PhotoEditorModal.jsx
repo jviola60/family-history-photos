@@ -20,6 +20,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { cropImage, inpaintImage, loadImage } from '../lib/imageEditor';
+import { checkLocalAiHealth, inpaintWithLocalAi } from '../lib/localAiService';
 
 const ASPECT_RATIOS = [
   { id: 'free', label: 'Freeform', ratio: null },
@@ -446,13 +447,32 @@ export default function PhotoEditorModal({ photo, onClose, onSave }) {
     setStatusMessage('Analyzing background texture and inpainting marked area...');
 
     try {
-      const res = await inpaintImage(currentImageUrl, maskCanvas);
-      pushToHistory(res.dataUrl);
-      clearMaskCanvas();
-      setStatusMessage('✓ Erased marked object and restored authentic background texture!');
+      let finalDataUrl = null;
+      // Check if Local AI OpenCV inpainting is active
+      const health = await checkLocalAiHealth();
+      if (health?.available) {
+        setStatusMessage('⚡ Inpainting with Local AI OpenCV Telea Engine...');
+        finalDataUrl = await inpaintWithLocalAi(currentImageUrl, maskCanvas.toDataURL('image/png'));
+      } else {
+        const res = await inpaintImage(currentImageUrl, maskCanvas);
+        finalDataUrl = res.dataUrl;
+      }
+
+      if (finalDataUrl) {
+        pushToHistory(finalDataUrl);
+        clearMaskCanvas();
+        setStatusMessage('✓ Erased marked scratch/object and restored authentic texture!');
+      }
     } catch (err) {
-      console.warn('Inpaint failed:', err);
-      setStatusMessage('Could not erase object.');
+      console.warn('Local inpaint fallback:', err);
+      try {
+        const res = await inpaintImage(currentImageUrl, maskCanvas);
+        pushToHistory(res.dataUrl);
+        clearMaskCanvas();
+        setStatusMessage('✓ Erased marked object (Client Engine)!');
+      } catch {
+        setStatusMessage('Could not erase object.');
+      }
     } finally {
       setIsProcessing(false);
     }

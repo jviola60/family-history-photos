@@ -25,6 +25,7 @@ import {
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
 import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
+import { checkLocalAiHealth, restoreWithLocalAi } from '../lib/localAiService';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings, onOpenEditor }) {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -32,12 +33,23 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const activeFalModel = FAL_MODELS.find(m => m.id === (aiSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
   const [cloudError, setCloudError] = useState(null);
   const [targetRes, setTargetRes] = useState('4k'); // Default to 4K
-  const [styleMode, setStyleMode] = useState(photo.faces && photo.faces.length > 0 ? 'portrait' : 'portrait'); // 'portrait' | 'natural' | 'shadow'
+  const [styleMode, setStyleMode] = useState(photo.faces && photo.faces.length > 0 ? 'portrait' : 'portrait'); // 'portrait' | 'natural' | 'shadow' | 'local_ai'
   const [passCount, setPassCount] = useState(1); // 1 clean pass by default to prevent overprocessing
   const [appliedPassesCount, setAppliedPassesCount] = useState(1);
   const [passProgressMessage, setPassProgressMessage] = useState('');
   const [baseSource, setBaseSource] = useState(photo.enhancedUrl ? 'enhanced' : 'original');
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
+
+  // 100% Offline Local AI Restoration States (initialized from global Settings)
+  const [localAiHealth, setLocalAiHealth] = useState(null);
+  const [isCheckingLocalAi, setIsCheckingLocalAi] = useState(false);
+  const [localFaceModel, setLocalFaceModel] = useState(aiSettings.localFaceModel || 'codeformer'); // 'codeformer' | 'gfpgan' | 'none'
+  const [localFidelity, setLocalFidelity] = useState(aiSettings.localFidelity ?? 0.75);
+  const [localRepairScratches, setLocalRepairScratches] = useState(aiSettings.localRepairScratches ?? true);
+  const [localScratchStrength, setLocalScratchStrength] = useState(aiSettings.localScratchStrength ?? 0.75);
+  const [localRestoreColor, setLocalRestoreColor] = useState(aiSettings.localRestoreColor ?? true);
+  const [localDefadeStrength, setLocalDefadeStrength] = useState(aiSettings.localDefadeStrength ?? 0.70);
+  const [localUpscale, setLocalUpscale] = useState(aiSettings.localUpscale ?? true);
 
   // Calibrated, natural defaults (avoids crunchy over-sharpening & white halos)
   const [skinSmoothing, setSkinSmoothing] = useState(0.55); // Flattering edge-preserving skin smoothing
@@ -597,12 +609,86 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   // Sync with AI settings changes
   useEffect(() => {
     const handleSettingsUpdate = (e) => {
-      if (e.detail) setAiSettings(e.detail);
-      else setAiSettings(getAiSettings());
+      const s = e.detail || getAiSettings();
+      setAiSettings(s);
+      if (s.localFaceModel) setLocalFaceModel(s.localFaceModel);
+      if (s.localFidelity !== undefined) setLocalFidelity(s.localFidelity);
+      if (s.localRepairScratches !== undefined) setLocalRepairScratches(s.localRepairScratches);
+      if (s.localScratchStrength !== undefined) setLocalScratchStrength(s.localScratchStrength);
+      if (s.localRestoreColor !== undefined) setLocalRestoreColor(s.localRestoreColor);
+      if (s.localDefadeStrength !== undefined) setLocalDefadeStrength(s.localDefadeStrength);
+      if (s.localUpscale !== undefined) setLocalUpscale(s.localUpscale);
     };
     window.addEventListener('ai_settings_changed', handleSettingsUpdate);
     return () => window.removeEventListener('ai_settings_changed', handleSettingsUpdate);
   }, []);
+
+  // Check Local AI Server Health on mount and provide refresh capability
+  const refreshLocalAiHealth = useCallback(async () => {
+    setIsCheckingLocalAi(true);
+    try {
+      const health = await checkLocalAiHealth(true);
+      setLocalAiHealth(health);
+    } finally {
+      setIsCheckingLocalAi(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLocalAiHealth();
+  }, [refreshLocalAiHealth]);
+
+  // 100% Offline Local AI Restoration Action
+  const handleLocalAiRestoration = async () => {
+    setIsLocalProcessing(true);
+    setCloudError(null);
+    setPassProgressMessage('⚡ Connecting to 100% Offline Local AI Engine...');
+    try {
+      let chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl);
+      if (!chosenBase && photo.handle && typeof photo.handle.getFile === 'function') {
+        try {
+          const file = await photo.handle.getFile();
+          if (file) {
+            chosenBase = URL.createObjectURL(file);
+            photo.objectUrl = chosenBase;
+            setOriginalUrl(chosenBase);
+          }
+        } catch {}
+      }
+
+      const res = await restoreWithLocalAi(
+        chosenBase,
+        {
+          faceModel: localFaceModel,
+          fidelity: localFidelity,
+          repairScratches: localRepairScratches,
+          scratchStrength: localScratchStrength,
+          restoreColor: localRestoreColor,
+          defadeStrength: localDefadeStrength,
+          upscale: localUpscale,
+          faceBox: (photo.faces && photo.faces[0]) ? {
+            x: photo.faces[0].x,
+            y: photo.faces[0].y,
+            width: photo.faces[0].width,
+            height: photo.faces[0].height
+          } : null
+        },
+        (msg) => setPassProgressMessage(msg)
+      );
+
+      if (res && res.url) {
+        setEnhancedResultUrl(res.url);
+        setAppliedPassesCount(1);
+        setStyleMode('local_ai');
+      }
+    } catch (err) {
+      console.error('Local AI restoration failed:', err);
+      setCloudError(err.message || 'Local AI restoration failed. Is the local Python server running at http://localhost:8008?');
+    } finally {
+      setIsLocalProcessing(false);
+      setPassProgressMessage('');
+    }
+  };
 
   // Fal.ai Cloud AI Restoration Action
   const handleFalAiRestoration = async () => {
@@ -1346,29 +1432,206 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
               </div>
             ) : (
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                backgroundColor: 'rgba(28, 25, 23, 0.04)',
-                borderRadius: '8px',
-                marginBottom: '14px',
-                border: '1px solid var(--border-light)'
+                backgroundColor: localAiHealth?.available ? 'rgba(34, 197, 94, 0.06)' : 'rgba(245, 158, 11, 0.06)',
+                borderRadius: '10px',
+                border: localAiHealth?.available ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)',
+                padding: '12px',
+                marginBottom: '16px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  <ShieldCheck size={16} color="var(--accent)" />
-                  <span>Provider: <strong>Self-Contained (100% Offline & Free)</strong></span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', color: 'var(--text-main)' }}>
+                    <ShieldCheck size={18} color={localAiHealth?.available ? '#16a34a' : '#d97706'} />
+                    <span>{localAiHealth?.available ? '100% Offline Local AI Engine' : 'Local AI Engine (Offline)'}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={refreshLocalAiHealth}
+                      disabled={isCheckingLocalAi}
+                      className="btn btn-secondary btn-xs"
+                      title="Check if local AI python server is running"
+                      style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <RefreshCw size={11} className={isCheckingLocalAi ? 'spin-icon' : ''} />
+                      <span>{isCheckingLocalAi ? 'Checking...' : 'Check Status'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenSettings}
+                      className="btn btn-outline btn-xs"
+                      style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Configure AI settings"
+                    >
+                      <Settings size={11} />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="btn btn-secondary btn-xs"
-                  style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  title="Configure cloud AI providers like Fal.ai"
-                >
-                  <Settings size={12} />
-                  <span>Settings</span>
-                </button>
+
+                {localAiHealth?.available ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '600' }}>
+                      ● Active: CodeFormer + Real-ESRGAN + OpenCV Scratch Inpaint + LAB-CLAHE De-Fading
+                    </div>
+
+                    {/* Face Restoration Model Picker */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: '600' }}>
+                        <span>Face Restoration:</span>
+                        <span style={{ color: 'var(--accent)', fontWeight: '700' }}>
+                          {localFaceModel === 'codeformer' ? 'CodeFormer' : (localFaceModel === 'gfpgan' ? 'GFPGAN v1.4' : 'Disabled')}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
+                        <button
+                          type="button"
+                          className={`btn btn-xs ${localFaceModel === 'codeformer' ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ flex: 1, fontSize: '11px' }}
+                          onClick={() => setLocalFaceModel('codeformer')}
+                        >
+                          CodeFormer (High Likeness)
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-xs ${localFaceModel === 'gfpgan' ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ flex: 1, fontSize: '11px' }}
+                          onClick={() => setLocalFaceModel('gfpgan')}
+                        >
+                          GFPGAN v1.4
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-xs ${localFaceModel === 'none' ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ fontSize: '11px' }}
+                          onClick={() => setLocalFaceModel('none')}
+                        >
+                          Off
+                        </button>
+                      </div>
+
+                      {localFaceModel !== 'none' && (
+                        <div style={{ marginTop: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span>Likeness Fidelity:</span>
+                            <span>{Math.round(localFidelity * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.30"
+                            max="0.95"
+                            step="0.05"
+                            value={localFidelity}
+                            onChange={(e) => setLocalFidelity(parseFloat(e.target.value))}
+                            className="range-input"
+                            style={{ height: '4px', marginTop: '4px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Local Scratch & Fold Repair */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={localRepairScratches}
+                          onChange={(e) => setLocalRepairScratches(e.target.checked)}
+                        />
+                        <span>Auto-Repair Scratches & Fold Creases (OpenCV)</span>
+                      </label>
+                      {localRepairScratches && (
+                        <div style={{ paddingLeft: '22px', marginTop: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span>Inpainting Strength:</span>
+                            <span>{Math.round(localScratchStrength * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="1.0"
+                            step="0.05"
+                            value={localScratchStrength}
+                            onChange={(e) => setLocalScratchStrength(parseFloat(e.target.value))}
+                            className="range-input"
+                            style={{ height: '4px', marginTop: '4px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Color Restoration & De-Fading */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: 'var(--bg-card, #fff)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={localRestoreColor}
+                          onChange={(e) => setLocalRestoreColor(e.target.checked)}
+                        />
+                        <span>Color Restoration & De-Fading (White-Balance + CLAHE)</span>
+                      </label>
+                      {localRestoreColor && (
+                        <div style={{ paddingLeft: '22px', marginTop: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span>De-Fading & Contrast Recovery:</span>
+                            <span>{Math.round(localDefadeStrength * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="1.0"
+                            step="0.05"
+                            value={localDefadeStrength}
+                            onChange={(e) => setLocalDefadeStrength(parseFloat(e.target.value))}
+                            className="range-input"
+                            style={{ height: '4px', marginTop: '4px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4K Real-ESRGAN Neural Upscaling */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '4px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={localUpscale}
+                        onChange={(e) => setLocalUpscale(e.target.checked)}
+                      />
+                      <span>4K Neural Super-Resolution (Real-ESRGAN x4)</span>
+                    </label>
+
+                    {/* Run Local AI Action Button */}
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={handleLocalAiRestoration}
+                      className="btn btn-primary btn-block"
+                      style={{
+                        padding: '10px 14px',
+                        fontWeight: '800',
+                        fontSize: '13px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        background: 'linear-gradient(135deg, #15803d 0%, #16a34a 100%)',
+                        border: 'none',
+                        color: '#fff',
+                        boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                      }}
+                    >
+                      <Sparkles size={16} />
+                      <span>⚡ Run 100% Offline AI Restoration</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    <p style={{ margin: '0 0 8px' }}>
+                      <strong>Offline AI Engine Offline:</strong> Run <code style={{ backgroundColor: 'rgba(0,0,0,0.06)', padding: '2px 5px', borderRadius: '4px' }}>python ai_service/server.py</code> in a terminal to enable local CodeFormer face restoration, OpenCV scratch/fold inpainting, and Real-ESRGAN 4K.
+                    </p>
+                    <p style={{ margin: 0, color: 'var(--text-subtle)' }}>
+                      In the meantime, the built-in browser canvas enhancer below is active and ready to use!
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
