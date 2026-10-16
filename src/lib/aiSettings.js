@@ -1,11 +1,131 @@
 import { fal } from '@fal-ai/client';
+import { AI_SECRETS_KEY, AI_SETTINGS_KEY } from './browserData.js';
 
 /**
- * AI Provider Settings & Cloud Restoration Integration (Fal.ai, Replicate, Self-Contained)
- * Safely persists keys in localStorage so each user has their own private configuration.
+ * AI provider settings.
+ * Non-secret preferences stay in localStorage.
+ * The Fal API key is kept in memory and sessionStorage only, and any copy
+ * found in localStorage is deleted on load.
  */
 
-const SETTINGS_KEY = 'family_history_ai_settings';
+const SETTINGS_KEY = AI_SETTINGS_KEY;
+const SECRETS_KEY = AI_SECRETS_KEY;
+const SECRET_FIELDS = ['falApiKey', 'replicateApiKey'];
+
+let memorySecrets = { falApiKey: '', replicateApiKey: '' };
+
+function storageOrNull(name) {
+  try {
+    const storage = globalThis[name];
+    if (!storage || typeof storage.getItem !== 'function') return null;
+    storage.getItem('__fhp_probe');
+    return storage;
+  } catch {
+    return null;
+  }
+}
+
+export function partitionAiSettings(rawSettings) {
+  const source = rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)
+    ? rawSettings
+    : {};
+  const secrets = { falApiKey: '', replicateApiKey: '' };
+  const rest = { ...source };
+  for (const field of SECRET_FIELDS) {
+    if (typeof source[field] === 'string') secrets[field] = source[field];
+    delete rest[field];
+  }
+  return { rest, secrets };
+}
+
+export function migrateSecretsFromLocalStorage(localStore, sessionStore) {
+  if (!localStore) return { falApiKey: '', replicateApiKey: '' };
+  const raw = localStore.getItem(SETTINGS_KEY);
+  if (!raw) return readSessionSecrets(sessionStore);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    localStore.removeItem(SETTINGS_KEY);
+    return readSessionSecrets(sessionStore);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return readSessionSecrets(sessionStore);
+  }
+  if (!SECRET_FIELDS.some((field) => field in parsed)) {
+    return readSessionSecrets(sessionStore);
+  }
+  const { rest, secrets } = partitionAiSettings(parsed);
+  const existing = readSessionSecrets(sessionStore);
+  const merged = {
+    falApiKey: existing.falApiKey || secrets.falApiKey || '',
+    replicateApiKey: existing.replicateApiKey || secrets.replicateApiKey || '',
+  };
+  if (sessionStore && (merged.falApiKey || merged.replicateApiKey)) {
+    sessionStore.setItem(SECRETS_KEY, JSON.stringify(merged));
+  }
+  localStore.setItem(SETTINGS_KEY, JSON.stringify(rest));
+  return merged;
+}
+
+function readSessionSecrets(sessionStore) {
+  if (!sessionStore) return { falApiKey: '', replicateApiKey: '' };
+  try {
+    const raw = sessionStore.getItem(SECRETS_KEY);
+    if (!raw) return { falApiKey: '', replicateApiKey: '' };
+    const parsed = JSON.parse(raw);
+    return {
+      falApiKey: typeof parsed.falApiKey === 'string' ? parsed.falApiKey : '',
+      replicateApiKey: typeof parsed.replicateApiKey === 'string' ? parsed.replicateApiKey : ''
+    };
+  } catch {
+    return { falApiKey: '', replicateApiKey: '' };
+  }
+}
+
+function loadSecrets() {
+  const localStore = storageOrNull('localStorage');
+  const sessionStore = storageOrNull('sessionStorage');
+  const migrated = migrateSecretsFromLocalStorage(localStore, sessionStore);
+  memorySecrets = {
+    falApiKey: migrated.falApiKey || memorySecrets.falApiKey || '',
+    replicateApiKey: migrated.replicateApiKey || memorySecrets.replicateApiKey || ''
+  };
+  return memorySecrets;
+}
+
+function writeSecrets(secrets) {
+  memorySecrets = {
+    falApiKey: secrets.falApiKey || '',
+    replicateApiKey: secrets.replicateApiKey || ''
+  };
+  const sessionStore = storageOrNull('sessionStorage');
+  if (!sessionStore) return;
+  try {
+    sessionStore.setItem(SECRETS_KEY, JSON.stringify(memorySecrets));
+  } catch {
+    // The in-memory copy still lasts for this page.
+  }
+}
+
+export function forgetAiSecrets() {
+  memorySecrets = { falApiKey: '', replicateApiKey: '' };
+  const sessionStore = storageOrNull('sessionStorage');
+  const localStore = storageOrNull('localStorage');
+  try { sessionStore?.removeItem(SECRETS_KEY); } catch { /* ignore */ }
+  if (!localStore) return;
+  try {
+    const raw = localStore.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const { rest } = partitionAiSettings(parsed);
+    localStore.setItem(SETTINGS_KEY, JSON.stringify(rest));
+  } catch {
+    try { localStore.removeItem(SETTINGS_KEY); } catch { /* ignore */ }
+  }
+}
+
+loadSecrets();
 
 export const FAL_MODELS = [
   {
@@ -52,25 +172,69 @@ export const DEFAULT_AI_SETTINGS = {
 };
 
 export function getAiSettings() {
+  const secrets = loadSecrets();
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_AI_SETTINGS;
-    return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+    const localStore = storageOrNull('localStorage');
+    const raw = localStore ? localStore.getItem(SETTINGS_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : {};
+    const { rest } = partitionAiSettings(parsed);
+    return {
+      ...DEFAULT_AI_SETTINGS,
+      ...rest,
+      falApiKey: secrets.falApiKey || '',
+      replicateApiKey: secrets.replicateApiKey || ''
+    };
   } catch {
-    return DEFAULT_AI_SETTINGS;
+    return {
+      ...DEFAULT_AI_SETTINGS,
+      falApiKey: secrets.falApiKey || '',
+      replicateApiKey: secrets.replicateApiKey || ''
+    };
   }
 }
 
 export function saveAiSettings(settings) {
   try {
-    const updated = { ...getAiSettings(), ...settings };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('ai_settings_changed', { detail: updated }));
+    const merged = { ...getAiSettings(), ...settings };
+    const { rest, secrets } = partitionAiSettings(merged);
+    const localStore = storageOrNull('localStorage');
+    if (localStore) localStore.setItem(SETTINGS_KEY, JSON.stringify(rest));
+    writeSecrets(secrets);
+    const updated = { ...DEFAULT_AI_SETTINGS, ...rest, ...memorySecrets };
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ai_settings_changed', { detail: updated }));
+    }
     return updated;
   } catch (err) {
     console.error('Failed to save AI settings:', err);
     return DEFAULT_AI_SETTINGS;
   }
+}
+
+export function buildFalUploadConfirmMessage(photoName) {
+  const name = (photoName && String(photoName).trim()) || 'this photo';
+  return [
+    `Send "${name}" to fal.ai?`,
+    '',
+    'This photo will be uploaded to a third-party server (fal.ai) for cloud restoration. It will leave this device.',
+    'The local engine does not upload photos. Choose Cancel to keep this photo on your device.'
+  ].join('\n');
+}
+
+export class FalUploadDeclined extends Error {
+  constructor() {
+    super('The photo was not sent. Cloud restore needs your OK first.');
+    this.name = 'FalUploadDeclined';
+  }
+}
+
+export function confirmFalPhotoUpload(photoName, ask) {
+  const message = buildFalUploadConfirmMessage(photoName);
+  const askFn = ask || ((text) => {
+    if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false;
+    return window.confirm(text);
+  });
+  return askFn(message) === true;
 }
 
 /**
@@ -143,13 +307,17 @@ export async function testFalConnection(apiKey) {
 /**
  * Restore image using Cloud AI (Fal.ai CodeFormer)
  */
-export async function restoreWithCloudAi(imageSource, settings, onProgress) {
+export async function restoreWithCloudAi(imageSource, settings, onProgress, options = {}) {
   const currentSettings = settings || getAiSettings();
 
   if (currentSettings.provider === 'fal') {
     const cleanKey = sanitizeFalKey(currentSettings.falApiKey);
     if (!cleanKey) {
       throw new Error('Fal.ai API key is missing. Please enter your key in Settings.');
+    }
+
+    if (!confirmFalPhotoUpload(options.photoName, options.ask)) {
+      throw new FalUploadDeclined();
     }
 
     // Configure fal client with user credentials

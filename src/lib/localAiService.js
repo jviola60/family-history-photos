@@ -10,6 +10,11 @@
 
 export const LOCAL_AI_URL = 'http://localhost:8008';
 
+// The loopback server checks the page path on Referer. A normal Pages
+// request is HTTPS to HTTP, which drops Referer. This policy applies only
+// to these local-engine calls so the path is visible to that check.
+const LOCAL_AI_REFERRER = { referrerPolicy: 'unsafe-url' };
+
 let lastHealthCheck = null;
 let lastHealthTime = 0;
 const HEALTH_CACHE_MS = 4000;
@@ -29,7 +34,8 @@ export async function checkLocalAiHealth(force = false) {
 
     const resp = await fetch(`${LOCAL_AI_URL}/health`, {
       method: 'GET',
-      signal: controller.signal
+      signal: controller.signal,
+      ...LOCAL_AI_REFERRER
     });
     clearTimeout(timeoutId);
 
@@ -118,7 +124,8 @@ export async function restoreWithLocalAi(imageSource, options = {}, onProgress =
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    ...LOCAL_AI_REFERRER
   });
 
   if (!resp.ok) {
@@ -161,7 +168,8 @@ export async function inpaintWithLocalAi(imageSource, maskSource) {
     body: JSON.stringify({
       image: base64Image,
       mask: base64Mask
-    })
+    }),
+    ...LOCAL_AI_REFERRER
   });
 
   if (!resp.ok) {

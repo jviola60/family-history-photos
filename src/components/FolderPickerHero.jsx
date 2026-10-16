@@ -133,7 +133,7 @@ export default function FolderPickerHero({
         <div className="hero-features-list">
           <div className="feature-pill">
             <ShieldCheck size={18} className="feature-icon" />
-            <span>100% Private (No Cloud Upload)</span>
+            <span>On-device by default. Fal.ai uploads only after you confirm.</span>
           </div>
           <div className="feature-pill">
             <Zap size={18} className="feature-icon" />

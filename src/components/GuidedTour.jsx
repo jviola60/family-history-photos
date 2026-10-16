@@ -57,7 +57,7 @@ export default function GuidedTour({ onClose, onOpenFullGuide, hasPhotos }) {
       <div className="guided-footer-bar">
         <div className="tour-safety-note">
           <CheckCircle size={16} className="text-success" />
-          <span><strong>100% Private & Safe:</strong> Everything stays on your computer. No photos are sent to the internet.</span>
+          <span><strong>Privacy:</strong> Local tools stay on this computer. Fal.ai cloud restore sends a photo to fal.ai only after you confirm.</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

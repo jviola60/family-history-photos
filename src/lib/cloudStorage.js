@@ -5,6 +5,19 @@ import { getImageDimensions } from './fileSystem';
 // Supported image extensions
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'tiff']);
 
+export function resolveMicrosoftClientId(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.trim();
+}
+
+export function getMicrosoftClientId() {
+  try {
+    return resolveMicrosoftClientId(import.meta.env && import.meta.env.VITE_MS_CLIENT_ID);
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Extracts all photos from a ZIP archive (e.g. downloaded from iCloud, Google Photos, or OneDrive)
  * @param {File|Blob} zipBlob - The zip file to unpack
@@ -154,8 +167,12 @@ export async function launchOneDrivePicker({ clientId, onFilesPicked, onError, o
       throw new Error('OneDrive SDK could not be initialized');
     }
 
-    // Default public/fallback demo client ID if none provided
-    const effectiveClientId = clientId?.trim() || '23f66817-f4a4-4367-93ae-c9dfadba2a57';
+    const effectiveClientId = resolveMicrosoftClientId(clientId) || getMicrosoftClientId();
+    if (!effectiveClientId) {
+      const err = new Error('OneDrive import is off until you add your own Microsoft app client ID. There is no built-in demo client ID.');
+      if (onError) onError(err);
+      return;
+    }
 
     window.OneDrive.open({
       clientId: effectiveClientId,

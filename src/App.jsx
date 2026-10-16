@@ -229,6 +229,15 @@ export default function App() {
     }
   }, [peopleDirectory]);
 
+  const handleSignOut = async () => {
+    const ok = window.confirm(
+      'Sign out and clear data on this browser?\n\nThis removes album drafts, family notes stored in this browser, and AI settings (including any Fal.ai key). Photos in your folders are not deleted.'
+    );
+    if (!ok) return;
+    await clearAllLocalData();
+    window.location.reload();
+  };
+
   const handleClearAlbum = async () => {
     if (window.confirm('Do you want to close this album and choose another? (Your saved notes and tags are preserved)')) {
       await clearStoredDirectoryHandle();
@@ -1104,8 +1113,13 @@ export default function App() {
         showHelp={showHelp}
         onExportCatalog={handleExportCatalog}
         onClearAlbum={handleClearAlbum}
+        onSignOut={handleSignOut}
         photoCount={photos.length}
       />
+
+      <p className="privacy-notice" role="note">
+        Privacy: your album stays in this browser. The local restorer does not upload photos. Fal.ai cloud models send the photo you name to fal.ai, a third-party server, only after you confirm.
+      </p>
 
       <main className="app-main-content">
         {/* Senior-friendly Guided Tour */}

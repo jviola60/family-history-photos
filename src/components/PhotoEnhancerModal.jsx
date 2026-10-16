@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
 import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
-import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
+import { getAiSettings, restoreWithCloudAi, FAL_MODELS, FalUploadDeclined } from '../lib/aiSettings';
 import { checkLocalAiHealth, restoreWithLocalAi } from '../lib/localAiService';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings, onOpenEditor }) {
@@ -718,13 +718,17 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
       }
       const res = await restoreWithCloudAi(chosenBase, currentSettings, (msg) => {
         setPassProgressMessage(msg);
-      });
+      }, { photoName: photo?.name || 'this photo' });
       if (res && res.url) {
         setEnhancedResultUrl(res.url);
         setAppliedPassesCount(1);
         setStyleMode('fal_ai');
       }
     } catch (err) {
+      if (err instanceof FalUploadDeclined || err?.name === 'FalUploadDeclined') {
+        setCloudError(null);
+        return;
+      }
       console.error('Fal.ai restoration failed:', err);
       setCloudError(err.message || 'Fal.ai restoration failed. Please check your API key and connection.');
     } finally {
@@ -1447,7 +1451,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
                   <ShieldCheck size={18} color="#16a34a" />
                   <span style={{ color: 'var(--text-main)' }}>
-                    Engine: <strong style={{ color: '#16a34a' }}>100% In-Browser & Private (Zero Setup)</strong>
+                    Engine: <strong style={{ color: '#16a34a' }}>On this device (local). Photos are not uploaded.</strong>
                   </span>
                 </div>
                 <button
