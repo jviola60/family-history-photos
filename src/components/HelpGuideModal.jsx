@@ -58,7 +58,7 @@ const GUIDE_SECTIONS = [
         <div className="help-callout-info">
           <ShieldCheck size={20} className="text-success" />
           <div>
-            <strong>100% Private & Safe:</strong> Your photos stay right on your computer. Nothing is uploaded to public servers or external companies without your permission.
+            <strong>Privacy:</strong> Organizing, tagging, and the local restoration engine stay on this device. If you choose a Fal.ai cloud model, that photo is sent to fal.ai, a third-party server, and only after you confirm the upload by name. OneDrive and Google import download pictures you pick into this browser. They do not upload your album.
           </div>
         </div>
       </div>
@@ -266,7 +266,7 @@ const GUIDE_SECTIONS = [
         <div className="help-callout-info" style={{ marginTop: '14px' }}>
           <Settings size={18} />
           <div>
-            <strong>AI Settings:</strong> Under <strong>Settings</strong> in the top header, you can choose between the built-in local fast enhancer or professional cloud AI engines like Fal.ai.
+            <strong>AI Settings:</strong> The local engine is the default and keeps the photo on this device. Fal.ai cloud models send that photo to fal.ai after a confirm dialog names the file. The local engine does not upload it.
           </div>
         </div>
       </div>

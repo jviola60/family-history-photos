@@ -18,7 +18,8 @@ import {
   extractPhotosFromZip, 
   processImportedFiles, 
   launchOneDrivePicker, 
-  launchGooglePicker 
+  launchGooglePicker,
+  getMicrosoftClientId
 } from '../lib/cloudStorage';
 
 export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
@@ -28,8 +29,8 @@ export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [successCount, setSuccessCount] = useState(null);
 
-  // Custom client IDs (optional for users with their own developer apps)
-  const [msClientId, setMsClientId] = useState('');
+  // Google client id is entered by the user. OneDrive uses the build-time env var only.
+  const oneDriveClientId = getMicrosoftClientId();
   const [googleClientId, setGoogleClientId] = useState('');
   const [googleApiKey, setGoogleApiKey] = useState('');
   const [showConfig, setShowConfig] = useState(false);
@@ -88,12 +89,16 @@ export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
   };
 
   const handleLaunchOneDrive = () => {
+    if (!oneDriveClientId) {
+      setErrorMessage('OneDrive import is turned off. This app no longer includes a demo Microsoft client ID. Add your own VITE_MS_CLIENT_ID (see the OneDrive setup guide), or drop a downloaded ZIP below.');
+      return;
+    }
     setIsProcessing(true);
     setErrorMessage('');
     setStatusMessage('Opening Microsoft OneDrive Picker in a popup...');
 
     launchOneDrivePicker({
-      clientId: msClientId.trim() || undefined,
+      clientId: oneDriveClientId,
       onFilesPicked: async (files) => {
         setStatusMessage(`Processing ${files.length} photos from OneDrive...`);
         try {
@@ -259,10 +264,15 @@ export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {!oneDriveClientId && (
+                  <div style={{ padding: '12px 14px', backgroundColor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: '10px', color: '#9A3412', fontSize: '13px', lineHeight: 1.45 }}>
+                    <strong>OneDrive import is off.</strong> There is no built-in Microsoft client ID. Add your own app id as <code>VITE_MS_CLIENT_ID</code> and rebuild. Until then, drop a OneDrive ZIP or photos below. Setup steps are in <code>docs/ONEDRIVE_SETUP.md</code>.
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleLaunchOneDrive}
-                  disabled={isProcessing}
+                  disabled={isProcessing || !oneDriveClientId}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -275,7 +285,8 @@ export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
                     color: '#FFFFFF',
                     border: 'none',
                     borderRadius: '10px',
-                    cursor: 'pointer',
+                    cursor: oneDriveClientId ? 'pointer' : 'not-allowed',
+                    opacity: oneDriveClientId ? 1 : 0.55,
                     boxShadow: '0 2px 4px rgba(2, 132, 199, 0.25)',
                     transition: 'all 0.15s ease'
                   }}
@@ -543,7 +554,7 @@ export default function CloudStorageModal({ isOpen, onClose, onImportPhotos }) {
         <div style={{ padding: '14px 24px', backgroundColor: '#FAF7F2', borderTop: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#57534E' }}>
             <ShieldCheck size={16} style={{ color: '#16A34A' }} />
-            <span><strong>100% Private & Local:</strong> Cloud files are processed entirely in your browser</span>
+            <span><strong>Privacy:</strong> Files you drop here are unpacked in this browser. OneDrive and Google only download pictures you pick. They are not uploaded to this app.</span>
           </div>
 
           <button 

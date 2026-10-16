@@ -10,7 +10,8 @@ import {
   FolderCheck,
   Settings,
   Cloud,
-  BookOpen
+  BookOpen,
+  LogOut
 } from 'lucide-react';
 
 export default function Header({ 
@@ -33,6 +34,7 @@ export default function Header({
   showHelp, 
   onExportCatalog,
   onClearAlbum,
+  onSignOut,
   photoCount
 }) {
   return (
@@ -159,6 +161,17 @@ export default function Header({
               </button>
             )}
           </>
+        )}
+
+        {onSignOut && (
+          <button
+            onClick={onSignOut}
+            className="btn btn-secondary header-btn"
+            title="Sign out and clear album drafts, notes, and AI keys stored in this browser"
+          >
+            <LogOut size={18} />
+            <span>Sign out / Clear data</span>
+          </button>
         )}
 
         {/* Settings modal button */}

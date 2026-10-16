@@ -1,4 +1,6 @@
 import { createStore, get, set, del, clear } from 'idb-keyval';
+import { collectStorageKeysToClear } from './browserData.js';
+import { forgetAiSecrets } from './aiSettings.js';
 
 /**
  * Isolated, dedicated IndexedDB database.
@@ -197,6 +199,33 @@ export async function loadIgnoredJunkFromDB() {
   return new Set(Array.isArray(list) ? list : []);
 }
 
+function storageKeys(storage) {
+  const keys = [];
+  try {
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key) keys.push(key);
+    }
+  } catch {
+    // Storage can throw in locked-down browsers.
+  }
+  return keys;
+}
+
+function clearAppWebStorage() {
+  forgetAiSecrets();
+  for (const storage of [globalThis.localStorage, globalThis.sessionStorage]) {
+    if (!storage) continue;
+    try {
+      for (const key of collectStorageKeysToClear(storageKeys(storage))) {
+        storage.removeItem(key);
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+}
+
 export async function clearAllLocalData() {
   await safeDb(store => clear(store));
   // Safely request unlinking of dead legacy databases if supported
@@ -205,10 +234,12 @@ export async function clearAllLocalData() {
       indexedDB.deleteDatabase('keyval-store');
       indexedDB.deleteDatabase('who_is_this_photo_catalog_v2');
       indexedDB.deleteDatabase('who_is_this_photo_catalog_v1');
+      indexedDB.deleteDatabase('who_is_this_memories_v3');
     }
   } catch {
     // Non-critical
   }
+  clearAppWebStorage();
 }
 
 /* ==========================================================================

@@ -3,6 +3,8 @@ Mom's Family Photo Album, Duplicate Cleaner, 4K Image Restorer & Memory Keeper.
 
 This application provides a fast, offline-first photo organizer with face recognition and 4K restoration.
 
+The local restorer is the default and keeps photos on this device. Fal.ai cloud models upload a photo only after you confirm. OneDrive import needs your own Microsoft app id: [docs/ONEDRIVE_SETUP.md](docs/ONEDRIVE_SETUP.md). Security notes, including FamilySearch guidance that is not implemented yet, are in [SECURITY.md](SECURITY.md). The published site is `https://jviola60.github.io/family-history-photos/`.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)

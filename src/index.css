@@ -8,6 +8,16 @@
   background-color: var(--bg-main);
 }
 
+.privacy-notice {
+  margin: 0;
+  padding: 8px 24px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.45;
+  border-bottom: 1px solid #fed7aa;
+}
+
 .app-main-content {
   flex: 1;
   max-width: 1400px;

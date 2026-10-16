@@ -357,7 +357,7 @@ export default function SettingsModal({ onClose }) {
                 />
               </div>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0 30px', lineHeight: 1.45 }}>
-                Connects to Fal.ai cloud GPUs running state-of-the-art models (<strong>Clarity Ultra-HD, CCSR, or CodeFormer</strong>) for authentic studio-grade photographic recovery.
+                Connects to Fal.ai cloud GPUs (<strong>Clarity Ultra-HD, CCSR, or CodeFormer</strong>). Each photo is sent to fal.ai, a third-party server, only after you confirm that upload by name. The local engine stays the default and does not upload.
               </p>
             </div>
           </div>
@@ -395,7 +395,7 @@ export default function SettingsModal({ onClose }) {
                     className="form-input"
                     value={settings.falApiKey}
                     onChange={(e) => handleKeyChange(e.target.value)}
-                    placeholder="Paste your Fal.ai key here (e.g. 5e9b...:c8a4...)"
+                    placeholder="Paste your Fal.ai key here (kept for this tab only)"
                     style={{ paddingRight: '36px' }}
                   />
                   <button
@@ -427,6 +427,10 @@ export default function SettingsModal({ onClose }) {
                   {testStatus && testStatus.loading ? 'Testing...' : 'Test Key'}
                 </button>
               </div>
+
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
+                This key is kept in memory for this browser tab only. It is not stored in localStorage. Closing the tab clears it. An older copy saved in localStorage is deleted when the app loads.
+              </p>
 
               {/* Test Status feedback */}
               {testStatus && (
