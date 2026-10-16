@@ -19,6 +19,20 @@ __pycache__/
 *.pyc
 *test_*_out.jpg
 
+# Personal photos must never be committed next to the local AI service.
+# Synthetic fixtures live in ai_service/test_fixtures/ (not matched by these
+# one-level patterns) and are the only images that belong in git.
+ai_service/*.jpg
+ai_service/*.jpeg
+ai_service/*.png
+ai_service/*.heic
+ai_service/*.heif
+ai_service/*.gif
+ai_service/*.webp
+ai_service/*.bmp
+ai_service/*.tif
+ai_service/*.tiff
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
