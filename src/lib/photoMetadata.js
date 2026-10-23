@@ -22,12 +22,56 @@ function escapeXml(str) {
 }
 
 /**
+ * Parses free-form dates (7/19/2003, 2003-07-19, July 4, 1974, 1974) into parts.
+ */
+export function parseDateParts(input) {
+  const s = String(input || '').trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m) return { y: +m[3], m: +m[1], d: +m[2] };
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (m) return { y: +m[1], m: +m[2], d: +m[3] };
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  m = s.match(/^([A-Za-z]{3,9})\.?\s+(?:(\d{1,2}),?\s+)?(\d{4})$/);
+  if (m) {
+    const mi = months.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi >= 0) return { y: +m[3], m: mi + 1, d: m[2] ? +m[2] : 0 };
+  }
+  m = s.match(/(\d{4})/);
+  if (m) return { y: +m[1], m: 0, d: 0 };
+  return null;
+}
+
+function pad(n, w = 2) { return String(n).padStart(w, '0'); }
+
+/** ISO 8601 (YYYY, YYYY-MM or YYYY-MM-DD) or '' when not parseable */
+export function toIsoDate(input) {
+  const p = parseDateParts(input);
+  if (!p) return '';
+  if (!p.m) return pad(p.y, 4);
+  if (!p.d) return `${pad(p.y, 4)}-${pad(p.m)}`;
+  return `${pad(p.y, 4)}-${pad(p.m)}-${pad(p.d)}`;
+}
+
+/** Builds a readable title like "Josephine Helen Costello - Gill Family Reunion (2003)" */
+export function buildTitle(metadata = {}) {
+  if (metadata.title && !/\.(jpe?g|png)$/i.test(metadata.title)) return metadata.title;
+  const who = (metadata.people || []).slice(0, 3).join(', ');
+  const where = metadata.location || '';
+  const p = parseDateParts(metadata.date || metadata.decade);
+  const when = p ? String(p.y) : (metadata.decade || '');
+  let t = [who, where].filter(Boolean).join(' - ');
+  if (when) t = t ? `${t} (${when})` : when;
+  return t || metadata.title || '';
+}
+
+/**
  * Generates an ISO-standard XMP packet for genealogical preservation
  */
 export function generateXmpPacket({ title, story, people = [], date, location, familyBranch, decade }) {
   const safeTitle = escapeXml(title || '');
   const safeStory = escapeXml(story || '');
-  const safeDate = escapeXml(date || decade || '');
+  const safeDate = escapeXml(toIsoDate(date) || decade || '');
   const safeLocation = escapeXml(location || '');
   const safeBranch = escapeXml(familyBranch || '');
 
@@ -78,15 +122,154 @@ export function generateXmpPacket({ title, story, people = [], date, location, f
 <?xpacket end="w"?>`;
 }
 
+const te = new TextEncoder();
+
+function truncBytes(str, max) {
+  let bytes = te.encode(String(str || ''));
+  if (bytes.length <= max) return bytes;
+  bytes = bytes.subarray(0, max);
+  // avoid cutting a UTF-8 multibyte sequence
+  let end = bytes.length;
+  while (end > 0 && (bytes[end] & 0xC0) === 0x80) end--;
+  return bytes.subarray(0, end);
+}
+
+function asciiOnly(str) {
+  return String(str || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ');
+}
+
 /**
- * Embeds XMP metadata packet into a JPEG Uint8Array without altering pixels
+ * Builds an APP13 (Photoshop IRB) segment with IPTC-IIM records (UTF-8).
+ * FamilySearch / Windows / Adobe tools read Title, Caption, Date, Place, Keywords from here.
  */
-export function embedXmpInJpeg(uint8Array, metadata) {
+function buildIptcSegment(meta) {
+  const recs = [];
+  const add = (ds, bytes) => {
+    if (!bytes || bytes.length === 0) return;
+    recs.push(Uint8Array.from([0x1C, 2, ds, (bytes.length >> 8) & 0xFF, bytes.length & 0xFF]), bytes);
+  };
+  // 1:90 CodedCharacterSet = UTF-8
+  recs.push(Uint8Array.from([0x1C, 1, 90, 0, 3, 0x1B, 0x25, 0x47]));
+  add(5, truncBytes(meta.title, 64));
+  add(120, truncBytes(meta.story, 2000));
+  const iso = toIsoDate(meta.date);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) add(55, te.encode(iso.replace(/-/g, '')));
+  else if (/^\d{4}(-\d{2})?$/.test(iso)) add(55, te.encode(iso.replace('-', '').padEnd(8, '0')));
+  if (meta.location) {
+    const parts = meta.location.split(',').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 3) {
+      if (parts.length >= 4) add(92, truncBytes(parts.slice(0, parts.length - 3).join(', '), 32));
+      add(90, truncBytes(parts[parts.length - 3], 32));
+      add(95, truncBytes(parts[parts.length - 2], 32));
+      add(101, truncBytes(parts[parts.length - 1], 64));
+    } else {
+      add(92, truncBytes(meta.location, 32));
+    }
+  }
+  const kw = [...new Set([...(meta.people || []), meta.decade, meta.familyBranch].filter(Boolean))];
+  kw.forEach(k => add(25, truncBytes(k, 64)));
+  add(110, truncBytes(meta.familyBranch, 32));
+
+  const iptcLen = recs.reduce((a, r) => a + r.length, 0);
+  const iptc = new Uint8Array(iptcLen);
+  let o = 0;
+  recs.forEach(r => { iptc.set(r, o); o += r.length; });
+
+  const padded = iptcLen % 2 ? iptcLen + 1 : iptcLen;
+  const irb = new Uint8Array(4 + 2 + 2 + 4 + padded); // 8BIM, id, name(pascal pad), size, data
+  irb.set(te.encode('8BIM'), 0);
+  irb[4] = 0x04; irb[5] = 0x04;
+  irb[6] = 0; irb[7] = 0;
+  new DataView(irb.buffer).setUint32(8, iptcLen, false);
+  irb.set(iptc, 12);
+
+  const header = te.encode('Photoshop 3.0\0');
+  const payloadLen = 2 + header.length + irb.length;
+  if (payloadLen > 65535) return null;
+  const seg = new Uint8Array(2 + payloadLen);
+  seg[0] = 0xFF; seg[1] = 0xED;
+  seg[2] = (payloadLen >> 8) & 0xFF; seg[3] = payloadLen & 0xFF;
+  seg.set(header, 4);
+  seg.set(irb, 4 + header.length);
+  return seg;
+}
+
+/**
+ * Builds a minimal EXIF APP1 segment (ImageDescription, DateTimeOriginal).
+ * Only used when the source JPEG has no EXIF block, so camera data is never clobbered.
+ */
+function buildExifSegment(meta) {
+  const desc = asciiOnly(meta.story || meta.title || '');
+  const p = parseDateParts(meta.date);
+  const entries0 = [];
+  const exifEntries = [];
+  const ascii = (s) => { const b = new Uint8Array(s.length + 1); b.set(te.encode(s), 0); return b; };
+  if (desc) entries0.push({ tag: 0x010E, type: 2, data: ascii(desc.slice(0, 2000)) });
+  if (p) {
+    const dt = `${pad(p.y, 4)}:${pad(p.m || 1)}:${pad(p.d || 1)} 12:00:00`;
+    exifEntries.push({ tag: 0x9003, type: 2, data: ascii(dt) });
+    exifEntries.push({ tag: 0x9004, type: 2, data: ascii(dt) });
+  }
+  if (entries0.length === 0 && exifEntries.length === 0) return null;
+  const hasExifIfd = exifEntries.length > 0;
+  if (hasExifIfd) entries0.push({ tag: 0x8769, type: 4, data: new Uint8Array(4), isPtr: true });
+  entries0.sort((a, b) => a.tag - b.tag);
+
+  const ifdSize = (n) => 2 + n * 12 + 4;
+  const dataSize = (es) => es.reduce((a, e) => a + (e.data.length > 4 ? e.data.length + (e.data.length % 2) : 0), 0);
+  const ifd0Off = 8;
+  const data0Off = ifd0Off + ifdSize(entries0.length);
+  const exifIfdOff = data0Off + dataSize(entries0);
+  const exifDataOff = exifIfdOff + (hasExifIfd ? ifdSize(exifEntries.length) : 0);
+  const total = exifDataOff + dataSize(exifEntries);
+
+  const tiff = new Uint8Array(total);
+  const dv = new DataView(tiff.buffer);
+  tiff.set([0x49, 0x49, 0x2A, 0x00], 0);
+  dv.setUint32(4, ifd0Off, true);
+
+  const writeIfd = (off, es, dataOff) => {
+    dv.setUint16(off, es.length, true);
+    let dOff = dataOff;
+    es.forEach((e, i) => {
+      const eo = off + 2 + i * 12;
+      dv.setUint16(eo, e.tag, true);
+      dv.setUint16(eo + 2, e.type, true);
+      if (e.isPtr) {
+        dv.setUint32(eo + 4, 1, true);
+        dv.setUint32(eo + 8, exifIfdOff, true);
+      } else {
+        dv.setUint32(eo + 4, e.data.length, true);
+        if (e.data.length <= 4) tiff.set(e.data, eo + 8);
+        else { dv.setUint32(eo + 8, dOff, true); tiff.set(e.data, dOff); dOff += e.data.length + (e.data.length % 2); }
+      }
+    });
+    dv.setUint32(off + 2 + es.length * 12, 0, true);
+  };
+  writeIfd(ifd0Off, entries0, data0Off);
+  if (hasExifIfd) writeIfd(exifIfdOff, exifEntries, exifDataOff);
+
+  const header = Uint8Array.from([0x45, 0x78, 0x69, 0x66, 0, 0]);
+  const payloadLen = 2 + header.length + tiff.length;
+  if (payloadLen > 65535) return null;
+  const seg = new Uint8Array(2 + payloadLen);
+  seg[0] = 0xFF; seg[1] = 0xE1;
+  seg[2] = (payloadLen >> 8) & 0xFF; seg[3] = payloadLen & 0xFF;
+  seg.set(header, 4);
+  seg.set(tiff, 4 + header.length);
+  return seg;
+}
+
+/**
+ * Embeds XMP + IPTC (+ EXIF when absent) metadata into a JPEG Uint8Array without altering pixels
+ */
+export function embedXmpInJpeg(uint8Array, rawMetadata) {
   if (uint8Array[0] !== 0xFF || uint8Array[1] !== 0xD8) {
     throw new Error('Not a valid JPEG file (missing SOI 0xFFD8 marker)');
   }
 
-  const encoder = new TextEncoder();
+  const metadata = { ...rawMetadata, title: buildTitle(rawMetadata) };
+  const encoder = te;
   const xmpPacketStr = generateXmpPacket(metadata);
   const xmpBytes = encoder.encode(xmpPacketStr);
   
@@ -108,6 +291,7 @@ export function embedXmpInJpeg(uint8Array, metadata) {
   xmpSegment.set(xmpBytes, 4 + nsBytes.length);
 
   // Scan JPEG segments and skip any existing XMP APP1 segments
+  let hasExif = false;
   const chunks = [];
   chunks.push(uint8Array.subarray(0, 2)); // SOI (0xFF 0xD8)
   
@@ -132,29 +316,39 @@ export function embedXmpInJpeg(uint8Array, metadata) {
     const segLen = view.getUint16(pos + 2, false);
     const segEnd = pos + 2 + segLen;
 
-    let isExistingXmp = false;
+    let skip = false;
     if (marker === 0xE1 && segLen >= 31) {
       // Check namespace: "http://ns.adobe.com/xap/1.0/"
       const headerBytes = uint8Array.subarray(pos + 4, pos + 4 + 28);
       const headerStr = new TextDecoder().decode(headerBytes);
-      if (headerStr === 'http://ns.adobe.com/xap/1.0/') {
-        isExistingXmp = true;
-      }
+      if (headerStr === 'http://ns.adobe.com/xap/1.0/') skip = true;
+      if (headerStr.startsWith('Exif')) hasExif = true;
+    }
+    // Replace any existing Photoshop/IPTC block
+    if (marker === 0xED && segLen >= 16) {
+      const h = new TextDecoder().decode(uint8Array.subarray(pos + 4, pos + 4 + 13));
+      if (h === 'Photoshop 3.0') skip = true;
     }
 
-    if (!isExistingXmp) {
+    if (!skip) {
       chunks.push(uint8Array.subarray(pos, segEnd));
     }
 
     pos = segEnd;
   }
 
-  // Insert xmpSegment after SOI or after existing JFIF/Exif segment
-  if (chunks.length > 1 && (chunks[1][1] === 0xE0 || chunks[1][1] === 0xE1)) {
-    chunks.splice(2, 0, xmpSegment);
-  } else {
-    chunks.splice(1, 0, xmpSegment);
+  // Insert new segments after leading JFIF (APP0) / Exif (APP1) segments
+  const extra = [];
+  if (!hasExif) {
+    const exifSeg = buildExifSegment(metadata);
+    if (exifSeg) extra.push(exifSeg);
   }
+  extra.push(xmpSegment);
+  const iptcSeg = buildIptcSegment(metadata);
+  if (iptcSeg) extra.push(iptcSeg);
+  let insertAt = 1;
+  while (insertAt < chunks.length && (chunks[insertAt][1] === 0xE0 || chunks[insertAt][1] === 0xE1)) insertAt++;
+  chunks.splice(insertAt, 0, ...extra);
 
   // Remainder of file (from SOS to EOI)
   chunks.push(uint8Array.subarray(pos));
@@ -350,7 +544,6 @@ export async function downloadPhotoWithEmbeddedMetadata(photo, metadata) {
 
     const uint8 = new Uint8Array(arrayBuffer);
     const updated = embedXmpInJpeg(uint8, {
-      title: photo.name,
       story: metadata.story,
       people: metadata.people,
       date: metadata.date,
@@ -381,30 +574,19 @@ export async function downloadPhotoWithEmbeddedMetadata(photo, metadata) {
  * Creates clean, descriptive filename suitable for FamilySearch "Use file names as titles"
  */
 export function generateFamilySearchFilename(photo, metadata = {}) {
-  const parts = [];
-  
-  if (metadata.people && metadata.people.length > 0) {
-    // Up to 3 names
-    const names = metadata.people.slice(0, 3).map(p => p.trim().replace(/[^a-zA-Z0-9]/g, '_'));
-    parts.push(names.join('_and_'));
-  }
-  
-  if (metadata.date || metadata.decade) {
-    const d = (metadata.date || metadata.decade).trim().replace(/[^a-zA-Z0-9]/g, '_');
-    parts.push(d);
-  }
-  
-  if (metadata.location) {
-    const loc = metadata.location.split(',')[0].trim().replace(/[^a-zA-Z0-9]/g, '_');
-    if (loc) parts.push(loc);
+  // Use the first 3 people's names joined by hyphens, e.g. Patricia-Cathy.jpg
+  const names = (metadata.people || [])
+    .slice(0, 3)
+    .map(p => String(p).trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_'))
+    .filter(Boolean);
+
+  if (names.length > 0) {
+    return `${names.join('-')}.jpg`;
   }
 
-  if (parts.length > 0) {
-    return `${parts.filter(Boolean).join('_')}.jpg`;
-  }
-
+  // No people tagged yet: keep the original file name
   const cleanBase = (photo.name || 'family_photo').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `${cleanBase}_FamilySearch.jpg`;
+  return `${cleanBase}.jpg`;
 }
 
 /**

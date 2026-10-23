@@ -1546,7 +1546,7 @@ export default function MetadataModal({
               title="Download a copy of this JPEG with all stories, dates, and people baked directly into the file for FamilySearch"
             >
               <Download size={14} />
-              <span>{isDownloading ? 'Baking Metadata...' : 'Download for FamilySearch'}</span>
+              <span>{isDownloading ? 'Baking Metadata...' : 'Send to FamilySearch'}</span>
             </button>
           </div>
 

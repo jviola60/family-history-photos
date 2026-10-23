@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview 6 – Gallery + Drawer (Full Features)</title>
+<link rel="stylesheet" href="common.css">
+<style>
+:root{--navy:#16294d;--gold:#d9a93f;--ink:#16233f;--line:#d5dcec;--soft:#eef1f8;--ok:#1a6b34;--warn:#b45309;--accent:#c2410c}
+body{background:#f3f5fa;color:var(--ink);min-height:100vh;font-size:16px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+/* ---------- Header ---------- */
+.top{background:var(--navy);color:#fff;padding:38px 20px 12px;position:sticky;top:0;z-index:20}
+.row1{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}.brand .lg{font-size:28px}.brand h1{font-size:19px;line-height:1.1}.brand small{opacity:.7;font-size:12px}
+.burger{display:none;padding:10px 14px;border-radius:10px;background:#ffffff22;font-weight:700}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.ab{display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:10px;background:#ffffff1c;border:1px solid #ffffff2e;font-size:14px;font-weight:600;white-space:nowrap}
+.ab:hover{background:#ffffff33}.ab.hl{background:#d9a93f33;border-color:#d9a93f99}.ab.ac{background:#c2410c44;border-color:#fb923c99}
+.pillc{background:#d9a93f;color:var(--navy);border-radius:999px;font-size:12px;font-weight:800;padding:1px 8px}
+.tips{background:#fff7e0;color:#5a4410;border-bottom:1px solid #ecd9a0;padding:14px 20px;display:flex;gap:14px;align-items:flex-start;line-height:1.5}
+.tips ol{padding-left:20px}.tips button{margin-left:auto;font-size:20px;padding:0 6px}
+/* ---------- Search / filters ---------- */
+.sf{background:#fff;border-bottom:1px solid var(--line);padding:14px 20px}
+.sr{display:flex;gap:10px;flex-wrap:wrap}
+.sr .sw{position:relative;flex:1 1 320px}.sr .sw input{padding-left:40px;height:48px;border-radius:12px;border:1px solid #b9c4de}
+.sr .sw i{position:absolute;left:13px;top:12px;font-style:normal}.sr .sw .cx{position:absolute;right:8px;top:8px;font-size:22px;padding:0 8px}
+.sr select{height:48px;border-radius:12px;border:1px solid #b9c4de;padding:0 12px;width:auto;flex:0 1 230px;background:#fff}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}.chips .lab{font-size:13px;font-weight:700;opacity:.6}
+.fc{padding:8px 15px;border-radius:999px;border:1px solid #b9c4de;background:#fff;font-weight:600;font-size:14px}
+.fc.hi{border-color:var(--gold);background:#fff8e4}.fc.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.cnt{padding:10px 20px 0;font-size:14px;opacity:.7}
+/* ---------- Grid + cards ---------- */
+.main{transition:margin .25s}
+body.dr .main{margin-right:520px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;padding:16px 20px 60px}
+.card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px #16294d1a;display:flex;flex-direction:column;border:3px solid transparent;transition:.15s}
+.card:hover{box-shadow:0 8px 22px #16294d2e;transform:translateY(-2px)}.card.sel{border-color:var(--gold)}
+.card.rev{background:#fffaf0}
+.mw{position:relative;aspect-ratio:4/3;background:#cdd5e6;cursor:pointer;overflow:hidden}
+.mw img{width:100%;height:100%;object-fit:cover}
+.bd{position:absolute;top:8px;left:8px;right:8px;display:flex;flex-wrap:wrap;gap:5px}
+.b{font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;display:inline-flex;gap:4px;align-items:center;background:#fffd;color:#222}
+.b.g{background:#d5f2dc;color:var(--ok)}.b.w{background:#ffe6c2;color:#8a4b00}.b.p{background:#047857e0;color:#fff}.b.d{background:#e8edf8;color:#26407a}
+.unt{position:absolute;left:0;right:0;bottom:0;background:#16294dd9;color:#fff;font-size:13px;padding:7px 10px;font-weight:600}
+.cb{padding:12px 14px 14px;display:flex;flex-direction:column;gap:7px;flex:1}
+.sub{font-size:12px;opacity:.65}.ct{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp{display:flex;flex-wrap:wrap;gap:5px}.pc{background:var(--soft);color:#26407a;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}.pc:hover{background:#d8e1f6}
+.pc.det{background:#0478571f;color:#047857}
+.tg span{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;margin-right:5px;background:#fff2d6;color:#8a5a00}.tg span.br{background:#e3f2ff;color:#1b5a8a}
+.sty{font-size:13px;font-style:italic;opacity:.85;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.loc{font-size:13px;opacity:.75}
+.ca{display:flex;gap:8px;margin-top:auto;padding-top:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 14px;border-radius:11px;font-weight:700;font-size:14px;border:2px solid var(--navy)}
+.btn.p{background:var(--navy);color:#fff}.btn.s{background:#fff}.btn.en{background:#fff1e6;border-color:var(--accent);color:var(--accent)}.btn.wn{background:#fff3da;border-color:#d97706;color:#92400e}
+.btn.dn{border-color:#dc2626;color:#b91c1c;background:#fff}.btn.sm{padding:8px 11px;font-size:13px}.btn.xs{padding:5px 9px;font-size:12px;border-width:1px;border-radius:8px}
+.ca .btn{flex:1}
+.empty{grid-column:1/-1;text-align:center;padding:60px 20px;opacity:.6;font-size:18px}
+/* ---------- Drawer ---------- */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:520px;max-width:100vw;background:#fff;box-shadow:-8px 0 30px #0003;transform:translateX(105%);transition:transform .25s,width .25s;z-index:40;display:flex;flex-direction:column;padding-top:30px}
+body.dr .drawer{transform:none}
+.drawer.max{width:100vw}
+.dh{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dh .tt{margin-right:auto;min-width:0}.dh h2{font-size:17px}.dh .tt div{font-size:12px;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);font-size:18px;display:grid;place-items:center}.ib:hover:not(:disabled){background:var(--soft)}.ib:disabled{opacity:.35;cursor:default}
+.db{flex:1;overflow:auto;padding:14px 16px}
+.cols{display:block}
+.drawer.max .cols{display:grid;grid-template-columns:1.25fr 1fr;gap:20px;align-items:start}
+.zt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#16233f;color:#fff;border-radius:12px 12px 0 0;padding:8px 10px}
+.zt b{font-size:11px;color:#fbbf24;letter-spacing:.5px;text-transform:uppercase}
+.zb{padding:6px 11px;border-radius:8px;background:#ffffff1f;font-size:13px;font-weight:700;color:#fff}.zb.on{background:#2563eb}.zt .hint{font-size:11px;color:#93c5fd;margin-left:auto}
+.pv{background:#0f172a;border-radius:0 0 12px 12px;overflow:hidden;height:340px;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
+.drawer.max .pv{height:calc(100vh - 360px);min-height:300px}
+.vp{position:relative;display:inline-block;max-width:100%;max-height:100%;transform-origin:center}
+.vp img{display:block;max-width:100%;max-height:340px;-webkit-user-select:none;user-select:none}
+.sr .sw .cx[hidden]{display:none}.chips .chips-in{margin:0}
+.drawer.max .vp img{max-height:calc(100vh - 360px)}
+.fb{position:absolute;border:2px solid #fbbf24;border-radius:6px;box-shadow:0 0 0 1px #0006}
+.fb.nm{border-color:#22c55e}
+.ft{position:absolute;left:0;top:100%;margin-top:3px;display:flex;gap:4px;align-items:center;z-index:5;white-space:nowrap}
+.ft select{width:auto;background:#1c1917;color:#fff;border:1px solid #fff9;border-radius:5px;font-size:11px;font-weight:700;padding:2px 4px}
+.fb.nm .ft select{border-color:#22c55e}
+.ft button{background:#dc2626;color:#fff;border-radius:4px;width:18px;height:18px;line-height:1;font-size:13px;font-weight:700}
+.scan{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#111;padding:6px 14px;border-radius:999px;font-weight:700;font-size:13px;z-index:6}
+.meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12px;opacity:.85;margin:8px 0}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.note{border-radius:8px;padding:8px 12px;margin-top:8px;font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.note.ok{background:#22c55e26;border:1px solid #22c55e66;color:#15803d}.note.wn{background:#d9770626;border:1px solid #d9770666;color:#b45309}
+.cta{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#c2410c14;border:1px solid #c2410c40;border-radius:12px;padding:10px 12px;margin-top:10px}
+.cta b{font-size:14px;display:block}.cta small{font-size:12px;opacity:.7}.cta div.bt{display:flex;gap:8px}
+.sug{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#e8f0ff;border:1px solid #9db8ee;border-radius:12px;padding:10px 12px;margin-top:10px;font-size:14px}
+.fcol{margin-top:14px}.drawer.max .fcol{margin-top:0}
+.fg{margin-bottom:16px}
+label.fl{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px;margin-bottom:6px}
+.fg input,.fg select,.fg textarea{padding:12px;border:1px solid #b9c4de;border-radius:10px;font-size:16px;background:#fff}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lr{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}.lr label.fl{margin:0}
+.prow{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#1c19170a;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:6px;flex-wrap:wrap}
+.prow select{width:auto;padding:4px 8px;font-size:13px;border-radius:7px}.prow .x{font-size:20px;padding:0 6px;opacity:.6}.prow .x:hover{opacity:1}
+.add{display:flex;gap:8px}.add .btn{flex-shrink:0}
+.qp{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;font-size:13px}.qp button{background:var(--soft);padding:5px 12px;border-radius:999px;font-weight:600;font-size:13px}.qp button:hover{background:#d8e1f6}
+.emb{display:flex;gap:6px;align-items:center;font-size:12px;color:#15803d;font-weight:600;margin-top:6px}
+.draft{background:#22c55e1a;border:1px solid #22c55e55;color:#15803d;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:13px;display:flex;justify-content:space-between}
+.df{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--line);background:#fafbfe}
+.df .l,.df .r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.as{font-size:12px;font-weight:700}.as.sv{color:#16a34a}.as.sg{color:#f59e0b}
+.scrim{display:none}
+@media(max-width:1100px){body.dr .main{margin-right:0}}
+@media(max-width:760px){
+ .top{padding-top:38px}.burger{display:inline-block}.acts{display:none}.acts.open{display:flex}
+ .brand small{display:none}.brand h1{font-size:16px}
+ .grid{grid-template-columns:repeat(2,1fr);gap:10px;padding:12px}
+ .ca{flex-direction:column}.sr select{flex:1 1 100%}
+ .drawer{width:100vw}.drawer.max .cols{display:block}.drawer.max .pv,.pv{height:300px}.vp img,.drawer.max .vp img{max-height:300px}
+ .two{grid-template-columns:1fr}.dh .tt div{max-width:130px}.btxt{display:none}
+}
+</style></head><body>
+
+<header class="top">
+ <div class="row1">
+  <div class="brand"><span class="lg">🌳</span><div><h1>Family History Photos</h1><small>Family Photo Album &amp; Memory Keeper</small></div></div>
+  <button class="burger" onclick="document.getElementById('acts').classList.toggle('open')">☰ Menu</button>
+ </div>
+ <nav class="acts" id="acts" aria-label="Album tools"></nav>
+</header>
+
+<div class="tips" id="tips"><div><b>👋 Quick Tips</b><ol><li>Click any photo to open it on the right.</li><li>Type who is in the photo, when and where it was taken, then tell the story.</li><li>Your notes save automatically and are embedded in the photo file for FamilySearch.</li></ol></div><button onclick="toggleTips()" aria-label="Hide tips">✕</button></div>
+
+<section class="sf" aria-label="Search and filters">
+ <div class="sr">
+  <div class="sw"><i>🔍</i><input id="q" placeholder="Search by person's name, relationship, decade, memories, or subfolder…" oninput="setQ(this.value)"><button class="cx" id="qx" hidden onclick="setQ('');q.value=''" title="Clear search">×</button></div>
+  <select id="sub" onchange="sub=this.value;draw()" aria-label="Filter by subfolder"></select>
+  <select id="sort" onchange="sortBy=this.value;draw()" aria-label="Sort photos">
+   <option value="date_asc">Date: Oldest first (Timeline)</option><option value="date_desc">Date: Newest first</option>
+   <option value="name_asc">File Name: A to Z</option><option value="resolution_asc">Resolution: Smallest first</option><option value="resolution_desc">Resolution: Highest quality first</option>
+  </select>
+ </div>
+ <div class="chips"><span class="lab">Quick Filters:</span><span id="chips" class="chips chips-in"></span></div>
+</section>
+
+<main class="main"><div class="cnt" id="cnt"></div><div class="grid" id="grid"></div></main>
+
+<aside class="drawer" id="dr" aria-label="Photo details"></aside>
+
+<script src="common.js"></script>
+<script>
+const $=s=>document.querySelector(s),esc=FH.esc;
+const looks=['','sepia(.8)','grayscale(1)','hue-rotate(20deg)','saturate(1.4)','contrast(1.2) sepia(.3)'];
+const GROUPS=['Immediate Family / Household','Spouse & Children','Parents & Children','Extended Family Gathering','Couple / Parents','Siblings / Children','Grandparents & Grandchildren','Great-Grandparents & Great-Grandchildren','Multi-Generational (3-4 Generations)','Solo Portrait','Friends & Social'];
+const RELS=FH.rels, DECADES=FH.decades;
+const F=(x,y,w,h,name='')=>({x,y,w,h,name});
+const base=(i,o)=>Object.assign({id:i,name:`IMG_${1000+i*37}.jpg`,folder:'',w:3000,h:2000,people:[],rels:{},group:'',branch:'',decade:'',date:'',place:'',story:'',faces:[],noPeople:false,enhanced:false,review:false,shot:false,year:1950+(i*7)%70,look:looks[i%6]},o);
+let photos=[
+ base(0,{name:FH.file,folder:'Reunions',w:4200,h:3000,people:['Josephine Helen Costello'],rels:{'Josephine Helen Costello':'Grandmother'},group:'Extended Family Gathering',branch:'Gill',decade:'2000s',date:'7/19/2003',place:'Gill Family Reunion',story:FH.data.story,faces:[F(38,18,22,30,'Josephine Helen Costello')],year:2003,look:''}),
+ base(1,{name:'wedding_charleston_1964.jpg',folder:'Weddings',w:2400,h:1800,people:['Joseph Viola','Rose Viola'],rels:{'Joseph Viola':'Grandfather','Rose Viola':'Grandmother'},group:'Couple / Parents',branch:'Viola Family',decade:'1960s',date:'June 1964',place:'Wedding in Charleston',story:'The church bells rang for an hour. Grandpa said it was the happiest day of his life.',faces:[F(22,20,18,26,'Joseph Viola'),F(55,22,18,26,'Rose Viola')],year:1964,look:looks[1]}),
+ base(2,{name:'scan_0042.jpg',folder:'Scans',w:1200,h:900,faces:[F(30,25,18,26),F(58,28,17,25)],year:1981,look:looks[3]}),
+ base(3,{name:'old_portrait.jpg',folder:'Scans',w:480,h:360,faces:[F(36,18,26,36)],year:1972,look:looks[2]}),
+ base(4,{name:'beach_trip.jpg',folder:'Beach Trip',w:3200,h:2100,people:['Sarah Gill'],rels:{'Sarah Gill':'Aunt'},decade:'1990s',place:'Cape May',faces:[F(40,30,16,24,'Sarah Gill')],year:1994,look:looks[4]}),
+ base(5,{name:'Screenshot 2024-03-02 at 9.41.12 AM.png',w:1920,h:1080,shot:true,noPeople:true,year:2024}),
+ base(6,{name:'IMG_dupe_copy.jpg',w:3000,h:2000,review:true,faces:[F(40,25,20,28)],year:1998}),
+ base(7,{name:'christmas_1957_restored.jpg',folder:'Scans',w:3840,h:2160,enhanced:true,people:['Rose Viola'],rels:{'Rose Viola':'Grandmother'},decade:'1950s',story:'Christmas at the farmhouse.',faces:[F(44,22,17,26,'Rose Viola')],year:1957,look:looks[5]})
+];
+for(let i=8;i<22;i++){const t=i%3!=0;photos.push(base(i,{folder:i%4==0?'Beach Trip':i%5==0?'Reunions':'',w:i%4==1?640:3000,h:i%4==1?480:2000,faces:i%2?[F(30+(i%5)*4,22,18,26)]:[],people:t?['Josephine Helen Costello']:[],rels:t?{'Josephine Helen Costello':'Grandmother'}:{},decade:t?DECADES[4+i%7]:'',story:i%6==0?'A day we never forgot.':'',place:i%4==0?'Cape May':''}))}
+const knownPeople=['Josephine Helen Costello','Joseph Viola','Rose Viola','Sarah Gill','Uncle David','Cousin Anna','Aunt Rose'];
+
+let filter='all',q_='',sortBy='date_asc',sub='all',cur=null,draft=null,zoom=1,pan={x:0,y:0},maxed=false,tipsOn=true,counts={};
+const px=p=>p.w*p.h;
+const lowRes=p=>!p.enhanced&&(p.w<800||p.h<800);
+const tagged=p=>p.people.length||p.group||p.story;
+const subfolders=()=>[...new Set(photos.map(p=>p.folder).filter(Boolean))];
+
+/* ---------- toolbar ---------- */
+function calc(){const m=photos.filter(p=>!p.review);counts={all:m.length,review:photos.filter(p=>p.review).length,shots:m.filter(p=>p.shot).length,unt:m.filter(p=>!tagged(p)&&!p.shot).length,low:m.filter(lowRes).length,ppl:m.filter(p=>p.faces.length&&!p.noPeople).length,dup:3}}
+function drawActs(){calc();const A=(i,l,act,badge,cls='')=>`<button class="ab ${cls}" data-act="${act||l}" title="${l}">${i} <span>${l}</span>${badge?`<span class="pillc">${badge}</span>`:''}</button>`;
+ $('#acts').innerHTML=A('📂','Open Folder','Open Folder')+A('☁️','Cloud Import','Cloud Import (OneDrive, Google Photos, iCloud)')+A('📑','Duplicates','Duplicates',counts.dup,'hl')+
+ (counts.shots?A('🧹','Clean Screenshots','Clean Screenshots',counts.shots):'')+(counts.low?A('✨','Restore to 4K','Restore to 4K',counts.low,'ac'):'')+
+ (counts.review?`<button class="ab hl" onclick="setF('review_folder')">📁 <span>Review Folder</span><span class="pillc">${counts.review}</span></button>`:'')+
+ A('👪',`Family (${knownPeople.length})`,'Family Directory')+A('💾','Save Album','Save Album')+A('✖','Close Album','Close Album')+A('⚙️','Settings','Settings')+A('📖','User Guide','User Guide','','hl')+
+ `<button class="ab" onclick="toggleTips()">💡 <span>${tipsOn?'Hide Tips':'Quick Tips'}</span></button>`}
+function toggleTips(){tipsOn=!tipsOn;$('#tips').style.display=tipsOn?'flex':'none';drawActs()}
+
+/* ---------- filters ---------- */
+const STD=['all','review_folder','screenshots','untagged','needs_enhancement','with_people','grandparents','1960s','1970s','1980s','group'];
+function setF(f){filter=(f==filter&&f!='all')?'all':f;draw()}
+function setQ(v){q_=v;$('#qx').hidden=!v;draw()}
+function drawChips(){const c=counts,L=n=>n.toLocaleString();const personF=!STD.includes(filter);
+ const chips=[...(personF?[['PF',`👤 Showing: ${filter} (Click to Clear ✕)`,1]]:[]),['all',`All Photos (${L(c.all)})`],...(c.review?[['review_folder',`📁 Review Folder (${c.review})`,1]]:[]),...(c.shots?[['screenshots',`📸 Screenshots (${c.shots})`,1]]:[]),['untagged',`❓ Untagged (${c.unt})`,c.unt>0],['needs_enhancement',`✨ Restore to 4K (${c.low})`,c.low>0],...(c.ppl?[['with_people',`👥 People (${c.ppl})`,1]]:[]),['grandparents','👵 Grandparents'],['1960s','1960s'],['1970s','1970s'],['1980s','1980s'],['group','👥 Group Photos']];
+ $('#chips').innerHTML=chips.map(([id,l,h])=>`<button class="fc ${h?'hi':''} ${(id=='PF'||filter==id)?'on':''}" onclick="${id=='PF'?"setF('all')":`setF('${id}')`}">${esc(l)}</button>`).join('');
+ const s=$('#sub');s.innerHTML=`<option value="all">📁 All Subfolders (${subfolders().length} folders)</option>`+subfolders().map(f=>`<option ${sub==f?'selected':''} value="${esc(f)}">📁 ${esc(f)}</option>`).join('')}
+function match(p){const s=q_.toLowerCase();
+ if(filter=='review_folder'?!p.review:p.review)return false;
+ if(sub!='all'&&p.folder!=sub)return false;
+ if(s){const hay=[p.name,p.folder,p.people.join(' '),Object.values(p.rels).join(' '),p.group,p.branch,p.decade,p.story,p.place].join(' ').toLowerCase();if(!hay.includes(s))return false}
+ switch(filter){case 'all':case 'review_folder':return true;case 'screenshots':return p.shot;case 'untagged':return !tagged(p)&&!p.shot;case 'needs_enhancement':return lowRes(p);case 'with_people':return p.faces.length&&!p.noPeople;
+  case 'grandparents':return Object.values(p.rels).some(r=>/Grand/.test(r))||/Grandparents/.test(p.group);case '1960s':case '1970s':case '1980s':return p.decade==filter||(!p.decade&&Math.floor(p.year/10)*10+'s'==filter);
+  case 'group':return p.people.length>1||p.faces.length>1;default:return p.people.includes(filter)}}
+function visible(){const l=photos.filter(match);const k={date_asc:(a,b)=>a.year-b.year,date_desc:(a,b)=>b.year-a.year,name_asc:(a,b)=>a.name.localeCompare(b.name),resolution_asc:(a,b)=>px(a)-px(b),resolution_desc:(a,b)=>px(b)-px(a)}[sortBy];return l.sort(k)}
+
+/* ---------- gallery ---------- */
+function card(p){const low=lowRes(p),det=!p.noPeople&&p.faces.length,tg=tagged(p);
+ const b=[p.review?'<span class="b w">📁 In Review</span>':'',p.enhanced?'<span class="b g">✨ 4K Restored</span>':'',det?`<span class="b p">👥 ${p.faces.length==1?'1 Person':p.faces.length+' People'}</span>`:'',
+  low?`<span class="b w">✨ Low-Res (${p.w}×${p.h})</span>`:(!p.enhanced?`<span class="b">${p.w}×${p.h}</span>`:''),p.decade?`<span class="b d">📅 ${p.decade}</span>`:''].join('');
+ const pl=p.people.length?`<div class="pp">${p.people.map(n=>`<button class="pc" title="Show all photos of ${esc(n)}" onclick="setF('${esc(n).replace(/'/g,"\\'")}')">👤 ${esc(n)}${p.rels[n]?` <span style="opacity:.7;font-weight:500">(${esc(p.rels[n])})</span>`:''}</button>`).join('')}</div>`:det?`<div class="pp"><span class="pc det">👥 ${p.faces.length==1?'1 Person Detected':p.faces.length+' People Detected'}</span></div>`:'';
+ return `<article class="card ${cur==p.id?'sel':''} ${p.review?'rev':''}">
+ <div class="mw" onclick="openP(${p.id})"><img loading="lazy" src="${FH.photo}" alt="${esc(p.name)}" style="filter:${p.look}">
+  <div class="bd">${b}</div>${tg||p.noPeople?'':`<div class="unt">🏷 ${det?'👤 People recognized! Click to name':'Click to add names &amp; memories'}</div>`}</div>
+ <div class="cb">${p.folder?`<div class="sub">📁 ${esc(p.folder)}</div>`:''}<div class="ct" title="${esc(p.name)}">${esc(p.name)}</div>${pl}
+  ${p.group||p.branch?`<div class="tg">${p.group?`<span>${esc(p.group)}</span>`:''}${p.branch?`<span class="br">${esc(p.branch)}</span>`:''}</div>`:''}
+  ${p.story?`<p class="sty">“${esc(p.story)}”</p>`:''}${p.place?`<div class="loc">📍 ${esc(p.place)}</div>`:''}
+  <div class="ca">${p.review?`<button class="btn wn sm" onclick="restoreP(${p.id})">↩ Restore to Library</button>`:`<button class="btn p sm" onclick="openP(${p.id})">🏷 ${tg?'Edit Memories':det?'Name People':'Add Names'}</button><button class="btn ${low?'en':'s'} sm" onclick="make4k(${p.id})">✨ ${low?'Make 4K':'Restore'}</button>`}</div></div></article>`}
+function draw(){drawActs();drawChips();const l=visible();$('#grid').innerHTML=l.length?l.map(card).join(''):'<div class="empty">No photos match. Try clearing a filter or the search box.</div>';$('#cnt').textContent=`Showing ${l.length} of ${photos.length} photos`}
+function restoreP(id){photos[id].review=false;draw();FH.toast('↩ Restored to your main album')}
+function make4k(id){FH.toast('✨ Restoring to 4K… (preview)');setTimeout(()=>{photos[id].enhanced=true;if(draft&&draft.id==id)draft.enhanced=true;draw();if(cur==id)rDrawer();FH.toast('✨ Done! Photo restored to 4K')},900)}
+
+/* ---------- drawer ---------- */
+const P=()=>photos[cur];
+function openP(id){cur=id;draft=JSON.parse(JSON.stringify(photos[id]));zoom=1;pan={x:0,y:0};sug=null;msg='';scanning=false;draftNote=id==0?'':'';rDrawer();document.body.classList.add('dr');draw();
+ const un=draft.faces.find(f=>!f.name);const cand=knownPeople.filter(n=>!draft.people.includes(n));if(un&&cand.length&&!draft.noPeople)sug={name:cand[id%cand.length],pct:82+id%15,face:draft.faces.indexOf(un)};rSug()}
+function closeP(){document.body.classList.remove('dr');cur=null;maxed=false;$('#dr').classList.remove('max');draw()}
+function nav(d){const l=visible(),i=l.findIndex(p=>p.id==cur),n=l[i+d];if(n)openP(n.id)}
+let sug=null,msg='',scanning=false,draftNote='',asT;
+function setD(k,v){draft[k]=v;autosave()}
+function autosave(){const a=$('#as');if(!a)return;a.className='as sg';a.textContent='Saving draft…';clearTimeout(asT);asT=setTimeout(()=>{a.className='as sv';a.textContent='✓ Auto-saved'},700)}
+function rDrawer(){const d=draft,l=visible(),i=l.findIndex(p=>p.id==cur);
+ $('#dr').innerHTML=`
+ <div class="dh"><div class="tt"><h2>Family History &amp; Memories</h2><div>${esc(d.name)}</div></div>
+  <button class="btn s sm" onclick="toggleMax()" title="Make the window full-screen to see the photo much bigger">⛶ <span class="btxt">${maxed?'Standard Size':'Big Screen'}</span></button>
+  <button class="btn wn sm" onclick="make4k(${d.id})" title="Open 4K Photo Restorer">✨ <span class="btxt">Fix Quality (4K)</span></button>
+  <button class="ib" ${i<=0?'disabled':''} onclick="nav(-1)" title="Previous Photo" aria-label="Previous photo">◀</button><button class="ib" ${i>=l.length-1?'disabled':''} onclick="nav(1)" title="Next Photo" aria-label="Next photo">▶</button>
+  <button class="ib" onclick="closeP()" title="Close" aria-label="Close">✕</button></div>
+ <div class="db"><div class="cols"><div class="pcol">
+  <div class="zt"><b>🔍 Magnify:</b><button class="zb" onclick="zoomBy(-.5)" title="Zoom out">−</button>${[1,1.5,2,3].map(z=>`<button class="zb ${zoom==z?'on':''}" onclick="zoomTo(${z})">${z==1?'Fit (100%)':z*100+'%'}</button>`).join('')}<button class="zb" onclick="zoomBy(.5)" title="Zoom in">+</button><span class="hint">${zoom>1?'✋ Click &amp; drag photo to pan':''}</span></div>
+  <div class="pv" id="pv" title="Scroll wheel to zoom • drag to pan when zoomed"><div class="vp" id="vp"><img src="${FH.photo}" alt="${esc(d.name)}" style="filter:${d.look}" draggable="false"><div id="faces"></div></div><div id="scan"></div></div>
+  <div id="sug"></div>
+  <div class="cta"><div><b>${d.enhanced?'✨ Restored to 4K Ultra HD':'✨ Low Quality? Clean &amp; Enhance to 4K'}</b><small>${d.enhanced?'Fine-tune lighting, eyes and shadows, or run another pass.':'Upscale resolution, reduce noise, and sharpen faces.'}</small></div>
+   <div class="bt"><button class="btn wn sm" onclick="make4k(${d.id})">✨ ${d.enhanced?'Re-Enhance / Add Pass':'Make 4K'}</button><button class="btn s sm" data-act="Crop &amp; Erase">✂️ Crop &amp; Erase</button></div></div>
+  <div class="meta"><span>Original size: ${d.w} × ${d.h} px · File date: 7/19/2003</span></div>
+  <div class="tools"><button class="btn xs dn" id="clr" onclick="clearFaces()" style="${d.faces.length?'':'display:none'}">🚫 Clear All Face Boxes (${d.faces.length})</button>
+   <button class="btn xs wn" onclick="rescan()">✨ Re-scan Faces</button><button class="btn xs dn" onclick="redEye()">🔴 Remove Red Eyes</button><button class="btn xs s" data-act="Crop &amp; Erase">✂️ Crop &amp; Erase</button>
+   ${d.enhanced?'<button class="btn xs s" onclick="draft.enhanced=false;rDrawer();FH.toast(\'Reverted to original\')">Revert to Original</button>':''}</div>
+  <div id="msg"></div></div>
+  <div class="fcol">
+   <div class="draft" id="dn" style="display:none"><span>✓ Restored your unsaved draft</span><button onclick="this.parentNode.style.display='none'">✕</button></div>
+   <div class="fg"><div class="lr"><label class="fl">👥 Who is in this picture? (Names)</label><button class="btn xs s" onclick="noPeople()" title="Mark as scenery, document, or empty room">🚷 No People in This Photo</button></div>
+    <div id="people"></div>
+    <div class="add"><input id="nm" placeholder="Type a person's name (e.g. Uncle David, Grandma Rose)…" onkeydown="if(event.key=='Enter'){event.preventDefault();addP()}"><button class="btn s" onclick="addP()">➕ Add</button></div><div class="qp" id="qp"></div></div>
+   <div class="two fg"><div><label class="fl">❤️ Photo Group / Overall Category</label><select onchange="setD('group',this.value)"><option value="">Select group category or leave blank…</option>${GROUPS.concat(RELS).map(g=>`<option ${d.group==g?'selected':''}>${esc(g)}</option>`).join('')}</select></div>
+    <div><label class="fl">Family Branch / Side</label><input value="${esc(d.branch)}" oninput="setD('branch',this.value)" placeholder="e.g. Viola Family, Mom's Side"></div></div>
+   <div class="two fg"><div><label class="fl">📅 Estimated Decade</label><select onchange="setD('decade',this.value)"><option value="">Choose decade…</option>${DECADES.map(x=>`<option ${d.decade==x?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div><label class="fl">Exact Date / Year (if known)</label><input value="${esc(d.date)}" oninput="setD('date',this.value)" placeholder="e.g. July 1974 or 1974-07-15"></div></div>
+   <div class="fg"><label class="fl">📍 Place or Occasion</label><input value="${esc(d.place)}" oninput="setD('place',this.value)" placeholder="e.g. Grandma's Backyard, Wedding in Charleston, Lake George"></div>
+   <div class="fg"><div class="lr"><label class="fl">📖 Family Story &amp; Memories</label><button class="btn xs s" id="cp" onclick="copyFS()" title="Copy formatted story, date and people for FamilySearch">📋 Copy for FamilySearch</button></div>
+    <textarea rows="4" oninput="setD('story',this.value)" placeholder="What do you remember about this day? Any funny memories, who was visiting, or what was happening?">${esc(d.story)}</textarea>
+    <div class="emb">🛡 Memories &amp; people are automatically embedded directly into this JPEG file (FamilySearch &amp; archive ready)</div></div>
+  </div></div></div>
+ <div class="df"><div class="l"><button class="btn dn sm" onclick="toReview()">🗑 Move to Review</button><button class="btn s sm" onclick="copyFS()">📋 Copy for FamilySearch</button><button class="btn s sm" data-act="Send to FamilySearch">📤 Send to FamilySearch</button></div>
+  <div class="r"><span class="as" id="as"></span><button class="btn s" onclick="closeP()">Cancel</button><button class="btn p" onclick="saveP()">✔ Save Memories &amp; Close</button></div></div>`;
+ rPeople();rFaces();rSug();applyZoom();wirePan()}
+function toggleMax(){maxed=!maxed;$('#dr').classList.toggle('max',maxed);rDrawer()}
+/* people */
+function rPeople(){const d=draft;$('#people').innerHTML=d.people.map((n,i)=>`<div class="prow"><span style="font-weight:700">👤 ${esc(n)}</span><span style="display:flex;gap:6px;align-items:center"><select onchange="setRel(${i},this.value)" title="${esc(n)}'s relationship to you"><option value="">Role / Relationship to Me…</option>${RELS.map(r=>`<option ${d.rels[n]==r?'selected':''}>${r}</option>`).join('')}</select><button class="x" onclick="rmP(${i})" title="Remove ${esc(n)}">×</button></span></div>`).join('');
+ const o=knownPeople.filter(n=>!d.people.includes(n)).slice(0,6);$('#qp').innerHTML=o.length?`<span>Or click to add:</span>`+o.map(n=>`<button onclick="addP('${n.replace(/'/g,"\\'")}')">+ ${esc(n)}</button>`).join(''):''}
+function addP(name){const n=(name||$('#nm').value).trim();if(!n)return;if(!draft.people.includes(n))draft.people.push(n);draft.noPeople=false;if(!knownPeople.includes(n))knownPeople.push(n);
+ const f=draft.faces.find(f=>!f.name);if(f)f.name=n;$('#nm').value='';rPeople();rFaces();autosave()}
+function rmP(i){const n=draft.people.splice(i,1)[0];delete draft.rels[n];draft.faces.forEach(f=>{if(f.name==n)f.name=''});rPeople();rFaces();autosave()}
+function setRel(i,v){draft.rels[draft.people[i]]=v;autosave()}
+function noPeople(){draft.noPeople=true;draft.people=[];draft.rels={};draft.faces=[];rPeople();rFaces();autosave();FH.toast('Marked: no people in this photo')}
+/* faces */
+function rFaces(){const d=draft,fam=knownPeople.filter(n=>!d.people.includes(n));
+ $('#faces').innerHTML=d.faces.map((f,i)=>`<div class="fb ${f.name?'nm':''}" style="left:${f.x}%;top:${f.y}%;width:${f.w}%;height:${f.h}%"><div class="ft" onpointerdown="event.stopPropagation()">
+  <select onchange="nameFace(${i},this.value)" title="${f.name?'Assigned to '+esc(f.name):'Click to assign which family member this face is'}"><option value="">${f.name?'-- Clear Assignment --':`Person ${i+1} (Click to Assign…)`}</option>${d.people.length?`<optgroup label="People in this photo">${d.people.map(n=>`<option ${n==f.name?'selected':''}>${n==f.name?'✓ ':''}${esc(n)}</option>`).join('')}</optgroup>`:''}${fam.length?`<optgroup label="All Family Members">${fam.map(n=>`<option>${esc(n)}</option>`).join('')}</optgroup>`:''}</select>
+  <button onclick="rmFace(${i})" title="Remove this false face box">×</button></div></div>`).join('');
+ const c=$('#clr');if(c){c.style.display=d.faces.length?'':'none';c.textContent=`🚫 Clear All Face Boxes (${d.faces.length})`}}
+function nameFace(i,v){v=v.replace(/^✓ /,'');draft.faces[i].name=v;if(v&&!draft.people.includes(v)){draft.people.push(v);draft.noPeople=false}rPeople();rFaces();autosave()}
+function rmFace(i){draft.faces.splice(i,1);rFaces();autosave()}
+function clearFaces(){draft.faces=[];rFaces();autosave()}
+function rescan(){scanning=true;$('#scan').innerHTML='<div class="scan">✨ Scanning faces…</div>';setTimeout(()=>{scanning=false;$('#scan').innerHTML='';if(!draft.faces.length)draft.faces=[F(38,22,20,28)];rFaces();FH.toast(`Found ${draft.faces.length} face(s)`)},1100)}
+function redEye(){setMsg('Fixing eyes…','wn');setTimeout(()=>setMsg('✓ Red eyes fixed on 2 faces','ok'),900)}
+function setMsg(t,c){$('#msg').innerHTML=t?`<div class="note ${c}"><span>${t}</span><button onclick="setMsg('')">×</button></div>`:''}
+function rSug(){const el=$('#sug');if(!el)return;el.innerHTML=sug?`<div class="sug"><div>✨ <b>Face Scan match:</b> Looks like <b>${esc(sug.name)}</b> (${sug.pct}% match)<br><small>Recognized from previously tagged family photos!</small></div><div style="display:flex;gap:8px"><button class="btn p sm" onclick="acceptSug()">✔ Yes, that's ${esc(sug.name.split(' ')[0])}</button><button class="btn s sm" onclick="sug=null;rSug()">✕ Not them</button></div></div>`:''}
+function acceptSug(){const n=sug.name;if(!draft.people.includes(n))draft.people.push(n);draft.faces[sug.face].name=n;sug=null;rPeople();rFaces();rSug();autosave()}
+/* zoom / pan */
+function applyZoom(){const v=$('#vp');if(v)v.style.transform=`scale(${zoom}) translate(${pan.x/zoom}px,${pan.y/zoom}px)`;const pv=$('#pv');if(pv)pv.style.cursor=zoom>1?'grab':'default'}
+function zoomTo(z){zoom=Math.max(1,Math.min(4,z));if(zoom==1)pan={x:0,y:0};const keep=draft;rDrawerKeep()}
+function zoomBy(d){zoomTo(zoom+d)}
+function rDrawerKeep(){const s=$('.db').scrollTop;rDrawer();$('.db').scrollTop=s}
+function wirePan(){const pv=$('#pv');let d=null;
+ pv.onpointerdown=e=>{if(zoom>1){d={x:e.clientX-pan.x,y:e.clientY-pan.y};pv.setPointerCapture(e.pointerId)}};
+ pv.onpointermove=e=>{if(d){pan={x:e.clientX-d.x,y:e.clientY-d.y};applyZoom()}};pv.onpointerup=pv.onpointercancel=()=>d=null;
+ pv.onwheel=e=>{e.preventDefault();zoom=Math.max(1,Math.min(4,zoom+(e.deltaY<0?.25:-.25)));if(zoom==1)pan={x:0,y:0};applyZoom()}}
+/* actions */
+function copyFS(){const d=draft,t=[d.people.length?'People: '+d.people.map(n=>n+(d.rels[n]?` (${d.rels[n]})`:'')).join(', '):'',d.date||d.decade?'Date: '+(d.date||d.decade):'',d.place?'Place: '+d.place:'',d.story?'Story: '+d.story:''].filter(Boolean).join('\n');
+ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{});const b=$('#cp');if(b){b.textContent='✓ Copied for FamilySearch!';b.style.color='#16a34a';setTimeout(()=>{b.textContent='📋 Copy for FamilySearch';b.style.color=''},2000)}FH.toast('📋 Copied for FamilySearch')}
+function saveP(){Object.assign(photos[cur],JSON.parse(JSON.stringify(draft)));FH.toast('✔ Memories saved (preview only)');closeP()}
+function toReview(){if(confirm(`Move "${draft.name}" to the Review folder? You can restore it anytime.`)){photos[cur].review=true;FH.toast('📁 Moved to Review folder');closeP()}}
+document.addEventListener('keydown',e=>{if(!document.body.classList.contains('dr')||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key=='Escape')closeP();if(e.key=='ArrowRight')nav(1);if(e.key=='ArrowLeft')nav(-1)});
+draw();
+</script></body></html>

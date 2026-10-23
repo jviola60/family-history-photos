@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview 3 – Photo-first Immersive</title>
+<link rel="stylesheet" href="common.css">
+<style>
+body{background:#1c1713;color:#f4ebe0;height:100vh;overflow:hidden;position:relative}
+.top{position:absolute;top:34px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;background:#2a231dcc;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:16px;padding:10px 14px;z-index:5}
+.top button{padding:8px 12px;border-radius:10px;background:#3a3129;margin-left:6px}.top .fn{font-size:13px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:36vw}
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:100px 20px 90px}
+.stage img{max-width:100%;max-height:100%;border-radius:12px;transition:transform .3s;object-fit:contain}
+.side{position:absolute;top:100px;right:20px;width:320px;max-height:calc(100vh - 200px);overflow:auto;background:#2a231dd9;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid #ffffff22;border-radius:18px;padding:18px;z-index:4}
+.side h2{font-size:20px;margin-bottom:12px}
+.row{padding:12px 0;border-top:1px solid #ffffff1c}.row small{opacity:.6;display:flex;justify-content:space-between;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.row p{margin-top:4px;line-height:1.4}.row input,.row textarea,.row select{margin-top:6px;padding:9px;border-radius:8px;border:1px solid #ffffff44;background:#1c1713}
+.ed{opacity:.7}.ed:hover{opacity:1}
+.chip{display:inline-flex;background:#c67a1433;border:1px solid #c67a1488;padding:6px 12px;border-radius:999px;margin:6px 6px 0 0}
+.pill{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:2px;background:#2a231dee;border:1px solid #ffffff22;border-radius:999px;padding:6px 10px;z-index:5;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.pill button{display:flex;flex-direction:column;align-items:center;font-size:10px;padding:6px 10px;border-radius:12px}.pill button span{font-size:18px}.pill button:hover{background:#ffffff1a}
+.save{position:absolute;right:20px;bottom:20px;background:#fff;color:#1c1713;font-weight:700;padding:14px 26px;border-radius:999px;z-index:6;box-shadow:0 0 0 3px #ee7a2e88}
+.more{position:absolute;left:20px;bottom:20px;z-index:6}.more>button{padding:12px 16px;border-radius:999px;background:#2a231dee;border:1px solid #ffffff22}
+.menu{display:none;position:absolute;bottom:52px;left:0;background:#2a231d;border:1px solid #ffffff22;border-radius:14px;padding:6px;min-width:220px}.menu.open{display:block}.menu button{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:8px}.menu button:hover{background:#ffffff1a}
+@media(max-width:760px){.side{top:auto;bottom:90px;left:12px;right:12px;width:auto;max-height:42vh}.stage{padding:96px 10px 40vh}.pill{display:none}.top .fn{display:none}.save{bottom:16px}.more{bottom:16px}}
+</style></head><body>
+<div class="top"><div><button data-act="Back">←</button><span class="fn" id="fn"></span></div><div><button data-act="Previous photo">‹</button><button data-act="Next photo">›</button><button data-act="Big Screen">🖥️ Big Screen</button></div></div>
+<div class="stage"><img id="img" alt="Photo"></div>
+<aside class="side" id="side"></aside>
+<div class="pill" id="pill"></div>
+<div class="more"><button id="mb">⋯ Tools &amp; Share</button><div class="menu" id="menu"></div></div>
+<button class="save" data-act="Save">✔ Save</button>
+<script src="common.js"></script>
+<script>
+const D=FH.data;img.src=FH.photo;fn.textContent=FH.file;let zoom=1,editing=null;
+const rows=[['Who','people'],['Date','date'],['Decade','decade'],['Place','place'],['Branch','branch'],['Group','group'],['Story','story']];
+function view(k){return k=='people'?D.people.map(p=>`<span class="chip">${FH.esc(p.name)} · ${p.rel}</span>`).join(''):`<p>${FH.esc(D[k])}</p>`}
+function edit(k){
+ if(k=='people')return `<input id="ed" placeholder="Add a name + Enter" onkeydown="if(event.key=='Enter'&&this.value.trim()){D.people.push({name:this.value.trim(),rel:'Friend'});render()}">`+D.people.map((p,i)=>`<span class="chip">${FH.esc(p.name)}<button class="chip-x" onclick="D.people.splice(${i},1);render()">✕</button></span>`).join('');
+ if(k=='story')return `<textarea id="ed" rows="5" oninput="D.story=this.value">${D.story}</textarea>`;
+ if(k=='decade')return `<select id="ed" onchange="D.decade=this.value">${FH.opts(FH.decades,D.decade)}</select>`;
+ if(k=='group')return `<select id="ed" onchange="D.group=this.value">${FH.opts(FH.groups,D.group)}</select>`;
+ return `<input id="ed" value="${FH.esc(D[k])}" oninput="D[k]=this.value" onkeydown="if(event.key=='Enter')done()">`.replace('D[k]',`D.${k}`);
+}
+function done(){editing=null;render()}
+function render(){
+ side.innerHTML=`<h2>${FH.esc(D.people[0]?D.people[0].name:'Unnamed photo')}</h2>`+rows.map(r=>`<div class="row"><small>${r[0]}<button class="ed" onclick="${editing==r[1]?'done()':`editing='${r[1]}';render()`}">${editing==r[1]?'✔ Done':'✎ Edit'}</button></small>${editing==r[1]?edit(r[1]):view(r[1])}</div>`).join('');
+ const e=document.getElementById('ed');if(e)e.focus();
+}
+pill.innerHTML=FH.tools.slice(0,5).map(t=>`<button data-act="${t[1]}" ${t[1]=='Magnify'?'onclick="zoom=zoom>=2?1:zoom+.5;img.style.transform=`scale(${zoom})`"':''}><span>${t[0]}</span>${t[1].replace(' (4K)','').replace('Re-scan ','')}</button>`).join('');
+menu.innerHTML=[...FH.tools,...FH.share].map(t=>`<button data-act="${t[1]}">${t[0]} ${t[1]}</button>`).join('');
+mb.onclick=()=>menu.classList.toggle('open');
+render();
+</script></body></html>

@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Environment files (API keys) - never commit these
+.env
+.env.*
+!.env.example
+
 # Large AI model binaries (>100MB exceeds GitHub push limit)
 *.onnx
 ai_service/models/*.onnx

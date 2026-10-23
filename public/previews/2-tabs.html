@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview 2 – Tabbed Panel</title>
+<link rel="stylesheet" href="common.css">
+<style>
+body{background:#fdf1de;color:#3b2410;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);grid-template-rows:1fr auto;height:100vh}
+.left{padding:40px 24px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;overflow:hidden}
+.left img{max-width:100%;max-height:68vh;border-radius:14px;box-shadow:0 10px 30px #8a5a1f33;transition:transform .25s}
+.tb{display:flex;gap:4px;background:#fff;border-radius:16px;padding:8px;box-shadow:0 6px 18px #8a5a1f26;flex-wrap:wrap;justify-content:center}
+.tb button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 12px;border-radius:10px;font-size:12px;position:relative}
+.tb button span{font-size:20px}.tb button:hover{background:#fbe3bd}
+.right{background:#fffaf1;border-left:1px solid #ebd5ad;display:flex;flex-direction:column;overflow:auto}
+.tabs{display:flex;border-bottom:1px solid #ebd5ad;position:sticky;top:0;background:#fffaf1}
+.tabs button{flex:1;padding:18px 6px;font-weight:600;color:#9a7b55;border-bottom:3px solid transparent}.tabs button.on{color:#c67a14;border-color:#c67a14}
+.pane{padding:22px;display:none}.pane.on{display:block}
+label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
+input,select,textarea{padding:12px;border:1px solid #e0c99d;border-radius:10px;background:#fff}
+.chip{display:inline-flex;align-items:center;background:#fbe3bd;padding:9px 14px;border-radius:999px;margin:0 8px 8px 0;font-weight:600}
+.add{display:flex;gap:8px}.add button{padding:0 18px;border-radius:10px;background:#fbe3bd;font-weight:600}
+.big{display:flex;gap:10px;align-items:center;width:100%;padding:16px;margin-bottom:10px;background:#fff;border:1px solid #e0c99d;border-radius:12px;font-weight:600;text-align:left}.big:hover{background:#fbe3bd}
+bar{grid-column:1/-1;display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:14px 24px;background:#fff;border-top:1px solid #ebd5ad;position:relative}
+.save{background:#c67a14;color:#fff;font-weight:700;padding:13px 30px;border-radius:12px}
+.dots{padding:10px 14px;border-radius:10px;font-size:20px;background:#f6e6c8}
+.pop{display:none;position:absolute;right:24px;bottom:68px;background:#fff;box-shadow:0 8px 24px #0004;border-radius:12px;padding:6px}.pop.open{display:block}.pop button{display:block;padding:10px 16px;width:100%;text-align:left;border-radius:8px}.pop button:hover{background:#fdf1de}
+@media(max-width:760px){body{display:block;height:auto;padding-bottom:140px}.left{padding-top:44px}.right{border-left:0}.tabs{position:fixed;bottom:62px;left:0;right:0;top:auto;border-top:1px solid #ebd5ad;border-bottom:0;z-index:5}.tabs button{border-bottom:0;border-top:3px solid transparent}.tabs button.on{border-top-color:#c67a14}bar{position:fixed;bottom:0;left:0;right:0;padding:10px 14px;z-index:6}}
+</style></head><body>
+<div class="left"><img id="img" alt="Photo"><div class="tb" id="tb"></div></div>
+<div class="right"><div class="tabs" id="tabs"></div><div id="panes"></div></div>
+<bar><div class="pop" id="pop"><button data-act="Move to Review">🗂️ Move to Review</button><button data-act="Previous photo">← Previous photo</button><button data-act="Next photo">Next photo →</button><button data-act="Big Screen">🖥️ Big Screen</button></div><button class="dots" id="dots">⋯</button><button class="save" data-act="Save">✔ Save &amp; Close</button></bar>
+<script src="common.js"></script>
+<script>
+const D=FH.data,T=['People','Details','Story','Share'];img.src=FH.photo;let zoom=1;
+tb.innerHTML=FH.tools.map(t=>`<button data-act="${t[1]}" ${t[1]=='Magnify'?'onclick="zoom=zoom>=2?1:zoom+.5;img.style.transform=`scale(${zoom})`"':''}><span>${t[0]}</span>${t[1].replace(' (4K)','')}</button>`).join('');
+tabs.innerHTML=T.map((t,i)=>`<button class="${i?'':'on'}" onclick="show(${i})">${t}</button>`).join('');
+function show(i){[...tabs.children].forEach((b,j)=>b.classList.toggle('on',i==j));[...panes.children].forEach((p,j)=>p.classList.toggle('on',i==j))}
+function ppl(){return D.people.map((p,i)=>`<span class="chip">${FH.esc(p.name)} · ${p.rel}<button class="chip-x" onclick="D.people.splice(${i},1);pp.innerHTML=ppl()">✕</button></span>`).join('')}
+panes.innerHTML=`
+<div class="pane on"><label>Who is in this picture?</label><div id="pp">${ppl()}</div><div class="add"><input id="nm" placeholder="Type a name"><button onclick="if(nm.value.trim()){D.people.push({name:nm.value.trim(),rel:'Friend'});pp.innerHTML=ppl();nm.value=''}">+ Add</button></div></div>
+<div class="pane"><label>Exact date</label><input value="${D.date}"><label>Decade</label><select>${FH.opts(FH.decades,D.decade)}</select><label>Place or occasion</label><input value="${D.place}"><label>Family branch / side</label><input value="${D.branch}"><label>Photo group</label><select>${FH.opts(FH.groups,D.group)}</select></div>
+<div class="pane"><label>Family story &amp; memories</label><textarea rows="10">${D.story}</textarea></div>
+<div class="pane">${FH.share.map(s=>`<button class="big" data-act="${s[1]}"><span>${s[0]}</span>${s[1]}</button>`).join('')}<p style="color:#8a6a45;font-size:13px;margin-top:8px">Memories &amp; people are embedded in the JPEG (FamilySearch &amp; archive ready).</p></div>`;
+dots.onclick=()=>pop.classList.toggle('open');
+</script></body></html>

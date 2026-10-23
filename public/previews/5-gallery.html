@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview 5 – Gallery + Drawer</title>
+<link rel="stylesheet" href="common.css">
+<style>
+body{background:#f3f5fa;color:#16233f;min-height:100vh}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#16294d;color:#fff;padding:36px 20px 14px;position:sticky;top:0;z-index:20}
+.bar h1{font-size:18px;margin-right:auto;white-space:nowrap}.bar input{max-width:260px;padding:10px 14px;border-radius:10px;border:0;color:#16233f}
+.fc{padding:8px 16px;border-radius:999px;border:1px solid #ffffff66}.fc.on{background:#d9a93f;color:#16294d;border-color:#d9a93f;font-weight:700}
+.tools{position:relative}.tools>button{padding:9px 14px;border-radius:10px;background:#ffffff22}
+.menu{display:none;position:absolute;right:0;top:44px;background:#fff;color:#16233f;border-radius:12px;box-shadow:0 10px 30px #0005;padding:6px;min-width:220px;z-index:30}.menu.open{display:block}.menu button{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:8px}.menu button:hover{background:#eef1f8}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:18px;transition:margin .25s}
+body.dr .grid{margin-right:400px}
+.t{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;cursor:pointer;background:#cdd5e6;border:3px solid transparent}.t.sel{border-color:#d9a93f}
+.t img{width:100%;height:100%;object-fit:cover}
+.b{position:absolute;top:8px;left:8px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px}.b.ok{background:#d5f2dc;color:#1a6b34}.b.rv{background:#ffe6c2;color:#8a4b00}
+.drawer{position:fixed;top:0;right:-420px;width:400px;height:100vh;background:#fff;box-shadow:-8px 0 30px #0003;transition:right .25s;z-index:40;overflow:auto;padding:20px;padding-top:42px}
+body.dr .drawer{right:0}
+.drawer .x{position:absolute;top:36px;right:16px;font-size:20px}
+.drawer img{width:100%;border-radius:12px;margin:10px 0}
+label{display:block;font-weight:700;font-size:14px;margin:14px 0 4px}
+input,select,textarea{padding:12px;border:1px solid #c6cfe3;border-radius:10px;font-size:16px}
+.chip{display:inline-flex;background:#e8edf8;padding:8px 14px;border-radius:999px;margin:0 6px 6px 0;font-weight:600}
+.btn{display:block;width:100%;padding:14px;border-radius:12px;font-weight:700;margin-top:10px}.p{background:#16294d;color:#fff}.s{border:2px solid #16294d}
+@media(max-width:760px){body.dr .grid{margin-right:0}.drawer{width:100%;right:-100%}.grid{grid-template-columns:repeat(3,1fr);gap:6px;padding:10px}.bar input{max-width:none;flex:1 0 100%}.bar h1{font-size:16px}}
+</style></head><body>
+<div class="bar"><h1>🌳 Family History Photos</h1><input id="q" placeholder="🔍 Search photos…" oninput="draw()"><button class="fc on" data-f="all">All</button><button class="fc" data-f="rv">Needs details</button><button class="fc" data-f="ok">Done</button>
+ <div class="tools"><button id="tb">⚙ Tools ▾</button><div class="menu" id="menu"></div></div></div>
+<div class="grid" id="grid"></div>
+<aside class="drawer" id="dr"></aside>
+<script src="common.js"></script>
+<script>
+const D=FH.data;let filter='all',sel=null;
+const looks=['','sepia(.8)','grayscale(1)','hue-rotate(20deg)','saturate(1.4)','contrast(1.2) sepia(.3)'];
+const photos=Array.from({length:18},(_,i)=>({id:i,st:i%3==0||i==4?'rv':'ok',name:i==4?'Josephine Helen Costello':['Grandpa Joe','Smith Reunion','Sarah','Wedding Day','Beach Trip','Aunt Rose'][i%6],f:looks[i%6],pos:`${(i*37)%100}% ${(i*53)%100}%`,z:1+(i%4)*.35}));
+menu.innerHTML=[...FH.tools,...FH.share].map(t=>`<button data-act="${t[1]}">${t[0]} ${t[1]}</button>`).join('');
+tb.onclick=()=>menu.classList.toggle('open');
+document.querySelectorAll('.fc').forEach(b=>b.onclick=()=>{filter=b.dataset.f;document.querySelectorAll('.fc').forEach(x=>x.classList.toggle('on',x==b));draw()});
+function draw(){
+ const s=q.value.toLowerCase();
+ grid.innerHTML=photos.filter(p=>(filter=='all'||p.st==filter)&&p.name.toLowerCase().includes(s)).map(p=>`<div class="t ${sel==p.id?'sel':''}" onclick="pick(${p.id})"><img src="${FH.photo}" style="filter:${p.f};object-position:${p.pos};transform:scale(${p.z})"><span class="b ${p.st}">${p.st=='ok'?'✓ Tagged':'Needs review'}</span></div>`).join('');
+}
+function pick(id){sel=id;document.body.classList.add('dr');const p=photos[id];
+ dr.innerHTML=`<button class="x" onclick="closeD()">✕</button><h2>${FH.esc(p.name)}</h2><img src="${FH.photo}" style="filter:${p.f}">
+ <label>Who</label><div id="pp"></div><input id="nm" placeholder="Add a name + Enter" onkeydown="if(event.key=='Enter'&&this.value.trim()){D.people.push({name:this.value.trim(),rel:'Friend'});pp_();this.value=''}">
+ <label>When</label><input value="${D.date}"><label>Where</label><input value="${D.place}"><label>Story</label><textarea rows="5">${D.story}</textarea>
+ <button class="btn p" onclick="p_(${id})" data-act="Save">✔ Save</button><button class="btn s" onclick="p_(${id})">Mark as Done</button><button class="btn s" data-act="Copy for FamilySearch">📋 Copy for FamilySearch</button>`;pp_();draw();}
+function pp_(){pp.innerHTML=D.people.map((p,i)=>`<span class="chip">${FH.esc(p.name)}<button class="chip-x" onclick="D.people.splice(${i},1);pp_()">✕</button></span>`).join('')}
+function p_(id){photos[id].st='ok';draw()}
+function closeD(){document.body.classList.remove('dr');sel=null;draw()}
+draw();
+</script></body></html>

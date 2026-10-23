@@ -171,8 +171,9 @@ export default function App() {
                 // If browser already granted permission (e.g. within session or persisted origin)
                 const perm = await storedHandle.queryPermission({ mode: 'readwrite' });
                 if (perm === 'granted') {
-                  setRootDirHandle(storedHandle);
-                  setFolderName(storedHandle.name);
+                  // The cached photos have no live file links after a reload,
+                  // so reconnect to the folder to bring the pictures back.
+                  await loadFolderFromHandle(storedHandle);
                   return;
                 }
               } catch {}

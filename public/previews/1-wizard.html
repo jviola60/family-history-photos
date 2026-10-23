@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preview 1 – Guided Wizard</title>
+<link rel="stylesheet" href="common.css">
+<style>
+body{background:#fdf1de;color:#3b2410;display:flex;flex-direction:column;min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:36px 28px 8px}
+header h1{font-size:20px}.nav button{padding:8px 14px;border-radius:10px;background:#fff;border:1px solid #e6cfa6;margin-left:6px}
+main{flex:1;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px;padding:16px 28px}
+.photo{position:relative}.photo img{width:100%;border-radius:18px;box-shadow:0 10px 30px #8a5a1f33;display:block}
+.more{position:absolute;left:12px;bottom:12px}.more>button{background:#fff;padding:9px 14px;border-radius:12px;box-shadow:0 4px 12px #0003;font-weight:600}
+.menu{display:none;position:absolute;bottom:48px;left:0;background:#fff;border-radius:14px;box-shadow:0 8px 24px #0004;padding:6px;min-width:210px}
+.menu.open{display:block}.menu button{display:flex;gap:10px;width:100%;padding:10px 12px;border-radius:9px;text-align:left}.menu button:hover{background:#fdf1de}
+.steps{display:flex;gap:6px;margin-bottom:16px}.step{flex:1;padding:12px;border-radius:999px;background:#f8dfb5;text-align:center;font-weight:600;font-size:14px}
+.step.on{background:#c67a14;color:#fff}.step.done{background:#e9b868}
+.card{background:#fff;border-radius:18px;padding:26px;min-height:340px;box-shadow:0 6px 20px #8a5a1f22}
+.card h2{font-size:26px;margin-bottom:6px}.card p{color:#8a6a45;margin-bottom:18px}
+label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
+input,select,textarea{padding:12px;border:1px solid #e0c99d;border-radius:10px;background:#fffdf8}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chip{display:inline-flex;align-items:center;background:#fbe3bd;padding:9px 14px;border-radius:999px;margin:0 8px 8px 0;font-weight:600}
+.add{display:flex;gap:8px;margin-top:8px}.add button{padding:0 18px;border-radius:10px;background:#fbe3bd;font-weight:600;white-space:nowrap}
+.cta{display:flex;justify-content:space-between;margin-top:14px}
+.primary{background:#ee7a2e;color:#fff;font-weight:700;padding:14px 38px;border-radius:999px;font-size:16px}
+.ghost{padding:14px 22px;border-radius:999px;color:#8a6a45}
+footer{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between;padding:14px 28px;border-top:1px solid #ebd5ad;background:#fff8ec}
+footer button{padding:9px 14px;border-radius:10px}footer button:hover{background:#fbe3bd}
+@media(max-width:760px){main{grid-template-columns:1fr;padding:12px 14px}header,footer{padding-left:14px;padding-right:14px}.row{grid-template-columns:1fr}.step{font-size:12px;padding:10px 4px}}
+</style></head><body>
+<header><h1>Family History &amp; Memories</h1><div class="nav"><button data-act="Previous photo">← Prev</button><button data-act="Next photo">Next →</button></div></header>
+<main>
+ <div class="photo"><img id="img" alt="Photo"><div class="more"><button id="mb">More tools ⌃</button><div class="menu" id="menu"></div></div></div>
+ <section><div class="steps" id="steps"></div><div class="card" id="card"></div><div class="cta" id="cta"></div></section>
+</main>
+<footer><button data-act="Move to Review">🗂️ Move to Review</button><span><button data-act="Copy for FamilySearch">📋 Copy for FamilySearch</button><button data-act="Send to FamilySearch">📤 Send to FamilySearch</button><button data-act="Save">✔ Save &amp; Close</button></span></footer>
+<script src="common.js"></script>
+<script>
+const D=FH.data;let step=0;const names=['Who','When & Where','Story'];
+img.src=FH.photo;
+menu.innerHTML=FH.tools.map(t=>`<button data-act="${t[1]}"><span>${t[0]}</span>${t[1]}</button>`).join('');
+mb.onclick=()=>menu.classList.toggle('open');
+function render(){
+ steps.innerHTML=names.map((n,i)=>`<button class="step ${i==step?'on':i<step?'done':''}" onclick="step=${i};render()">${i+1} ${n}</button>`).join('');
+ let h='';
+ if(step==0){h=`<h2>Who is in this picture?</h2><p>Add everyone you recognize.</p><div>${D.people.map((p,i)=>`<span class="chip">${FH.esc(p.name)} — ${p.rel}<button class="chip-x" onclick="D.people.splice(${i},1);render()">✕</button></span>`).join('')}</div><div class="add"><input id="nm" placeholder="Type a name (e.g. Uncle David)"><select id="rl" style="max-width:150px">${FH.opts(FH.rels)}</select><button onclick="addP()">+ Add</button></div>`}
+ if(step==1){h=`<h2>When &amp; where?</h2><p>Best guesses are fine.</p><div class="row"><div><label>Exact date</label><input value="${D.date}" oninput="D.date=this.value"></div><div><label>Decade</label><select onchange="D.decade=this.value">${FH.opts(FH.decades,D.decade)}</select></div></div><label>Place or occasion</label><input value="${D.place}" oninput="D.place=this.value"><div class="row"><div><label>Photo group</label><select>${FH.opts(FH.groups,D.group)}</select></div><div><label>Family branch</label><input value="${D.branch}" oninput="D.branch=this.value"></div></div>`}
+ if(step==2){h=`<h2>Tell the story</h2><p>What do you remember about this day?</p><textarea rows="8" oninput="D.story=this.value">${D.story}</textarea>`}
+ card.innerHTML=h;
+ cta.innerHTML=`<button class="ghost" ${step==0?'style="visibility:hidden"':''} onclick="step--;render()">← Back</button>`+(step<2?`<button class="primary" onclick="step++;render()">Next</button>`:`<button class="primary" data-act="Save">✔ Finish &amp; Save</button>`);
+}
+function addP(){const v=nm.value.trim();if(v){D.people.push({name:v,rel:rl.value});render()}}
+render();
+</script></body></html>
