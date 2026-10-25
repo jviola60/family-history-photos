@@ -19,18 +19,22 @@ const PEOPLE_KEY = 'people_directory';
 const IGNORED_DUPLICATES_KEY = 'ignored_duplicates';
 const IGNORED_JUNK_KEY = 'ignored_junk';
 
+// Reads of large saved data can take longer than the short default; never treat a slow read as empty.
+const LONG_READ_MS = 30000;
+const DB_READ_FAILED = Symbol('db-read-failed');
+
 /**
  * Helper to execute an IndexedDB operation with a strict timeout (600ms)
  * to guarantee it never hangs, blocks the main thread, or crashes the browser.
  */
-async function safeDb(operation, fallback = null) {
+async function safeDb(operation, fallback = null, timeoutMs = 600) {
   if (!memoriesStore) return fallback;
   try {
     let timeoutId;
     const timeoutPromise = new Promise((resolve) => {
       timeoutId = setTimeout(() => {
         resolve(fallback);
-      }, 600);
+      }, timeoutMs);
     });
 
     const opPromise = Promise.resolve()
@@ -71,6 +75,11 @@ export function sanitizePhotoForStorage(p) {
     width: Number(p.width) || 0,
     height: Number(p.height) || 0,
     people: Array.isArray(p.people) ? p.people.map(String) : [],
+    personRelationships: (p.personRelationships && typeof p.personRelationships === 'object') ? p.personRelationships : {},
+    faces: Array.isArray(p.faces) ? p.faces : [],
+    noPeople: Boolean(p.noPeople),
+    facesScanned: Boolean(p.facesScanned),
+    facesCascadeVerified: Boolean(p.facesCascadeVerified),
     relationship: String(p.relationship || ''),
     decade: String(p.decade || ''),
     date: String(p.date || ''),
@@ -90,6 +99,8 @@ export function isPhotoModifiedByUser(p) {
   if (!p) return false;
   return Boolean(
     (Array.isArray(p.people) && p.people.length > 0) ||
+    (p.personRelationships && Object.keys(p.personRelationships).length > 0) ||
+    p.noPeople ||
     p.relationship ||
     p.story ||
     p.decade ||
@@ -104,8 +115,17 @@ export function isPhotoModifiedByUser(p) {
 export async function saveCatalogToDB(catalog) {
   if (!Array.isArray(catalog) || catalog.length === 0) return;
   
-  // Load existing catalog so photos tagged across multiple different folders are NEVER erased
-  const existingCatalog = await loadCatalogFromDB();
+  // Load existing catalog so photos tagged across multiple different folders are NEVER erased.
+  // If the read fails or times out, SKIP saving rather than overwrite everything with a partial list.
+  const existingCatalog = await safeDb(
+    async store => (await get(CATALOG_KEY, store)) ?? [],
+    DB_READ_FAILED,
+    LONG_READ_MS
+  );
+  if (existingCatalog === DB_READ_FAILED) {
+    console.warn('Catalog read failed; skipping save to protect existing notes.');
+    return;
+  }
   const catalogMap = new Map();
 
   const getCanonicalKey = (p) => {
@@ -157,7 +177,7 @@ export async function saveCatalogToDB(catalog) {
 }
 
 export async function loadCatalogFromDB() {
-  const data = await safeDb(store => get(CATALOG_KEY, store), []);
+  const data = await safeDb(store => get(CATALOG_KEY, store), [], LONG_READ_MS);
   return Array.isArray(data) ? data : [];
 }
 
@@ -173,7 +193,7 @@ export async function savePeopleDirectoryToDB(people) {
 }
 
 export async function loadPeopleDirectoryFromDB() {
-  const data = await safeDb(store => get(PEOPLE_KEY, store), {});
+  const data = await safeDb(store => get(PEOPLE_KEY, store), {}, LONG_READ_MS);
   return (data && typeof data === 'object') ? data : {};
 }
 
@@ -268,7 +288,29 @@ export async function saveActiveAlbumCacheToDB(photos) {
 }
 
 export async function loadActiveAlbumCacheFromDB() {
-  return await safeDb(store => get(ACTIVE_ALBUM_PHOTOS_KEY, store), []);
+  return await safeDb(store => get(ACTIVE_ALBUM_PHOTOS_KEY, store), [], LONG_READ_MS);
+}
+
+/* ==========================================================================
+   Edited pictures (4K restore, rotate, crop, erase)
+   Stored separately so they survive a page reload.
+   ========================================================================== */
+
+const enhancedKey = (photoKey) => `enhanced_image::${String(photoKey || '').toLowerCase()}`;
+
+export async function saveEnhancedImageToDB(photoKey, dataUrl) {
+  if (!photoKey || !dataUrl) return;
+  await safeDb(store => set(enhancedKey(photoKey), dataUrl, store), null, LONG_READ_MS);
+}
+
+export async function loadEnhancedImageFromDB(photoKey) {
+  if (!photoKey) return null;
+  return await safeDb(store => get(enhancedKey(photoKey), store), null, LONG_READ_MS);
+}
+
+export async function deleteEnhancedImageFromDB(photoKey) {
+  if (!photoKey) return;
+  await safeDb(store => del(enhancedKey(photoKey), store));
 }
 
 export async function clearStoredDirectoryHandle(folderNameToClear = null) {
@@ -376,5 +418,39 @@ export function clearPhotoDraft(photoKey) {
   try {
     localStorage.removeItem(`fhp_draft_${photoKey}`);
   } catch {}
+}
+
+/* ==========================================================================
+   FamilySearch Tree Person Mappings (Local Name -> FamilySearch Tree ID)
+   ========================================================================== */
+
+const FS_PERSON_MAPPINGS_KEY = 'fs_person_mappings';
+
+export async function getFamilySearchPersonMappings() {
+  const mappings = await safeDb(store => get(FS_PERSON_MAPPINGS_KEY, store), {});
+  try {
+    const local = JSON.parse(localStorage.getItem(FS_PERSON_MAPPINGS_KEY) || '{}');
+    return { ...local, ...(mappings || {}) };
+  } catch {
+    return mappings || {};
+  }
+}
+
+export async function saveFamilySearchPersonMapping(name, fsPerson) {
+  if (!name || !fsPerson) return;
+  const current = await getFamilySearchPersonMappings();
+  const updated = {
+    ...current,
+    [name.trim()]: {
+      id: fsPerson.id?.trim().toUpperCase(),
+      name: fsPerson.name || name.trim(),
+      lifespan: fsPerson.lifespan || ''
+    }
+  };
+  await safeDb(store => set(FS_PERSON_MAPPINGS_KEY, updated, store));
+  try {
+    localStorage.setItem(FS_PERSON_MAPPINGS_KEY, JSON.stringify(updated));
+  } catch {}
+  return updated;
 }
 

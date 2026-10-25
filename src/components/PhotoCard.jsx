@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tag, Sparkles, Calendar, MapPin, Users, AlertCircle, Folder, Image as ImageIcon, FolderCheck, Undo2 } from 'lucide-react';
 import { detectFacesInImage } from '../lib/faceEngine';
+import { getFileFromPath } from '../lib/fileSystem';
 
 export default function PhotoCard({ 
   photo, 
@@ -8,7 +9,8 @@ export default function PhotoCard({
   onOpenEnhancer, 
   onRestorePhoto,
   onFacesDetected,
-  onDimensionsDetected 
+  onDimensionsDetected,
+  rootDirHandle
 }) {
   const [imgSrc, setImgSrc] = useState(photo.enhancedUrl || photo.objectUrl || null);
   const [imgFailed, setImgFailed] = useState(false);
@@ -40,6 +42,19 @@ export default function PhotoCard({
       }).catch(() => {
         if (active) setImgFailed(true);
       });
+    } else if (rootDirHandle && photo.relativePath) {
+      // Cached photo after a page reload: find its file again by folder path
+      getFileFromPath(rootDirHandle, photo.relativePath).then((file) => {
+        if (!active) return;
+        if (file) {
+          const url = URL.createObjectURL(file);
+          photo.objectUrl = url;
+          setImgSrc(url);
+          setImgFailed(false);
+        } else {
+          setImgFailed(true);
+        }
+      });
     } else {
       setImgFailed(true);
     }
@@ -47,7 +62,7 @@ export default function PhotoCard({
     return () => {
       active = false;
     };
-  }, [photo.id, photo.enhancedUrl, photo.objectUrl, photo.handle]);
+  }, [photo.id, photo.enhancedUrl, photo.objectUrl, photo.handle, rootDirHandle]);
 
   const handleImageLoaded = (imgEl) => {
     if ((!photo.width || !photo.height) && imgEl.naturalWidth > 0 && onDimensionsDetected) {

@@ -14,6 +14,7 @@ import JunkCleanerModal from './components/JunkCleanerModal';
 import SettingsModal from './components/SettingsModal';
 import CloudStorageModal from './components/CloudStorageModal';
 import HelpGuideModal from './components/HelpGuideModal';
+import { handleFamilySearchCallback } from './lib/familySearchAuth';
 
 import { 
   pickLocalDirectory, 
@@ -48,7 +49,9 @@ import {
   loadCloudPhotosFromDB,
   saveActiveAlbumCacheToDB,
   loadActiveAlbumCacheFromDB,
-  overwriteCatalogInDB
+  overwriteCatalogInDB,
+  saveEnhancedImageToDB,
+  loadEnhancedImageFromDB
 } from './lib/db';
 import { 
   permanentlyDeleteFromDuplicatesReview, 
@@ -101,6 +104,17 @@ export default function App() {
     let isMounted = true;
     async function initCache() {
       try {
+        // Check for incoming FamilySearch OAuth redirect code
+        if (typeof window !== 'undefined' && window.location.search.includes('code=')) {
+          handleFamilySearchCallback().then(token => {
+            if (token && isMounted) {
+              console.log('✓ Successfully authenticated with FamilySearch');
+            }
+          }).catch(err => {
+            console.warn('FamilySearch login callback error:', err);
+          });
+        }
+
         const cachedCatalog = await loadCatalogFromDB();
         const cachedPeople = await loadPeopleDirectoryFromDB();
         const loadedIgnored = await loadIgnoredDuplicatesFromDB();
@@ -156,7 +170,17 @@ export default function App() {
         const lastSession = await loadLastSessionInfo();
 
         if (cachedActivePhotos && cachedActivePhotos.length > 0 && isMounted) {
-          setPhotos(cachedActivePhotos);
+          // Check if any photos have persisted enhanced/rotated images
+          const photosWithEnhanced = await Promise.all(
+            cachedActivePhotos.map(async (p) => {
+              if (p.enhanced && !p.enhancedUrl) {
+                const storedImg = await loadEnhancedImageFromDB(p.relativePath || p.name);
+                if (storedImg) return { ...p, enhancedUrl: storedImg };
+              }
+              return p;
+            })
+          );
+          setPhotos(photosWithEnhanced);
           if (lastSession?.folderName) {
             setFolderName(lastSession.folderName);
           }
@@ -171,9 +195,8 @@ export default function App() {
                 // If browser already granted permission (e.g. within session or persisted origin)
                 const perm = await storedHandle.queryPermission({ mode: 'readwrite' });
                 if (perm === 'granted') {
-                  // The cached photos have no live file links after a reload,
-                  // so reconnect to the folder to bring the pictures back.
-                  await loadFolderFromHandle(storedHandle);
+                  setRootDirHandle(storedHandle);
+                  setFolderName(storedHandle.name);
                   return;
                 }
               } catch {}
@@ -271,6 +294,11 @@ export default function App() {
             enhanced: !!saved.enhanced,
             enhancedUrl: saved.enhancedUrl || null,
             people: (saved.people && saved.people.length > 0) ? saved.people : img.people,
+            personRelationships: saved.personRelationships || {},
+            faces: (saved.faces && saved.faces.length > 0) ? saved.faces : (img.faces || []),
+            noPeople: !!saved.noPeople,
+            facesScanned: !!saved.facesScanned,
+            facesCascadeVerified: !!saved.facesCascadeVerified,
             relationship: saved.relationship || img.relationship,
             story: saved.story || img.story,
             decade: saved.decade || img.decade,
@@ -866,6 +894,7 @@ export default function App() {
   const handleSaveEnhancedPhoto = (photoId, enhancedDataUrl) => {
     setPhotos(prev => prev.map(p => {
       if (p.id === photoId) {
+        saveEnhancedImageToDB(p.relativePath || p.name, enhancedDataUrl);
         return {
           ...p,
           enhanced: true,
@@ -1304,6 +1333,7 @@ export default function App() {
               onRestorePhoto={handleRestoreFromReview}
               onFacesDetected={handleFacesDetected}
               onDimensionsDetected={handleDimensionsDetected}
+              rootDirHandle={rootDirHandle}
               onResetFilters={() => {
                 setActiveFilter('all');
                 setSearchQuery('');

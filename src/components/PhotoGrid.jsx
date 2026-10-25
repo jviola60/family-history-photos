@@ -11,7 +11,8 @@ export default function PhotoGrid({
   onResetFilters, 
   onRestorePhoto,
   onFacesDetected,
-  onDimensionsDetected
+  onDimensionsDetected,
+  rootDirHandle
 }) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
@@ -54,6 +55,7 @@ export default function PhotoGrid({
             onRestorePhoto={onRestorePhoto}
             onFacesDetected={onFacesDetected}
             onDimensionsDetected={onDimensionsDetected}
+            rootDirHandle={rootDirHandle}
           />
         ))}
       </div>

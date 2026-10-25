@@ -48,3 +48,4 @@ ai_service/*.tiff
 *.njsproj
 *.sln
 *.sw?
+*.code-workspace

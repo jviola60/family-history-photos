@@ -22,8 +22,10 @@ import {
   ShieldCheck,
   Copy,
   Crop,
-  Eraser
+  Eraser,
+  CloudUpload
 } from 'lucide-react';
+import FamilySearchModal from './FamilySearchModal';
 import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
 import { removeRedEyesFromImage } from '../lib/redEyeRemover';
 import { 
@@ -105,6 +107,7 @@ export default function MetadataModal({
   const [personRelationships, setPersonRelationships] = useState(photo.personRelationships || {});
   
   // Face detection & Red-Eye states
+  const [showFamilySearchModal, setShowFamilySearchModal] = useState(false);
   const [detectedFaces, setDetectedFaces] = useState(photo.faces || []);
   const [isScanningFaces, setIsScanningFaces] = useState(false);
   const [faceSuggestion, setFaceSuggestion] = useState(null);
@@ -1539,6 +1542,17 @@ export default function MetadataModal({
 
             <button
               type="button"
+              onClick={() => setShowFamilySearchModal(true)}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#1d4ed8' }}
+              title="Upload this photo to FamilySearch Memories and link it to family members"
+            >
+              <CloudUpload size={14} className="text-primary" />
+              <span>Send to FamilySearch</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleDownloadEmbedded}
               disabled={isDownloading}
               className="btn btn-secondary btn-sm"
@@ -1546,7 +1560,7 @@ export default function MetadataModal({
               title="Download a copy of this JPEG with all stories, dates, and people baked directly into the file for FamilySearch"
             >
               <Download size={14} />
-              <span>{isDownloading ? 'Baking Metadata...' : 'Send to FamilySearch'}</span>
+              <span>{isDownloading ? 'Baking Metadata...' : 'Download File'}</span>
             </button>
           </div>
 
@@ -1573,6 +1587,25 @@ export default function MetadataModal({
         </div>
 
       </div>
+
+      {showFamilySearchModal && (
+        <FamilySearchModal
+          photo={photo}
+          metadata={{
+            people,
+            relationship,
+            personRelationships,
+            decade,
+            date,
+            story,
+            location,
+            familyBranch,
+            faces: detectedFaces
+          }}
+          isOpen={showFamilySearchModal}
+          onClose={() => setShowFamilySearchModal(false)}
+        />
+      )}
     </div>
   );
 }
