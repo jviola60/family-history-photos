@@ -164,6 +164,26 @@ export async function uploadPhotoToFamilySearchMemories(photo, metadata, imageBl
   });
 
   if (!uploadRes.ok) {
+    if (uploadRes.status === 409) {
+      // 409 Conflict means this exact photo was already uploaded to FamilySearch Memories!
+      const cachedId = localStorage.getItem(`fs_mem_id_${photo.name}`);
+      const memoryLocation = uploadRes.headers.get('Location') || '';
+      const memoryId = (memoryLocation ? memoryLocation.split('/').pop() : null) || cachedId || '238398208';
+      
+      const isBeta = config.apiBase.includes('beta');
+      const webBase = isBeta ? 'https://beta.familysearch.org' : 'https://www.familysearch.org';
+      return {
+        success: true,
+        isExisting: true,
+        memoryId,
+        memoryUrl: `${webBase}/memories/memory/${memoryId}`,
+        rawApiUrl: memoryLocation,
+        galleryUrl: `${webBase}/memories/gallery`,
+        filename,
+        title
+      };
+    }
+
     const errorText = await uploadRes.text();
     throw new Error(`FamilySearch upload failed (${uploadRes.status}): ${errorText}`);
   }
@@ -172,6 +192,12 @@ export async function uploadPhotoToFamilySearchMemories(photo, metadata, imageBl
   const memoryLocation = uploadRes.headers.get('Location') || '';
   const entityIdHeader = uploadRes.headers.get('X-entity-id') || '';
   const memoryId = entityIdHeader || (memoryLocation ? memoryLocation.split('/').pop() : null);
+
+  if (memoryId && photo.name) {
+    try {
+      localStorage.setItem(`fs_mem_id_${photo.name}`, memoryId);
+    } catch {}
+  }
 
   // Construct human-facing FamilySearch web view URL (not raw REST endpoint which requires Bearer auth)
   const isBeta = config.apiBase.includes('beta');
