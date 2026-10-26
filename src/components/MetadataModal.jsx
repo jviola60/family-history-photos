@@ -349,7 +349,99 @@ export default function MetadataModal({
     });
   };
 
+  const [isAddingFaceBox, setIsAddingFaceBox] = useState(false);
+  const [activeDragFace, setActiveDragFace] = useState(null);
+
+  const handleBoxDragStart = (e, index, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const face = detectedFaces[index];
+    if (!face || !face.box) return;
+
+    setActiveDragFace({
+      index,
+      type,
+      startX: e.clientX,
+      startY: e.clientY,
+      origBox: { ...face.box }
+    });
+    try {
+      e.target.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handleBoxDragMove = (e) => {
+    if (!activeDragFace || !imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const dx = (e.clientX - activeDragFace.startX) / rect.width;
+    const dy = (e.clientY - activeDragFace.startY) / rect.height;
+
+    setDetectedFaces(prev => prev.map((f, idx) => {
+      if (idx !== activeDragFace.index) return f;
+      const orig = activeDragFace.origBox;
+      if (activeDragFace.type === 'move') {
+        const newX = Math.max(0, Math.min(1 - orig.width, orig.x + dx));
+        const newY = Math.max(0, Math.min(1 - orig.height, orig.y + dy));
+        return { ...f, box: { ...f.box, x: +newX.toFixed(4), y: +newY.toFixed(4) } };
+      } else if (activeDragFace.type === 'resize') {
+        const newW = Math.max(0.06, Math.min(1 - orig.x, orig.width + dx));
+        const newH = Math.max(0.06, Math.min(1 - orig.y, orig.height + dy));
+        return { ...f, box: { ...f.box, width: +newW.toFixed(4), height: +newH.toFixed(4) } };
+      }
+      return f;
+    }));
+  };
+
+  const handleBoxDragEnd = (e) => {
+    if (activeDragFace) {
+      setActiveDragFace(null);
+      try {
+        e.target.releasePointerCapture(e.pointerId);
+      } catch {}
+      onSave(photo.id, { faces: detectedFaces, facesCascadeVerified: true });
+    }
+  };
+
+  const handlePhotoClick = (e) => {
+    if (!isAddingFaceBox || !imgRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = imgRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const normX = Math.max(0, Math.min(1, clickX / rect.width));
+    const normY = Math.max(0, Math.min(1, clickY / rect.height));
+
+    const boxW = 0.20;
+    const boxH = 0.24;
+    const x = Math.max(0, Math.min(1 - boxW, normX - (boxW / 2)));
+    const y = Math.max(0, Math.min(1 - boxH, normY - (boxH / 2)));
+
+    const newFace = {
+      id: `manual_face_${Date.now()}`,
+      box: {
+        x: +x.toFixed(4),
+        y: +y.toFixed(4),
+        width: boxW,
+        height: boxH
+      },
+      name: undefined
+    };
+
+    const updated = [...detectedFaces, newFace];
+    setDetectedFaces(updated);
+    setIsAddingFaceBox(false);
+    onSave(photo.id, { faces: updated, facesCascadeVerified: true });
+  };
+
   const handlePointerDown = (e) => {
+    if (isAddingFaceBox) {
+      handlePhotoClick(e);
+      return;
+    }
+    if (activeDragFace) return;
     if (zoomScale <= 1) return;
     setIsPanning(true);
     panStartRef.current = {
@@ -364,6 +456,10 @@ export default function MetadataModal({
   };
 
   const handlePointerMove = (e) => {
+    if (activeDragFace) {
+      handleBoxDragMove(e);
+      return;
+    }
     if (!isPanning || zoomScale <= 1) return;
     const dx = e.clientX - panStartRef.current.startX;
     const dy = e.clientY - panStartRef.current.startY;
@@ -373,7 +469,11 @@ export default function MetadataModal({
     });
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e) => {
+    if (activeDragFace) {
+      handleBoxDragEnd(e);
+      return;
+    }
     setIsPanning(false);
   };
 
@@ -897,16 +997,64 @@ export default function MetadataModal({
               onPointerCancel={handlePointerUp}
               onWheel={handleWheelZoom}
               style={{ 
-                cursor: zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default',
+                cursor: isAddingFaceBox ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'),
                 touchAction: 'none' 
               }}
-              title={zoomScale > 1 ? "Drag with mouse to pan around • Scroll wheel to zoom" : "Use Magnify buttons above to zoom in on faces"}
+              title={isAddingFaceBox ? "Click anywhere on face to place a face box" : (zoomScale > 1 ? "Drag with mouse to pan around • Scroll wheel to zoom" : "Use Magnify buttons above to zoom in on faces")}
             >
+              {/* Floating Instruction Banner when Adding Face Box */}
+              {isAddingFaceBox && (
+                <div style={{
+                  position: 'absolute',
+                  top: '12px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  backgroundColor: '#15803d',
+                  color: '#ffffff',
+                  padding: '7px 16px',
+                  borderRadius: '24px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  zIndex: 60,
+                  pointerEvents: 'auto',
+                  border: '1.5px solid #86efac'
+                }}>
+                  <span>👉 Click anywhere on your niece's face to place the box</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setIsAddingFaceBox(false); }}
+                    style={{
+                      background: 'rgba(0,0,0,0.25)',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0
+                    }}
+                    title="Cancel"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
               <div 
                 className="modal-photo-viewport"
+                onClick={isAddingFaceBox ? handlePhotoClick : undefined}
                 style={{
                   transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
-                  cursor: zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'
+                  cursor: isAddingFaceBox ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
                 }}
               >
                 <img
@@ -917,6 +1065,10 @@ export default function MetadataModal({
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                   draggable={false}
+                  onClick={isAddingFaceBox ? handlePhotoClick : undefined}
+                  style={{
+                    cursor: isAddingFaceBox ? 'crosshair' : 'default'
+                  }}
                 />
 
                 {imageLoadFailed && !photoSrc && (
@@ -951,14 +1103,38 @@ export default function MetadataModal({
                 <div
                   key={f.id || `face-${idx}`}
                   className="face-bounding-box"
+                  onPointerDown={(e) => handleBoxDragStart(e, idx, 'move')}
                   style={{
                     left: `${f.box.x * 100}%`,
                     top: `${f.box.y * 100}%`,
                     width: `${f.box.width * 100}%`,
                     height: `${f.box.height * 100}%`,
-                    pointerEvents: 'none'
+                    pointerEvents: isAddingFaceBox ? 'none' : 'auto',
+                    cursor: isAddingFaceBox ? 'crosshair' : 'move',
+                    touchAction: 'none'
                   }}
+                  title={isAddingFaceBox ? "" : "Drag box to reposition on face"}
                 >
+                  {/* Resize handle in bottom-right corner */}
+                  {!isAddingFaceBox && (
+                    <div
+                      onPointerDown={(e) => handleBoxDragStart(e, idx, 'resize')}
+                      style={{
+                        position: 'absolute',
+                        right: '-5px',
+                        bottom: '-5px',
+                        width: '12px',
+                        height: '12px',
+                        backgroundColor: '#F59E0B',
+                        border: '1.5px solid #ffffff',
+                        borderRadius: '2px',
+                        cursor: 'se-resize',
+                        pointerEvents: 'auto',
+                        zIndex: 40
+                      }}
+                      title="Drag to resize box"
+                    />
+                  )}
                   <div
                     className="face-box-tag"
                     style={{
@@ -1170,6 +1346,25 @@ export default function MetadataModal({
                     <span>Clear All Face Boxes ({detectedFaces.length})</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setIsAddingFaceBox(!isAddingFaceBox)}
+                  className="btn btn-xs"
+                  style={{
+                    backgroundColor: isAddingFaceBox ? '#16a34a' : 'rgba(37, 99, 235, 0.2)',
+                    color: isAddingFaceBox ? '#ffffff' : '#93c5fd',
+                    border: isAddingFaceBox ? '1px solid #15803d' : '1px solid rgba(59, 130, 246, 0.5)',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title={isAddingFaceBox ? "Cancel adding face box" : "Click anywhere on the photo to manually place a face box"}
+                >
+                  <UserPlus size={12} />
+                  <span>{isAddingFaceBox ? 'Cancel Adding' : '＋ Add Face Box'}</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleRescanFaces}
