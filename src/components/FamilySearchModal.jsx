@@ -38,7 +38,10 @@ const KNOWN_SEEDS = {
   'Jeffrey Alan Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
   'Rayna Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
   'Brittany Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
-  'Makinzie Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' }
+  'Makinzie Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
+  'Kourtnie Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
+  'Kourtnie Barnes': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
+  'Kourtnie Shae Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' }
 };
 
 export default function FamilySearchModal({
