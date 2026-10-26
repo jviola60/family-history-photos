@@ -106,7 +106,7 @@ export async function searchFamilySearchPersons(query) {
   const data = await response.json();
   const entries = data?.entries || [];
 
-  return entries.map(entry => {
+  const serverResults = entries.map(entry => {
     const gedcomx = entry?.content?.gedcomx;
     const person = gedcomx?.persons?.[0];
     const display = person?.display || {};

@@ -606,7 +606,7 @@ export default function FamilySearchModal({
                             {/* Search Results list */}
                             {searchResults.length > 0 && (
                               <div style={{
-                                maxHeight: '140px',
+                                maxHeight: '180px',
                                 overflowY: 'auto',
                                 border: '1px solid #cbd5e1',
                                 borderRadius: '6px',
@@ -614,31 +614,72 @@ export default function FamilySearchModal({
                                 display: 'flex',
                                 flexDirection: 'column'
                               }}>
-                                {searchResults.map(p => (
-                                  <div
-                                    key={p.id}
-                                    onClick={() => handleLinkPerson(name, p)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      borderBottom: '1px solid #f1f5f9',
-                                      cursor: 'pointer',
-                                      fontSize: '11.5px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
-                                  >
-                                    <div>
-                                      <strong>{p.name}</strong>
-                                      {p.lifespan && <span style={{ opacity: 0.7, marginLeft: '6px' }}>({p.lifespan})</span>}
+                                {searchResults.map(p => {
+                                  const details = [
+                                    p.birthDate ? `Born: ${p.birthDate}` : '',
+                                    p.birthPlace ? p.birthPlace : '',
+                                    p.deathDate ? `Died: ${p.deathDate}` : ''
+                                  ].filter(Boolean).join(' • ');
+
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      onClick={() => handleLinkPerson(name, p)}
+                                      style={{
+                                        padding: '7px 10px',
+                                        borderBottom: '1px solid #f1f5f9',
+                                        cursor: 'pointer',
+                                        fontSize: '11.5px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: '8px'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0fdf4'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
+                                      title={`Link ${name} to ${p.name} (${p.id})`}
+                                    >
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                          <strong style={{ color: '#0f172a' }}>{p.name}</strong>
+                                          {p.lifespan && (
+                                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>
+                                              ({p.lifespan})
+                                            </span>
+                                          )}
+                                        </div>
+                                        {details && (
+                                          <div style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {details}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <span style={{ fontSize: '10.5px', background: '#e2e8f0', color: '#1e293b', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                                        {p.id}
+                                      </span>
                                     </div>
-                                    <span style={{ fontSize: '10px', background: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                                      {p.id}
-                                    </span>
-                                  </div>
-                                ))}
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {!isSearching && searchResults.length === 0 && searchQuery.trim() && (
+                              <div style={{
+                                padding: '10px 12px',
+                                background: '#f8fafc',
+                                borderRadius: '6px',
+                                border: '1px dashed #cbd5e1',
+                                fontSize: '11.5px',
+                                color: '#475569',
+                                lineHeight: 1.45
+                              }}>
+                                <strong style={{ color: '#1e293b', display: 'block', marginBottom: '3px' }}>
+                                  No matches found in Family Tree for "{searchQuery}".
+                                </strong>
+                                <span>
+                                  • If {name} is a <strong>living relative</strong> (like nieces or in-laws), living people in FamilySearch are kept private to your account and cannot be found via public search until you add them to your Tree on FamilySearch.<br/>
+                                  • <strong>You can still proceed:</strong> {name} will be tagged by name directly on this photo in FamilySearch Memories even without a Tree link!
+                                </span>
                               </div>
                             )}
                           </div>
