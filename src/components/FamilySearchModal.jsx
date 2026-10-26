@@ -217,12 +217,18 @@ export default function FamilySearchModal({
         throw new Error('Unable to read photo file data from disk or cache.');
       }
 
-      // 2. Upload image to FamilySearch Memories
+      // Determine primary matched Tree person (e.g. Jeff Viola) to attach directly upon upload
+      const primaryPersonId = (allPeopleNames.length > 0 && personMappings[allPeopleNames[0]])
+        ? personMappings[allPeopleNames[0]].id
+        : null;
+
+      // 2. Upload image to FamilySearch Memories (directly attaching to primary person if known)
       const res = await uploadPhotoToFamilySearchMemories(
         photo,
         metadata,
         blob,
-        ({ message }) => setStatusMessage(message)
+        ({ message }) => setStatusMessage(message),
+        primaryPersonId
       );
 
       // 3. Automatically construct Face Tags and Family Tree attachments

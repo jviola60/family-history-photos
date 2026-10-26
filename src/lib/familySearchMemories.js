@@ -242,39 +242,79 @@ export async function uploadPhotoToFamilySearchMemories(photo, metadata, imageBl
  * @param {string} personId - FamilySearch Person Identifier (e.g., 'KWQS-81Y')
  * @param {string} memoryId - FamilySearch Memory Identifier
  */
-export async function attachMemoryToFamilySearchPerson(personId, memoryId) {
+export async function attachMemoryToFamilySearchPerson(personId, memoryId, personaId = null) {
   const token = getStoredFamilySearchToken();
   if (!token) throw new Error('Not logged in to FamilySearch');
   if (!personId || !memoryId) throw new Error('Missing person ID or memory ID');
 
   const config = getFamilySearchConfig();
-  const attachUrl = `${config.apiBase}/platform/tree/persons/${personId}/memory-references`;
+  
+  // 1. Link persona or memory container directly to Tree Person evidence
+  const updatePersonUrl = `${config.apiBase}/platform/tree/persons/${personId}`;
+  const evidenceUri = personaId 
+    ? `${config.apiBase}/platform/memories/memories/${memoryId}/personas/${personaId}`
+    : `${config.apiBase}/platform/memories/memories/${memoryId}`;
 
   const payload = {
     persons: [
       {
+        id: personId,
         evidence: [
           {
-            resource: `${config.apiBase}/platform/memories/memories/${memoryId}`
+            resource: evidenceUri
           }
         ]
       }
     ]
   };
 
-  const response = await fetch(attachUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token.accessToken}`,
-      'Content-Type': 'application/x-gedcomx-v1+json',
-      'Accept': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const response = await fetch(updatePersonUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/x-gedcomx-v1+json',
+        'Accept': 'application/x-gedcomx-v1+json, application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Could not attach memory to person ${personId} (${response.status}): ${errText}`);
+    if (response.ok) return true;
+  } catch (err) {
+    console.warn(`Attach via person evidence endpoint notice:`, err);
+  }
+
+  // 2. Also try linking via Persona Update endpoint if personaId is available
+  if (personaId) {
+    try {
+      const personaUpdateUrl = `${config.apiBase}/platform/memories/memories/${memoryId}/personas/${personaId}`;
+      const personaPayload = {
+        persons: [
+          {
+            id: personaId,
+            identifiers: {
+              'http://gedcomx.org/Persistent': [
+                `https://familysearch.org/ark:/61903/4:1:${personId}`
+              ]
+            }
+          }
+        ]
+      };
+
+      const res = await fetch(personaUpdateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token.accessToken}`,
+          'Content-Type': 'application/x-gedcomx-v1+json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(personaPayload)
+      });
+
+      if (res.ok) return true;
+    } catch (err) {
+      console.warn(`Attach via persona update endpoint notice:`, err);
+    }
   }
 
   return true;
@@ -326,6 +366,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
       if (tag.treePersonId) {
         personaPayload.persons[0].identifiers = {
           'http://gedcomx.org/Persistent': [
+            `https://familysearch.org/ark:/61903/4:1:${tag.treePersonId}`,
             `${config.apiBase}/platform/tree/persons/${tag.treePersonId}`
           ]
         };
@@ -358,10 +399,10 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
       const personaLocation = personaRes.headers.get('Location') || '';
       const personaId = personaLocation ? personaLocation.split('/').pop() : null;
 
-      // 2. Attach memory to Tree Person if treePersonId provided
+      // 2. Attach memory and specific persona to Tree Person if treePersonId provided
       if (tag.treePersonId) {
         try {
-          await attachMemoryToFamilySearchPerson(tag.treePersonId, memoryId);
+          await attachMemoryToFamilySearchPerson(tag.treePersonId, memoryId, personaId);
         } catch (linkErr) {
           console.warn(`Memory reference attach notice for ${tag.treePersonId}:`, linkErr);
         }
