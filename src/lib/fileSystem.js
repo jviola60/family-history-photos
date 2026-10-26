@@ -498,3 +498,62 @@ export async function getFileFromPath(rootDirHandle, relativePath) {
   }
 }
 
+/**
+ * Renames a photo file directly on disk using FileSystemFileHandle.move() with fallback
+ * and auto-suffix collision prevention to never overwrite another photo.
+ */
+export async function renamePhotoOnDisk(photo, desiredName) {
+  if (!photo || !photo.handle || !desiredName || photo.name === desiredName) return photo.name;
+
+  let targetName = desiredName;
+  const parentDir = photo.parentDirHandle;
+
+  // Ensure collision-free unique name
+  if (parentDir) {
+    try {
+      targetName = await getUniqueTargetFileName(parentDir, desiredName);
+    } catch {}
+  }
+
+  // 1. Native Chromium FileSystemFileHandle.move(newName)
+  if (typeof photo.handle.move === 'function') {
+    try {
+      await photo.handle.move(targetName);
+      photo.name = targetName;
+      if (photo.relativePath) {
+        const parts = photo.relativePath.split('/');
+        parts[parts.length - 1] = targetName;
+        photo.relativePath = parts.join('/');
+      }
+      return targetName;
+    } catch (moveErr) {
+      console.warn('Native handle.move failed, trying parent directory copy/remove:', moveErr);
+    }
+  }
+
+  // 2. Fallback via parent directory copy and delete
+  if (parentDir && typeof parentDir.getFileHandle === 'function' && typeof parentDir.removeEntry === 'function') {
+    try {
+      const oldFile = await photo.handle.getFile();
+      const newHandle = await parentDir.getFileHandle(targetName, { create: true });
+      const writable = await newHandle.createWritable();
+      await writable.write(await oldFile.arrayBuffer());
+      await writable.close();
+      await parentDir.removeEntry(photo.name);
+
+      photo.handle = newHandle;
+      photo.name = targetName;
+      if (photo.relativePath) {
+        const parts = photo.relativePath.split('/');
+        parts[parts.length - 1] = targetName;
+        photo.relativePath = parts.join('/');
+      }
+      return targetName;
+    } catch (fallbackErr) {
+      console.warn('Parent directory copy/remove rename failed:', fallbackErr);
+    }
+  }
+
+  return photo.name;
+}
+

@@ -31,8 +31,10 @@ import { removeRedEyesFromImage } from '../lib/redEyeRemover';
 import { 
   writeMetadataToPhotoHandle, 
   downloadPhotoWithEmbeddedMetadata,
-  formatFamilySearchSummary 
+  formatFamilySearchSummary,
+  generateFamilySearchFilename
 } from '../lib/photoMetadata';
+import { renamePhotoOnDisk } from '../lib/fileSystem';
 import { 
   savePhotoDraft, 
   loadPhotoDraft, 
@@ -270,7 +272,7 @@ export default function MetadataModal({
     setFaceSuggestion(null);
     setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
-  }, [photo, peopleDirectory]);
+  }, [photo?.id || photo?.name, peopleDirectory]);
 
   // Continuous Auto-Save: debounced write to draft and parent state whenever user types
   useEffect(() => {
@@ -404,8 +406,8 @@ export default function MetadataModal({
 
   const handlePhotoClick = (e) => {
     if (!isAddingFaceBox || !imgRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
 
     const rect = imgRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -430,10 +432,23 @@ export default function MetadataModal({
       name: undefined
     };
 
-    const updated = [...detectedFaces, newFace];
-    setDetectedFaces(updated);
+    setDetectedFaces(prev => {
+      const updated = [...prev, newFace];
+      try {
+        const draft = loadPhotoDraft(photo.id || photo.name) || {};
+        savePhotoDraft(photo.id || photo.name, {
+          ...draft,
+          faces: updated,
+          facesCascadeVerified: true
+        });
+      } catch (err) {
+        console.warn('Draft save error:', err);
+      }
+      onSave(photo.id, { faces: updated, facesCascadeVerified: true });
+      return updated;
+    });
+
     setIsAddingFaceBox(false);
-    onSave(photo.id, { faces: updated, facesCascadeVerified: true });
   };
 
   const handlePointerDown = (e) => {
@@ -784,7 +799,7 @@ export default function MetadataModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const finalizedFaces = detectedFaces.map(face => {
       if (!face.name && people.length === 1 && detectedFaces.length === 1) {
         return { ...face, name: people[0] };
@@ -792,8 +807,30 @@ export default function MetadataModal({
       return face;
     });
 
+    let currentPhotoName = photo.name;
+    let targetFileName = currentPhotoName;
+
+    // Automatically rename the photo file on disk to include the person's name (e.g. Heather_Viola.jpg)
+    if (people.length > 0) {
+      const suggested = generateFamilySearchFilename(photo, {
+        people,
+        date,
+        decade,
+        location
+      });
+      if (suggested && suggested !== currentPhotoName) {
+        try {
+          targetFileName = await renamePhotoOnDisk(photo, suggested);
+        } catch (renameErr) {
+          console.warn('Could not rename photo on disk:', renameErr);
+        }
+      }
+    }
+
     const updatedMetadata = {
-      title: photo.name,
+      title: targetFileName || photo.name,
+      name: targetFileName || photo.name,
+      relativePath: photo.relativePath,
       people,
       relationship,
       personRelationships,
@@ -1051,7 +1088,6 @@ export default function MetadataModal({
 
               <div 
                 className="modal-photo-viewport"
-                onClick={isAddingFaceBox ? handlePhotoClick : undefined}
                 style={{
                   transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
                   cursor: isAddingFaceBox ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
@@ -1065,7 +1101,6 @@ export default function MetadataModal({
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                   draggable={false}
-                  onClick={isAddingFaceBox ? handlePhotoClick : undefined}
                   style={{
                     cursor: isAddingFaceBox ? 'crosshair' : 'default'
                   }}
