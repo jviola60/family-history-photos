@@ -355,6 +355,10 @@ export default function MetadataModal({
   const [activeDragFace, setActiveDragFace] = useState(null);
 
   const handleBoxDragStart = (e, index, type) => {
+    // If interacting with the tag header, dropdown, or delete button, do not drag or preventDefault!
+    if (e.target && (e.target.closest('.face-box-tag') || e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION' || e.target.tagName === 'BUTTON')) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const face = detectedFaces[index];
@@ -1172,6 +1176,9 @@ export default function MetadataModal({
                   )}
                   <div
                     className="face-box-tag"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1189,8 +1196,16 @@ export default function MetadataModal({
                           value={currentFaceName || ''}
                           onChange={(e) => {
                             e.stopPropagation();
-                            handleAssignFaceName(idx, e.target.value);
+                            if (e.target.value === '__new_person__') {
+                              const val = window.prompt("Enter person's name for this face:");
+                              if (val && val.trim()) {
+                                handleAssignFaceName(idx, val.trim());
+                              }
+                            } else {
+                              handleAssignFaceName(idx, e.target.value);
+                            }
                           }}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
                           onMouseDown={(e) => e.stopPropagation()}
                           style={{
@@ -1209,6 +1224,7 @@ export default function MetadataModal({
                           <option value="">
                             {currentFaceName ? '-- Clear Assignment --' : `Person ${idx + 1} (Click to Assign...)`}
                           </option>
+                          <option value="__new_person__">＋ Type New Name...</option>
                           {people.length > 0 && (
                             <optgroup label="People in this photo">
                               {people.map(name => (
@@ -1237,8 +1253,9 @@ export default function MetadataModal({
                         e.stopPropagation();
                         handleRemoveFaceBox(idx);
                       }}
+                      onPointerDown={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
-                      title="Remove this false face box"
+                      title="Remove this face box"
                       style={{
                         background: '#dc2626',
                         border: '1px solid #ef4444',
