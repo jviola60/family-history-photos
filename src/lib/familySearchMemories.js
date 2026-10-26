@@ -249,7 +249,39 @@ export async function attachMemoryToFamilySearchPerson(personId, memoryId, perso
 
   const config = getFamilySearchConfig();
   
-  // 1. Link persona or memory container directly to Tree Person evidence
+  // 1. Link persona on the memory to the FamilyTreePerson using standard identifiers array
+  if (personaId) {
+    try {
+      const personaUpdateUrl = `${config.apiBase}/platform/memories/memories/${memoryId}/personas/${personaId}`;
+      const personaPayload = {
+        persons: [
+          {
+            id: personaId,
+            identifiers: [
+              {
+                type: 'http://familysearch.org/v1/FamilyTreePerson',
+                value: `https://familysearch.org/ark:/61903/4:1:${personId}`
+              }
+            ]
+          }
+        ]
+      };
+
+      await fetch(personaUpdateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token.accessToken}`,
+          'Content-Type': 'application/x-gedcomx-v1+json',
+          'Accept': 'application/x-gedcomx-v1+json, application/json'
+        },
+        body: JSON.stringify(personaPayload)
+      });
+    } catch (err) {
+      console.warn(`Attach via persona update endpoint notice:`, err);
+    }
+  }
+
+  // 2. Also record evidence on the Tree Person
   const updatePersonUrl = `${config.apiBase}/platform/tree/persons/${personId}`;
   const evidenceUri = personaId 
     ? `${config.apiBase}/platform/memories/memories/${memoryId}/personas/${personaId}`
@@ -269,7 +301,7 @@ export async function attachMemoryToFamilySearchPerson(personId, memoryId, perso
   };
 
   try {
-    const response = await fetch(updatePersonUrl, {
+    await fetch(updatePersonUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token.accessToken}`,
@@ -278,50 +310,15 @@ export async function attachMemoryToFamilySearchPerson(personId, memoryId, perso
       },
       body: JSON.stringify(payload)
     });
-
-    if (response.ok) return true;
   } catch (err) {
     console.warn(`Attach via person evidence endpoint notice:`, err);
-  }
-
-  // 2. Also try linking via Persona Update endpoint if personaId is available
-  if (personaId) {
-    try {
-      const personaUpdateUrl = `${config.apiBase}/platform/memories/memories/${memoryId}/personas/${personaId}`;
-      const personaPayload = {
-        persons: [
-          {
-            id: personaId,
-            identifiers: {
-              'http://gedcomx.org/Persistent': [
-                `https://familysearch.org/ark:/61903/4:1:${personId}`
-              ]
-            }
-          }
-        ]
-      };
-
-      const res = await fetch(personaUpdateUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token.accessToken}`,
-          'Content-Type': 'application/x-gedcomx-v1+json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(personaPayload)
-      });
-
-      if (res.ok) return true;
-    } catch (err) {
-      console.warn(`Attach via persona update endpoint notice:`, err);
-    }
   }
 
   return true;
 }
 
 /**
- * Creates memory personas with face bounding box coordinates and attaches them to Tree persons.
+ * Creates or updates memory personas with face bounding box coordinates and attaches them to Tree persons.
  * @param {string} memoryId - FamilySearch Memory ID
  * @param {Array} tags - Array of { name, faceBox, treePersonId }
  * @param {function} onProgress - Progress reporter
@@ -331,6 +328,23 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
   const token = getStoredFamilySearchToken();
   if (!token) throw new Error('Not logged in to FamilySearch');
   const config = getFamilySearchConfig();
+
+  // 1. Fetch any existing personas already created on this memory artifact
+  let existingPersonas = [];
+  try {
+    const listRes = await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas`, {
+      headers: {
+        'Authorization': `Bearer ${token.accessToken}`,
+        'Accept': 'application/x-gedcomx-v1+json, application/json'
+      }
+    });
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      existingPersonas = listData.persons || [];
+    }
+  } catch (listErr) {
+    console.warn('Could not list existing personas on memory:', listErr);
+  }
 
   const results = [];
 
@@ -346,60 +360,107 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
     }
 
     try {
-      // 1. Create persona with bounding box on the memory artifact
-      const personaPayload = {
-        persons: [
-          {
-            names: [
-              {
-                nameForms: [
-                  {
-                    fullText: tag.name || 'Relative'
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      };
+      // Find if an existing persona on the photo matches this tag name
+      const matchedExisting = existingPersonas.find(p => {
+        const pName = p.names?.[0]?.nameForms?.[0]?.fullText?.trim().toLowerCase();
+        const tName = tag.name?.trim().toLowerCase();
+        return pName && tName && (pName === tName || pName.includes(tName) || tName.includes(pName));
+      });
 
+      // Prepare standard identifiers array per FamilySearch OpenAPI spec
+      const identifiers = [];
       if (tag.treePersonId) {
-        personaPayload.persons[0].identifiers = {
-          'http://gedcomx.org/Persistent': [
-            `https://familysearch.org/ark:/61903/4:1:${tag.treePersonId}`,
-            `${config.apiBase}/platform/tree/persons/${tag.treePersonId}`
-          ]
-        };
+        identifiers.push({
+          type: 'http://familysearch.org/v1/FamilyTreePerson',
+          value: `https://familysearch.org/ark:/61903/4:1:${tag.treePersonId}`
+        });
       }
 
+      // Prepare qualifiers for bounding box
+      let media = undefined;
       if (tag.faceBox) {
-        personaPayload.persons[0].media = [
+        const x = Number(tag.faceBox.x || 0).toFixed(4);
+        const y = Number(tag.faceBox.y || 0).toFixed(4);
+        const w = Number(tag.faceBox.width || 0.1).toFixed(4);
+        const h = Number(tag.faceBox.height || 0.1).toFixed(4);
+        const regionStr = `${x},${y},${w},${h}`;
+        media = [
           {
             resource: `${config.apiBase}/platform/memories/memories/${memoryId}`,
             qualifiers: [
-              { name: 'http://familysearch.org/v1/x', value: String(Number(tag.faceBox.x || 0).toFixed(4)) },
-              { name: 'http://familysearch.org/v1/y', value: String(Number(tag.faceBox.y || 0).toFixed(4)) },
-              { name: 'http://familysearch.org/v1/width', value: String(Number(tag.faceBox.width || 0.1).toFixed(4)) },
-              { name: 'http://familysearch.org/v1/height', value: String(Number(tag.faceBox.height || 0.1).toFixed(4)) }
+              { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+              { name: 'http://familysearch.org/v1/x', value: x },
+              { name: 'http://familysearch.org/v1/y', value: y },
+              { name: 'http://familysearch.org/v1/width', value: w },
+              { name: 'http://familysearch.org/v1/height', value: h }
             ]
           }
         ];
       }
 
-      const personaRes = await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token.accessToken}`,
-          'Content-Type': 'application/x-gedcomx-v1+json',
-          'Accept': 'application/x-gedcomx-v1+json, application/json'
-        },
-        body: JSON.stringify(personaPayload)
-      });
+      let personaId = matchedExisting ? matchedExisting.id : null;
 
-      const personaLocation = personaRes.headers.get('Location') || '';
-      const personaId = personaLocation ? personaLocation.split('/').pop() : null;
+      if (matchedExisting) {
+        // UPDATE existing persona with treePersonId identifier and coordinates
+        const updatePayload = {
+          persons: [
+            {
+              id: matchedExisting.id,
+              names: [
+                {
+                  nameForms: [
+                    { fullText: tag.name || 'Relative' }
+                  ]
+                }
+              ]
+            }
+          ]
+        };
+        if (identifiers.length > 0) updatePayload.persons[0].identifiers = identifiers;
+        if (media) updatePayload.persons[0].media = media;
 
-      // 2. Attach memory and specific persona to Tree Person if treePersonId provided
+        await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas/${matchedExisting.id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token.accessToken}`,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json, application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+      } else {
+        // CREATE new persona
+        const personaPayload = {
+          persons: [
+            {
+              names: [
+                {
+                  nameForms: [
+                    { fullText: tag.name || 'Relative' }
+                  ]
+                }
+              ]
+            }
+          ]
+        };
+        if (identifiers.length > 0) personaPayload.persons[0].identifiers = identifiers;
+        if (media) personaPayload.persons[0].media = media;
+
+        const personaRes = await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token.accessToken}`,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json, application/json'
+          },
+          body: JSON.stringify(personaPayload)
+        });
+
+        const personaLocation = personaRes.headers.get('Location') || '';
+        personaId = personaLocation ? personaLocation.split('/').pop() : null;
+      }
+
+      // Attach memory and persona to Tree Person
       if (tag.treePersonId) {
         try {
           await attachMemoryToFamilySearchPerson(tag.treePersonId, memoryId, personaId);
