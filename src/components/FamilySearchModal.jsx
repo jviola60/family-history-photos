@@ -14,7 +14,11 @@ import {
   Loader2,
   Check,
   Tag,
-  Sparkles
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ShieldAlert,
+  FileText
 } from 'lucide-react';
 import { 
   getStoredFamilySearchToken, 
@@ -62,6 +66,7 @@ export default function FamilySearchModal({
   const [uploadedResult, setUploadedResult] = useState(null);
   const [taggingSummary, setTaggingSummary] = useState([]);
   const [activeRedirectUri, setActiveRedirectUri] = useState(() => getFamilySearchConfig().redirectUri);
+  const [showPolicyGuidelines, setShowPolicyGuidelines] = useState(false);
 
   // Initialize data on modal open
   useEffect(() => {
@@ -401,6 +406,67 @@ export default function FamilySearchModal({
               >
                 <LogOut size={12} /> Disconnect
               </button>
+            </div>
+          )}
+
+          {/* FamilySearch Content & Photo Policies Checklist */}
+          {user && (
+            <div style={{
+              padding: '10px 14px',
+              backgroundColor: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: '10px',
+              fontSize: '12px'
+            }}>
+              <div 
+                onClick={() => setShowPolicyGuidelines(!showPolicyGuidelines)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between', 
+                  cursor: 'pointer', 
+                  userSelect: 'none' 
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: '700', color: '#1e293b' }}>
+                  <ShieldAlert size={15} style={{ color: '#d97706' }} />
+                  <span>FamilySearch Photo Guidelines & Content Rules</span>
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontWeight: 600,
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span>{showPolicyGuidelines ? 'Hide Rules' : 'Review Rules'}</span>
+                  {showPolicyGuidelines ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </div>
+
+              {showPolicyGuidelines && (
+                <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', color: '#334155', lineHeight: 1.55 }}>
+                  <p style={{ margin: '0 0 6px 0', fontWeight: '600', color: '#0f172a' }}>
+                    FamilySearch actively screens all uploaded photos. To prevent photos from being flagged or restricted:
+                  </p>
+                  <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <li><strong>No Kissing:</strong> FamilySearch strictly prohibits photos showing people kissing or about to kiss on the mouth (even wedding or affectionate family photos).</li>
+                    <li><strong>Modesty:</strong> Clothing must be modest, buttoned, and zipped. No immodesty or nudity.</li>
+                    <li><strong>Reverence:</strong> Sacred religious rites, temple ceremonies, or sacred clothing must not be depicted irreverently.</li>
+                    <li><strong>No Vulgarity:</strong> No offensive hand gestures, obscene words, or hate speech in images or notes.</li>
+                    <li><strong>No Violence / Illegal Acts:</strong> No depiction of unlawful acts, illegal drugs, or graphic violence.</li>
+                    <li><strong>Copyright & Commercial:</strong> No advertisements, commercial brand logos, or copyrighted studio portraits unless you own the rights.</li>
+                    <li><strong>Living People Privacy:</strong> Living relatives are kept private to your account in FamilySearch to protect family privacy.</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

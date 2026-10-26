@@ -50,6 +50,8 @@ const COMMON_RELATIONSHIPS = [
   'Great-Granddaughter',
   'Great-Grandson',
   'Great-Grandchild',
+  '2nd Great-Grandchild',
+  '3rd Great-Grandchild',
   'Mother',
   'Father',
   'Sister',
@@ -58,14 +60,34 @@ const COMMON_RELATIONSHIPS = [
   'Grandfather',
   'Great-Grandmother',
   'Great-Grandfather',
+  '2nd Great-Grandmother',
+  '2nd Great-Grandfather',
+  '3rd Great-Grandmother',
+  '3rd Great-Grandfather',
+  '4th Great-Grandmother',
+  '4th Great-Grandfather',
+  '5th Great-Grandmother',
+  '5th Great-Grandfather',
+  '6th Great-Grandmother',
+  '6th Great-Grandfather',
+  '7th Great-Grandmother',
+  '7th Great-Grandfather',
+  '8th+ Great-Grandparent / Direct Ancestor',
   'Aunt',
   'Uncle',
+  'Great-Aunt',
+  'Great-Uncle',
+  '2nd Great-Aunt / Uncle',
   'Niece / Nephew',
   'Cousin',
   'Son-in-Law / Daughter-in-Law',
   'In-Law (Brother / Sister)',
   'In-Law (Parent)',
   'Close Family Friend',
+  'Neighbor',
+  'Colleague / Classmate',
+  'Non-Relative / Guest',
+  'Unknown / Unidentified Person',
   'Pet'
 ];
 
@@ -1304,7 +1326,16 @@ export default function MetadataModal({
                         <span style={{ fontWeight: '700', fontSize: '13px', color: 'var(--text-main)' }}>👤 {p}</span>
                         <select
                           value={personRelationships[p] || ''}
-                          onChange={(e) => handleSetPersonRelationship(p, e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value === '__custom__') {
+                              const val = window.prompt(`Enter custom relationship for ${p} (e.g. 5th Great-Grandmother, Godparent, Step-Sister):`, personRelationships[p] || '');
+                              if (val && val.trim()) {
+                                handleSetPersonRelationship(p, val.trim());
+                              }
+                            } else {
+                              handleSetPersonRelationship(p, e.target.value);
+                            }
+                          }}
                           style={{
                             fontSize: '11px',
                             padding: '3px 8px',
@@ -1318,9 +1349,13 @@ export default function MetadataModal({
                           title={`Select ${p}'s relationship to you`}
                         >
                           <option value="">Role / Relationship to Me...</option>
+                          {personRelationships[p] && !COMMON_RELATIONSHIPS.includes(personRelationships[p]) && (
+                            <option value={personRelationships[p]}>{personRelationships[p]}</option>
+                          )}
                           {COMMON_RELATIONSHIPS.map(rel => (
                             <option key={rel} value={rel}>{rel}</option>
                           ))}
+                          <option value="__custom__">✏️ Enter Custom Relationship...</option>
                         </select>
                       </div>
 
@@ -1390,9 +1425,35 @@ export default function MetadataModal({
                 <select
                   className="form-select"
                   value={relationship}
-                  onChange={(e) => setRelationship(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      const val = window.prompt('Enter custom photo group / category (e.g. 5-Generation Reunion, Cousins Trip, Church Choir):', relationship || '');
+                      if (val && val.trim()) {
+                        setRelationship(val.trim());
+                      }
+                    } else {
+                      setRelationship(e.target.value);
+                    }
+                  }}
                 >
                   <option value="">Select group category or leave blank...</option>
+                  {relationship && !COMMON_RELATIONSHIPS.includes(relationship) && ![
+                    'Immediate Family / Household',
+                    'Spouse & Children',
+                    'Parents & Children',
+                    'Extended Family Gathering',
+                    'Couple / Parents',
+                    'Siblings / Children',
+                    'Grandparents & Grandchildren',
+                    'Great-Grandparents & Great-Grandchildren',
+                    'Great-Grandchildren',
+                    'Multi-Generational (3-4 Generations)',
+                    'Multi-Generational (5+ Generations / Direct Ancestors)',
+                    'Solo Portrait',
+                    'Friends & Social'
+                  ].includes(relationship) && (
+                    <option value={relationship}>{relationship}</option>
+                  )}
                   <option value="Immediate Family / Household">Immediate Family / Household</option>
                   <option value="Spouse & Children">Spouse & Children</option>
                   <option value="Parents & Children">Parents & Children</option>
@@ -1403,11 +1464,13 @@ export default function MetadataModal({
                   <option value="Great-Grandparents & Great-Grandchildren">Great-Grandparents & Great-Grandchildren</option>
                   <option value="Great-Grandchildren">Great-Grandchildren</option>
                   <option value="Multi-Generational (3-4 Generations)">Multi-Generational (3-4 Generations)</option>
+                  <option value="Multi-Generational (5+ Generations / Direct Ancestors)">Multi-Generational (5+ Generations / Direct Ancestors)</option>
                   <option value="Solo Portrait">Solo Portrait</option>
                   <option value="Friends & Social">Friends & Social</option>
                   {COMMON_RELATIONSHIPS.map((rel) => (
                     <option key={rel} value={rel}>{rel}</option>
                   ))}
+                  <option value="__custom__">✏️ Enter Custom Category...</option>
                 </select>
               </div>
 
