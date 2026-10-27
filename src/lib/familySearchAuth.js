@@ -25,8 +25,27 @@ export function setStoredRedirectUriOverride(uri) {
   } catch {}
 }
 
+export function getStoredClientIdOverride() {
+  try {
+    return localStorage.getItem('fs_override_client_id') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setStoredClientIdOverride(id) {
+  try {
+    if (!id) {
+      localStorage.removeItem('fs_override_client_id');
+    } else {
+      localStorage.setItem('fs_override_client_id', id.trim());
+    }
+  } catch {}
+}
+
 export function getFamilySearchConfig() {
-  const clientId = import.meta.env.VITE_FS_CLIENT_ID || '';
+  const storedId = getStoredClientIdOverride();
+  const clientId = storedId || import.meta.env.VITE_FS_CLIENT_ID || '';
   const authUrl = import.meta.env.VITE_FS_AUTH_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/authorization';
   const tokenUrl = import.meta.env.VITE_FS_TOKEN_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/token';
   const apiBase = import.meta.env.VITE_FS_API_BASE || 'https://apibeta.familysearch.org';

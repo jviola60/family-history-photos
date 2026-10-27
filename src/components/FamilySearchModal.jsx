@@ -18,7 +18,8 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldAlert,
-  FileText
+  FileText,
+  Key
 } from 'lucide-react';
 import { 
   getStoredFamilySearchToken, 
@@ -27,7 +28,9 @@ import {
   getFamilySearchCurrentUser,
   getFamilySearchConfig,
   getStoredRedirectUriOverride,
-  setStoredRedirectUriOverride
+  setStoredRedirectUriOverride,
+  getStoredClientIdOverride,
+  setStoredClientIdOverride
 } from '../lib/familySearchAuth';
 import { 
   uploadPhotoToFamilySearchMemories, 
@@ -67,6 +70,8 @@ export default function FamilySearchModal({
   const [taggingSummary, setTaggingSummary] = useState([]);
   const [activeRedirectUri, setActiveRedirectUri] = useState(() => getFamilySearchConfig().redirectUri);
   const [showPolicyGuidelines, setShowPolicyGuidelines] = useState(false);
+  const [currentConfig, setCurrentConfig] = useState(() => getFamilySearchConfig());
+  const [customAppKey, setCustomAppKey] = useState(() => getStoredClientIdOverride() || '');
 
   // Initialize data on modal open
   useEffect(() => {
@@ -80,7 +85,10 @@ export default function FamilySearchModal({
     setTaggingSummary([]);
     setActiveSearchPerson(null);
     setSearchResults([]);
-    setActiveRedirectUri(getFamilySearchConfig().redirectUri);
+    const freshConfig = getFamilySearchConfig();
+    setCurrentConfig(freshConfig);
+    setCustomAppKey(getStoredClientIdOverride() || '');
+    setActiveRedirectUri(freshConfig.redirectUri);
 
     // 1. Load saved Person ID mappings
     getFamilySearchPersonMappings().then(saved => {
@@ -123,7 +131,7 @@ export default function FamilySearchModal({
   if (!isOpen) return null;
 
   const targetFilename = generateFamilySearchFilename(photo, metadata);
-  const config = getFamilySearchConfig();
+  const config = currentConfig;
 
   // Combine people and faces
   const peopleList = metadata?.people || [];
@@ -339,11 +347,86 @@ export default function FamilySearchModal({
                   </p>
                 </div>
               </div>
+
+              {!config.clientId ? (
+                <div style={{
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', fontWeight: '700', color: '#92400e' }}>
+                    <Key size={16} />
+                    <span>FamilySearch AppKey (Developer Client ID):</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#78350f', lineHeight: 1.45 }}>
+                    Enter your FamilySearch AppKey below. It will be saved securely in your browser's private storage (never committed to GitHub).
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="Paste your AppKey (e.g. b4BB18Q5LQKBNVYEIJL6)"
+                      value={customAppKey}
+                      onChange={(e) => setCustomAppKey(e.target.value)}
+                      className="form-control form-control-sm"
+                      style={{ flex: 1, fontFamily: 'monospace', fontSize: '12px', padding: '6px 10px' }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-warning btn-sm"
+                      onClick={() => {
+                        if (!customAppKey.trim()) return;
+                        setStoredClientIdOverride(customAppKey.trim());
+                        setCurrentConfig(getFamilySearchConfig());
+                      }}
+                      style={{ fontWeight: '700', whiteSpace: 'nowrap' }}
+                    >
+                      Save AppKey
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between', 
+                  fontSize: '11px', 
+                  color: 'var(--text-subtle)',
+                  background: 'rgba(241, 245, 249, 0.7)',
+                  padding: '6px 10px',
+                  borderRadius: '6px'
+                }}>
+                  <span>FamilySearch AppKey: <strong style={{ fontFamily: 'monospace', color: '#047857' }}>{config.clientId.slice(0, 4)}••••{config.clientId.slice(-4)}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStoredClientIdOverride('');
+                      setCurrentConfig(getFamilySearchConfig());
+                      setCustomAppKey('');
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '11px', textDecoration: 'underline', padding: 0 }}
+                  >
+                    Change Key
+                  </button>
+                </div>
+              )}
+
               <button 
                 type="button" 
                 onClick={handleLogin}
                 className="btn btn-primary"
-                style={{ width: '100%', justifyContent: 'center', fontWeight: '700', padding: '12px' }}
+                disabled={!config.clientId}
+                style={{ 
+                  width: '100%', 
+                  justifyContent: 'center', 
+                  fontWeight: '700', 
+                  padding: '12px',
+                  opacity: !config.clientId ? 0.6 : 1,
+                  cursor: !config.clientId ? 'not-allowed' : 'pointer'
+                }}
               >
                 Sign In to FamilySearch
               </button>
