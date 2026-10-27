@@ -20,17 +20,26 @@ export async function loadFaceCascade() {
   if (picoClassifier) return picoClassifier;
   if (!cascadeLoadPromise) {
     cascadeLoadPromise = (async () => {
-      try {
-        const res = await fetch('/models/facefinder');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const buf = await res.arrayBuffer();
-        const bytes = new Int8Array(buf);
-        picoClassifier = unpackCascade(bytes);
-        return picoClassifier;
-      } catch (err) {
-        console.warn('Could not load pico cascade model:', err);
-        return null;
+      const candidates = [
+        new URL('models/facefinder', new URL(import.meta.env.BASE_URL || './', window.location.href)).href,
+        './models/facefinder',
+        '/models/facefinder'
+      ];
+      for (const url of candidates) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            const bytes = new Int8Array(buf);
+            picoClassifier = unpackCascade(bytes);
+            return picoClassifier;
+          }
+        } catch (err) {
+          // try next candidate
+        }
       }
+      console.warn('Could not load pico cascade model from any candidate URL');
+      return null;
     })();
   }
   return cascadeLoadPromise;

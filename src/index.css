@@ -1061,7 +1061,9 @@
   align-items: center;
   justify-content: flex-start;
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
 }
 
 .modal-dialog-maximized .modal-photo-column {
@@ -1151,8 +1153,8 @@
   position: relative;
   width: 100%;
   flex: 1;
-  min-height: 440px;
-  max-height: 65vh;
+  min-height: 320px;
+  max-height: 54vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1163,7 +1165,7 @@
 
 .modal-dialog-maximized .photo-display-container {
   max-height: calc(96vh - 150px) !important;
-  min-height: 580px;
+  min-height: 520px;
 }
 
 .modal-photo-viewport {
@@ -1178,7 +1180,7 @@
 
 .modal-photo-img {
   max-width: 100%;
-  max-height: 60vh;
+  max-height: 52vh;
   object-fit: contain;
   border-radius: var(--radius-sm);
   display: block;
