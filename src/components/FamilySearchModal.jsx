@@ -41,12 +41,44 @@ const KNOWN_SEEDS = {
   'Jeff Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
   'Jeffrey Alan Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
   'Rayna Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
+  'Rayna Lee Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
   'Brittany Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
+  'Brittany Denae Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
   'Makinzie Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
+  'Makinzie Rae Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
   'Kourtnie Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
   'Kourtnie Barnes': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
   'Kourtnie Shae Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' }
 };
+
+export function resolvePersonMapping(name, mappings) {
+  if (!name || !mappings) return null;
+  const clean = name.trim().toLowerCase();
+
+  // 1. Direct exact key match
+  for (const [k, v] of Object.entries(mappings)) {
+    if (k.trim().toLowerCase() === clean) return v;
+  }
+
+  // 2. First + Last name match (skips middle names like Denae, Shae, Rae)
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 3) {
+    const firstLast = `${parts[0]} ${parts[parts.length - 1]}`;
+    for (const [k, v] of Object.entries(mappings)) {
+      const kParts = k.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const kFirstLast = kParts.length >= 2 ? `${kParts[0]} ${kParts[kParts.length - 1]}` : k.trim().toLowerCase();
+      if (kFirstLast === firstLast || k.trim().toLowerCase() === firstLast) return v;
+    }
+  }
+
+  // 3. Substring match
+  for (const [k, v] of Object.entries(mappings)) {
+    const kClean = k.trim().toLowerCase();
+    if (clean.includes(kClean) || kClean.includes(clean)) return v;
+  }
+
+  return null;
+}
 
 export default function FamilySearchModal({
   photo,
@@ -223,9 +255,8 @@ export default function FamilySearchModal({
       }
 
       // Determine primary matched Tree person (e.g. Jeff Viola) to attach directly upon upload
-      const primaryPersonId = (allPeopleNames.length > 0 && personMappings[allPeopleNames[0]])
-        ? personMappings[allPeopleNames[0]].id
-        : null;
+      const primaryMapping = allPeopleNames.length > 0 ? resolvePersonMapping(allPeopleNames[0], personMappings) : null;
+      const primaryPersonId = primaryMapping ? primaryMapping.id : null;
 
       // 2. Upload image to FamilySearch Memories (directly attaching to primary person if known)
       const res = await uploadPhotoToFamilySearchMemories(
@@ -242,12 +273,20 @@ export default function FamilySearchModal({
 
       // First pass: Match people to face boxes
       for (const name of allPeopleNames) {
-        const matchingFace = facesList.find((f, idx) => f.name === name && !usedFaces.has(idx));
+        let matchingFace = facesList.find((f, idx) => f.name === name && !usedFaces.has(idx));
         if (matchingFace) {
           const idx = facesList.indexOf(matchingFace);
           usedFaces.add(idx);
+        } else {
+          // If no face box was explicitly labeled with this person's name,
+          // assign the next available detected face box so a visual bounding box is sent!
+          const unassignedIdx = facesList.findIndex((f, idx) => (!f.name || f.name.startsWith('Person ')) && !usedFaces.has(idx));
+          if (unassignedIdx !== -1) {
+            matchingFace = facesList[unassignedIdx];
+            usedFaces.add(unassignedIdx);
+          }
         }
-        const mapped = personMappings[name];
+        const mapped = resolvePersonMapping(name, personMappings);
         tagsToAttach.push({
           name,
           faceBox: matchingFace ? matchingFace.box : null,
@@ -258,10 +297,11 @@ export default function FamilySearchModal({
       // Second pass: Any unnamed face boxes
       facesList.forEach((face, idx) => {
         if (!usedFaces.has(idx) && face.box) {
+          const mapped = face.name ? resolvePersonMapping(face.name, personMappings) : null;
           tagsToAttach.push({
             name: face.name || `Person ${idx + 1}`,
             faceBox: face.box,
-            treePersonId: face.name && personMappings[face.name] ? personMappings[face.name].id : null
+            treePersonId: mapped ? mapped.id : null
           });
         }
       });
@@ -518,8 +558,8 @@ export default function FamilySearchModal({
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {allPeopleNames.map(name => {
-                    const hasFaceBox = facesList.some(f => f.name === name);
-                    const mapped = personMappings[name];
+                    const hasFaceBox = facesList.some(f => f.name === name) || facesList.length > 0;
+                    const mapped = resolvePersonMapping(name, personMappings);
                     const isSearchingThis = activeSearchPerson === name;
 
                     return (

@@ -378,22 +378,30 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
 
       // Prepare qualifiers for bounding box
       let media = undefined;
+      let sources = undefined;
       if (tag.faceBox) {
         const x = Number(tag.faceBox.x || 0).toFixed(4);
         const y = Number(tag.faceBox.y || 0).toFixed(4);
         const w = Number(tag.faceBox.width || 0.1).toFixed(4);
         const h = Number(tag.faceBox.height || 0.1).toFixed(4);
         const regionStr = `${x},${y},${w},${h}`;
+        const qualifiers = [
+          { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+          { name: 'http://familysearch.org/v1/x', value: x },
+          { name: 'http://familysearch.org/v1/y', value: y },
+          { name: 'http://familysearch.org/v1/width', value: w },
+          { name: 'http://familysearch.org/v1/height', value: h }
+        ];
         media = [
           {
             resource: `${config.apiBase}/platform/memories/memories/${memoryId}`,
-            qualifiers: [
-              { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
-              { name: 'http://familysearch.org/v1/x', value: x },
-              { name: 'http://familysearch.org/v1/y', value: y },
-              { name: 'http://familysearch.org/v1/width', value: w },
-              { name: 'http://familysearch.org/v1/height', value: h }
-            ]
+            qualifiers
+          }
+        ];
+        sources = [
+          {
+            description: `${config.apiBase}/platform/memories/memories/${memoryId}`,
+            qualifiers
           }
         ];
       }
@@ -418,6 +426,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
         };
         if (identifiers.length > 0) updatePayload.persons[0].identifiers = identifiers;
         if (media) updatePayload.persons[0].media = media;
+        if (sources) updatePayload.persons[0].sources = sources;
 
         await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas/${matchedExisting.id}`, {
           method: 'POST',
@@ -445,6 +454,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
         };
         if (identifiers.length > 0) personaPayload.persons[0].identifiers = identifiers;
         if (media) personaPayload.persons[0].media = media;
+        if (sources) personaPayload.persons[0].sources = sources;
 
         const personaRes = await fetch(`${config.apiBase}/platform/memories/memories/${memoryId}/personas`, {
           method: 'POST',
