@@ -358,24 +358,52 @@ export default function FamilySearchModal({
                 flexDirection: 'column',
                 gap: '6px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
                   <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>OAuth Redirect URI:</span>
-                  <button
-                    type="button"
-                    onClick={handleToggleSlash}
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      color: '#2563eb', 
-                      cursor: 'pointer', 
-                      fontWeight: 600,
-                      textDecoration: 'underline', 
-                      fontSize: '11px', 
-                      padding: 0 
-                    }}
-                  >
-                    Toggle trailing slash (/)
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = activeRedirectUri.endsWith('/') ? activeRedirectUri.slice(0, -1) : activeRedirectUri;
+                        setActiveRedirectUri(target);
+                        setStoredRedirectUriOverride(target);
+                      }}
+                      style={{ 
+                        background: !activeRedirectUri.endsWith('/') ? '#2563eb' : '#e2e8f0', 
+                        color: !activeRedirectUri.endsWith('/') ? '#ffffff' : '#334155',
+                        border: 'none', 
+                        borderRadius: '4px',
+                        padding: '2px 8px',
+                        cursor: 'pointer', 
+                        fontWeight: 700,
+                        fontSize: '11px'
+                      }}
+                      title="Set redirect URI without a trailing slash"
+                    >
+                      No Slash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = activeRedirectUri.endsWith('/') ? activeRedirectUri : `${activeRedirectUri}/`;
+                        setActiveRedirectUri(target);
+                        setStoredRedirectUriOverride(target);
+                      }}
+                      style={{ 
+                        background: activeRedirectUri.endsWith('/') ? '#2563eb' : '#e2e8f0', 
+                        color: activeRedirectUri.endsWith('/') ? '#ffffff' : '#334155',
+                        border: 'none', 
+                        borderRadius: '4px',
+                        padding: '2px 8px',
+                        cursor: 'pointer', 
+                        fontWeight: 700,
+                        fontSize: '11px'
+                      }}
+                      title="Set redirect URI with a trailing slash"
+                    >
+                      With Slash (/)
+                    </button>
+                  </div>
                 </div>
                 <code style={{ wordBreak: 'break-all', display: 'block', background: '#e2e8f0', padding: '4px 6px', borderRadius: '4px', color: '#0f172a' }}>
                   {activeRedirectUri}

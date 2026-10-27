@@ -39,7 +39,7 @@ export function getFamilySearchConfig() {
       // By default test http://localhost:5173 without slash, toggleable in UI
       redirectUri = 'http://localhost:5173';
     } else {
-      redirectUri = 'https://jviola60.github.io/family-history-photos/';
+      redirectUri = 'https://jviola60.github.io/family-history-photos';
     }
   }
 
