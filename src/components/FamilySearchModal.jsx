@@ -316,11 +316,20 @@ export default function FamilySearchModal({
           ({ message }) => setStatusMessage(message)
         );
         setTaggingSummary(tagResults);
-      }
 
-      setUploadStatus('success');
-      setUploadedResult(res);
-      setStatusMessage('✓ Successfully sent and tagged on FamilySearch Memories!');
+        const hasTagErrors = tagResults.some(t => !t.success);
+        setUploadStatus('success');
+        setUploadedResult(res);
+        if (hasTagErrors) {
+          setStatusMessage('Photo uploaded to FamilySearch, but some tags could not be attached.');
+        } else {
+          setStatusMessage('✓ Successfully sent and tagged on FamilySearch Memories!');
+        }
+      } else {
+        setUploadStatus('success');
+        setUploadedResult(res);
+        setStatusMessage('✓ Successfully uploaded to FamilySearch Memories!');
+      }
     } catch (err) {
       console.error('FamilySearch upload error:', err);
       setUploadStatus('error');
