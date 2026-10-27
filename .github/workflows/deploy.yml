@@ -35,7 +35,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_FS_CLIENT_ID: ${{ secrets.VITE_FS_CLIENT_ID }}
+          VITE_FS_CLIENT_ID: ${{ secrets['VITE_FS_CLIENT_ID'] }}
         run: npm run build
 
       - name: Setup Pages
