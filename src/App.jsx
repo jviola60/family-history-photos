@@ -1035,7 +1035,7 @@ export default function App() {
         if (!hasGrandparent) return false;
       } else if (activeFilter === 'group') {
         if (!photo.people || photo.people.length < 2) return false;
-      } else if (['1950s', '1960s', '1970s', '1980s', '1990s'].includes(activeFilter)) {
+      } else if (/^\d{4}s$/.test(activeFilter)) {
         if (!photo.decade || !photo.decade.includes(activeFilter)) return false;
       } else if (activeFilter !== 'all') {
         // Individual person filter
