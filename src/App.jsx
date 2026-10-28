@@ -50,7 +50,8 @@ import {
   loadActiveAlbumCacheFromDB,
   overwriteCatalogInDB,
   saveEnhancedImageToDB,
-  loadEnhancedImageFromDB
+  loadEnhancedImageFromDB,
+  deleteEnhancedImageFromDB
 } from './lib/db';
 import { 
   permanentlyDeleteFromDuplicatesReview, 
@@ -919,7 +920,7 @@ export default function App() {
     setPhotos(prev => {
       const next = prev.map(p => {
         if (p.id === photoId) {
-          saveEnhancedImageToDB(p.relativePath || p.name, null);
+          deleteEnhancedImageFromDB(p.relativePath || p.name);
           return {
             ...p,
             enhanced: false,
@@ -932,6 +933,18 @@ export default function App() {
         saveCloudPhotosToDB(next);
       }
       return next;
+    });
+
+    setActiveMetadataPhoto(prev => {
+      if (prev && prev.id === photoId) {
+        deleteEnhancedImageFromDB(prev.relativePath || prev.name);
+        return {
+          ...prev,
+          enhanced: false,
+          enhancedUrl: null
+        };
+      }
+      return prev;
     });
   };
 
@@ -1409,6 +1422,7 @@ export default function App() {
             setActiveMetadataPhoto(null);
             setActiveEditorPhoto(photo);
           }}
+          onRevertEnhanced={handleRevertEnhancedPhoto}
         />
       )}
 

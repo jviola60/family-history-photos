@@ -27,7 +27,7 @@ export function loadImage(src) {
  */
 export function isRedEyePixel(r, g, b) {
   // Preserve white/bright specular flash catchlight
-  if (r > 200 && g > 190 && b > 185) {
+  if (r > 235 && g > 230 && b > 220) {
     return false;
   }
 
@@ -35,11 +35,14 @@ export function isRedEyePixel(r, g, b) {
   const redRatio = r / Math.max(1, gbAvg);
   const redDiff = r - Math.max(g, b);
 
-  // In camera flash red-eye:
-  // 1. Red is significantly higher than both green and blue
-  // 2. Green and blue in the pupil are relatively low (gbAvg < 145)
-  // 3. Absolute red exceeds threshold
-  return r > 65 && redRatio >= 1.40 && redDiff >= 25 && gbAvg < 145;
+  // 1. Classic red-eye (deep saturated red)
+  const isClassicRed = r > 60 && redRatio >= 1.28 && redDiff >= 16 && gbAvg < 175;
+
+  // 2. Amber / orange / golden pupil flash reflection (common behind eyeglasses or lighter irises)
+  // Red is strong, green is moderate, but blue is low (pupil is not white or skin-colored)
+  const isAmberOrange = r > 75 && r > b * 1.30 && (r - b) >= 20 && g < r * 0.95 && b < 165;
+
+  return isClassicRed || isAmberOrange;
 }
 
 /**
@@ -103,7 +106,7 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
   // If a distinct red pupil cluster was found, snap center to centroid
   let centerX = tx - minX;
   let centerY = ty - minY;
-  if (peakWeightSum > 200) {
+  if (peakWeightSum > 100) {
     centerX = Math.round(weightedX / peakWeightSum);
     centerY = Math.round(weightedY / peakWeightSum);
   }
@@ -128,16 +131,19 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
       const b = data[idx + 2];
 
       // Protect bright specular flash catchlights
-      if (r > 200 && g > 190 && b > 185) continue;
+      if (r > 235 && g > 230 && b > 220) continue;
 
       const gbAvg = (g + b) / 2;
       const redRatio = r / Math.max(1, gbAvg);
 
-      if (r > 55 && redRatio > 1.25 && (r - Math.max(g, b)) > 15) {
+      const isEligible = (r > 55 && redRatio > 1.20 && (r - Math.max(g, b)) > 12) ||
+                         (r > 70 && r > b * 1.25 && (r - b) > 18 && g < r * 0.95);
+
+      if (isEligible) {
         // Distance falloff factor
         const distFactor = 1 - Math.pow(dist / effectiveRadius, 2);
         // Redness intensity factor
-        const redFactor = Math.min(1, Math.max(0, (redRatio - 1.25) / 0.45));
+        const redFactor = Math.min(1, Math.max(0.3, (redRatio - 1.20) / 0.40));
         const weight = distFactor * redFactor;
 
         if (weight > 0.05) {
@@ -204,35 +210,54 @@ export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
     const facePixelH = Math.round(box.height * h);
 
     // Eye zone within face bounding box:
-    // Vertical: 25% to 52% of face height
-    // Horizontal left eye: 15% to 48% of face width
-    // Horizontal right eye: 52% to 85% of face width
-    const eyeTop = facePixelY + Math.round(facePixelH * 0.22);
-    const eyeBottom = facePixelY + Math.round(facePixelH * 0.52);
-
+    // Support tilted heads and glasses by expanding vertical range (16% to 58%)
+    const eyeTop = facePixelY + Math.round(facePixelH * 0.16);
+    const eyeBottom = facePixelY + Math.round(facePixelH * 0.58);
     const eyeRadius = Math.max(10, Math.round(facePixelW * 0.065));
 
-    // Search left eye zone
-    const leftEyeLeft = facePixelX + Math.round(facePixelW * 0.14);
-    const leftEyeRight = facePixelX + Math.round(facePixelW * 0.48);
+    // Search left eye zone (with overlap to avoid middle-angle blind spots)
+    const leftEyeLeft = facePixelX + Math.round(facePixelW * 0.10);
+    const leftEyeRight = facePixelX + Math.round(facePixelW * 0.54);
     const leftCandidate = findPeakRedSpot(canvas, leftEyeLeft, eyeTop, leftEyeRight, eyeBottom);
 
-    if (leftCandidate && leftCandidate.pixelCount >= 10) {
+    if (leftCandidate && leftCandidate.pixelCount >= 6) {
       const res = fixRedEyeAtCoords(canvas, leftCandidate.x, leftCandidate.y, eyeRadius);
       if (res.success) {
         eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'left' });
       }
     }
 
-    // Search right eye zone
-    const rightEyeLeft = facePixelX + Math.round(facePixelW * 0.52);
-    const rightEyeRight = facePixelX + Math.round(facePixelW * 0.86);
+    // Search right eye zone (with overlap)
+    const rightEyeLeft = facePixelX + Math.round(facePixelW * 0.46);
+    const rightEyeRight = facePixelX + Math.round(facePixelW * 0.90);
     const rightCandidate = findPeakRedSpot(canvas, rightEyeLeft, eyeTop, rightEyeRight, eyeBottom);
 
-    if (rightCandidate && rightCandidate.pixelCount >= 10) {
-      const res = fixRedEyeAtCoords(canvas, rightCandidate.x, rightCandidate.y, eyeRadius);
-      if (res.success) {
-        eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'right' });
+    if (rightCandidate && rightCandidate.pixelCount >= 6) {
+      const isDuplicate = eyeLocations.some(loc => Math.hypot(loc.x - rightCandidate.x, loc.y - rightCandidate.y) < eyeRadius);
+      if (!isDuplicate) {
+        const res = fixRedEyeAtCoords(canvas, rightCandidate.x, rightCandidate.y, eyeRadius);
+        if (res.success) {
+          eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'right' });
+        }
+      }
+    }
+
+    // Fallback: If only 1 eye was caught, search the entire eye band for a second red/amber pupil
+    if (eyeLocations.length === 1) {
+      const fullBandCandidate = findPeakRedSpot(
+        canvas,
+        facePixelX + Math.round(facePixelW * 0.08),
+        eyeTop,
+        facePixelX + Math.round(facePixelW * 0.92),
+        eyeBottom,
+        eyeLocations[0],
+        eyeRadius * 1.5
+      );
+      if (fullBandCandidate && fullBandCandidate.pixelCount >= 5) {
+        const res = fixRedEyeAtCoords(canvas, fullBandCandidate.x, fullBandCandidate.y, eyeRadius);
+        if (res.success) {
+          eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'second' });
+        }
       }
     }
   }
@@ -246,7 +271,7 @@ export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
 /**
  * Helper to find the peak red-eye pupil cluster inside an eye search box
  */
-function findPeakRedSpot(canvas, minX, minY, maxX, maxY) {
+function findPeakRedSpot(canvas, minX, minY, maxX, maxY, excludeCenter = null, excludeDist = 18) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const w = Math.max(1, maxX - minX);
   const h = Math.max(1, maxY - minY);
@@ -268,6 +293,13 @@ function findPeakRedSpot(canvas, minX, minY, maxX, maxY) {
 
   for (let y = 0; y < safeH; y++) {
     for (let x = 0; x < safeW; x++) {
+      const absoluteX = safeMinX + x;
+      const absoluteY = safeMinY + y;
+
+      if (excludeCenter && Math.hypot(absoluteX - excludeCenter.x, absoluteY - excludeCenter.y) < excludeDist) {
+        continue;
+      }
+
       const idx = (y * safeW + x) * 4;
       const r = data[idx];
       const g = data[idx + 1];
@@ -283,7 +315,7 @@ function findPeakRedSpot(canvas, minX, minY, maxX, maxY) {
     }
   }
 
-  if (pixelCount >= 8 && peakWeightSum > 150) {
+  if (pixelCount >= 5 && peakWeightSum > 80) {
     return {
       x: safeMinX + Math.round(weightedX / peakWeightSum),
       y: safeMinY + Math.round(weightedY / peakWeightSum),
