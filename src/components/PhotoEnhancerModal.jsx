@@ -24,7 +24,7 @@ import { enhanceImage, analyzeImageLuminance } from '../lib/imageEnhancer';
 import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
-export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings, onOpenEditor }) {
+export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onRevertEnhanced, onOpenSettings, onOpenEditor }) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [aiSettings, setAiSettings] = useState(getAiSettings());
   const activeFalModel = FAL_MODELS.find(m => m.id === (aiSettings.falModel || 'fal-ai/clarity-upscaler')) || FAL_MODELS[0];
@@ -695,6 +695,15 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
       link.href = enhancedResultUrl;
       link.target = '_blank';
       link.click();
+    }
+  };
+
+  const handleRevertToOriginal = () => {
+    if (window.confirm('Remove this 4K enhancement and restore the untouched original photo?')) {
+      if (onRevertEnhanced) {
+        onRevertEnhanced(photo.id);
+      }
+      onClose();
     }
   };
 
@@ -1793,9 +1802,22 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
 
         {/* Footer Actions */}
         <div className="modal-footer">
-          <button onClick={onClose} className="btn btn-secondary">
+          <button onClick={onClose} className="btn btn-secondary" title="Cancel and keep original photo">
             Cancel
           </button>
+
+          {(photo.enhanced || photo.enhancedUrl) && (
+            <button 
+              type="button"
+              onClick={handleRevertToOriginal} 
+              className="btn btn-secondary"
+              title="Remove 4K enhancement and restore untouched original photo"
+              style={{ color: '#DC2626', borderColor: 'rgba(220, 38, 38, 0.35)' }}
+            >
+              <RotateCcw size={16} />
+              <span>Revert to Original</span>
+            </button>
+          )}
 
           <button 
             onClick={handleDownload} 

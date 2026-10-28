@@ -914,6 +914,27 @@ export default function App() {
     });
   };
 
+  // Revert enhanced photo back to original
+  const handleRevertEnhancedPhoto = (photoId) => {
+    setPhotos(prev => {
+      const next = prev.map(p => {
+        if (p.id === photoId) {
+          saveEnhancedImageToDB(p.relativePath || p.name, null);
+          return {
+            ...p,
+            enhanced: false,
+            enhancedUrl: null
+          };
+        }
+        return p;
+      });
+      if (!rootDirHandle) {
+        saveCloudPhotosToDB(next);
+      }
+      return next;
+    });
+  };
+
   // Background face detection handler
   const handleFacesDetected = useCallback((photoId, faces, cascadeVerified = true) => {
     setPhotos(prev => prev.map(p => {
@@ -1428,6 +1449,7 @@ export default function App() {
           photo={activeEnhancePhoto}
           onClose={() => setActiveEnhancePhoto(null)}
           onSaveEnhanced={handleSaveEnhancedPhoto}
+          onRevertEnhanced={handleRevertEnhancedPhoto}
           onOpenSettings={() => setShowSettingsModal(true)}
           onOpenEditor={(photo) => {
             setActiveEnhancePhoto(null);
