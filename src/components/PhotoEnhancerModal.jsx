@@ -444,10 +444,11 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
 
       const pixelX = normX * canvas.width;
       const pixelY = normY * canvas.height;
-      const radius = Math.max(12, Math.min(26, Math.round(Math.min(canvas.width, canvas.height) * 0.018)));
+      const baseRadius = Math.max(4, Math.min(14, Math.round(Math.min(canvas.width, canvas.height) * 0.012)));
 
-      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius, {
-        eyeColor: selectedEyeColor
+      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, baseRadius, {
+        eyeColor: selectedEyeColor,
+        isManualClick: true
       });
       if (fixRes.success) {
         const newUrl = canvas.toDataURL('image/jpeg', 0.96);
@@ -455,8 +456,6 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
         setEnhancedResultUrl(newUrl);
         const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
         setRedEyeStatusMsg(`✓ Corrected eye with ${colorLabel} at (${Math.round(pixelX)}, ${Math.round(pixelY)})!`);
-      } else {
-        setRedEyeStatusMsg('No red or amber reflection found at click. Click directly on the colored pupil center.');
       }
     } catch (err) {
       console.warn('Click red-eye fix error:', err);

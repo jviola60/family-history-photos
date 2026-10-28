@@ -139,7 +139,10 @@ export default function MetadataModal({
   const [isFixingRedEyes, setIsFixingRedEyes] = useState(false);
   const [isRedEyeClickMode, setIsRedEyeClickMode] = useState(false);
   const [selectedEyeColor, setSelectedEyeColor] = useState('auto');
+  const [selectedEyeSize, setSelectedEyeSize] = useState('medium');
+  const [redEyeHistory, setRedEyeHistory] = useState([]);
   const [redEyeMessage, setRedEyeMessage] = useState('');
+  const lastEyeClickTimeRef = useRef(0);
   const imgRef = useRef(null);
 
   // 🔍 Senior Magnification & Fullscreen View States
@@ -151,6 +154,11 @@ export default function MetadataModal({
 
   // 📷 Resilient image source state with automatic file-handle recovery
   const [photoSrc, setPhotoSrc] = useState(photo.enhancedUrl || photo.objectUrl || null);
+  const [tempEnhancedUrl, setTempEnhancedUrl] = useState(photo.enhancedUrl || null);
+  const initialEnhancedStateRef = useRef({
+    enhancedUrl: photo.enhancedUrl || null,
+    enhanced: Boolean(photo.enhanced)
+  });
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
   useEffect(() => {
@@ -278,6 +286,12 @@ export default function MetadataModal({
       }
       setPersonRelationships(initialRels);
     }
+
+    initialEnhancedStateRef.current = {
+      enhancedUrl: photo.enhancedUrl || null,
+      enhanced: Boolean(photo.enhanced)
+    };
+    setTempEnhancedUrl(photo.enhancedUrl || null);
 
     setFaceSuggestion(null);
     setZoomScale(1);
@@ -464,14 +478,32 @@ export default function MetadataModal({
       return;
     }
     if (activeDragFace) return;
-    if (zoomScale <= 1) return;
-    setIsPanning(true);
+
     panStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
       originX: panOffset.x,
-      originY: panOffset.y
+      originY: panOffset.y,
+      didMove: false
     };
+
+    if (isRedEyeClickMode) {
+      // In Red Eye Tap Mode:
+      // If unzoomed, immediately trigger the pupil fix on tap!
+      if (zoomScale <= 1) {
+        handleImageClickForRedEye(e);
+        return;
+      }
+      // If zoomed in, allow dragging to pan, or tap on pointer up
+      setIsPanning(true);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      return;
+    }
+
+    if (zoomScale <= 1) return;
+    setIsPanning(true);
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {}
@@ -485,6 +517,9 @@ export default function MetadataModal({
     if (!isPanning || zoomScale <= 1) return;
     const dx = e.clientX - panStartRef.current.startX;
     const dy = e.clientY - panStartRef.current.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+      panStartRef.current.didMove = true;
+    }
     setPanOffset({
       x: panStartRef.current.originX + dx,
       y: panStartRef.current.originY + dy
@@ -496,7 +531,13 @@ export default function MetadataModal({
       handleBoxDragEnd(e);
       return;
     }
+    const didMove = panStartRef.current?.didMove;
     setIsPanning(false);
+
+    // If in Red Eye mode and didn't drag to pan, this is a clean tap on the eye!
+    if (isRedEyeClickMode && !didMove) {
+      handleImageClickForRedEye(e);
+    }
   };
 
   // Run strict face scan when image loads & preserve all user-assigned names
@@ -612,12 +653,10 @@ export default function MetadataModal({
 
       if (result.fixedCount > 0) {
         setPhotoSrc(result.dataUrl);
-        onSave(photo.id, {
-          enhancedUrl: result.dataUrl,
-          enhanced: true
-        });
+        setTempEnhancedUrl(result.dataUrl);
+        setHasUnsavedChanges(true);
         const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
-        setRedEyeMessage(`✓ Corrected red/amber reflection in ${result.fixedCount} eye${result.fixedCount === 1 ? '' : 's'} with ${colorLabel}! (Click "Tap Eye to Fix" to adjust any pupil)`);
+        setRedEyeMessage(`✓ Corrected red/amber reflection in ${result.fixedCount} eye${result.fixedCount === 1 ? '' : 's'} with ${colorLabel}! (Click "Save Memories & Close" when done, or "Cancel" to discard)`);
         setTimeout(() => setRedEyeMessage(''), 8000);
       } else {
         setRedEyeMessage('No high-intensity red eyes found automatically. Click "Tap Eye to Fix" and click directly on the pupil!');
@@ -634,6 +673,10 @@ export default function MetadataModal({
 
   const handleImageClickForRedEye = async (e) => {
     if (!isRedEyeClickMode) return;
+    const now = Date.now();
+    if (now - lastEyeClickTimeRef.current < 300) return; // Debounce to prevent duplicate triggers
+    lastEyeClickTimeRef.current = now;
+
     if (e && e.preventDefault) e.preventDefault();
     if (e && e.stopPropagation) e.stopPropagation();
 
@@ -664,25 +707,25 @@ export default function MetadataModal({
 
       const pixelX = normX * canvas.width;
       const pixelY = normY * canvas.height;
-      const radius = Math.max(12, Math.min(26, Math.round(Math.min(canvas.width, canvas.height) * 0.018)));
+      // Natural iris radius calculation based on image size:
+      // A human iris is ~1.0% to 1.3% of the image size, or ~5-7px on standard resolution
+      const baseRadius = Math.max(4, Math.min(14, Math.round(Math.min(canvas.width, canvas.height) * 0.012)));
 
-      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius, {
-        eyeColor: selectedEyeColor
+      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, baseRadius, {
+        eyeColor: selectedEyeColor,
+        isManualClick: true,
+        eyeSize: selectedEyeSize
       });
 
       if (fixRes.success) {
         const newUrl = canvas.toDataURL('image/jpeg', 0.96);
+        setRedEyeHistory(prev => [...prev, currentSrc]);
         setPhotoSrc(newUrl);
-        onSave(photo.id, {
-          enhancedUrl: newUrl,
-          enhanced: true
-        });
+        setTempEnhancedUrl(newUrl);
+        setHasUnsavedChanges(true);
         const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
-        setRedEyeMessage(`✓ Corrected pupil with ${colorLabel}! Click the second eye, or change eye color.`);
+        setRedEyeMessage(`✓ Corrected eye with ${colorLabel}! Tap second eye, or click "↩ Undo" anytime.`);
         setTimeout(() => setRedEyeMessage(''), 8000);
-      } else {
-        setRedEyeMessage('No red or amber reflection found at click. Click directly on the colored pupil center.');
-        setTimeout(() => setRedEyeMessage(''), 6000);
       }
     } catch (err) {
       console.warn('Manual red eye fix error:', err);
@@ -690,6 +733,16 @@ export default function MetadataModal({
     } finally {
       setIsFixingRedEyes(false);
     }
+  };
+
+  const handleUndoRedEye = () => {
+    if (redEyeHistory.length === 0) return;
+    const previous = redEyeHistory[redEyeHistory.length - 1];
+    setRedEyeHistory(prev => prev.slice(0, prev.length - 1));
+    setPhotoSrc(previous);
+    setTempEnhancedUrl(previous);
+    setRedEyeMessage('↩ Undid last eye change.');
+    setTimeout(() => setRedEyeMessage(''), 4000);
   };
 
   const handleRevertOriginal = async () => {
@@ -712,6 +765,7 @@ export default function MetadataModal({
     if (originalUrl) {
       setPhotoSrc(originalUrl);
     }
+    setTempEnhancedUrl(null);
 
     if (onRevertEnhanced) {
       onRevertEnhanced(photo.id);
@@ -935,10 +989,26 @@ export default function MetadataModal({
       location,
       familyBranch,
       faces: finalizedFaces,
-      facesCascadeVerified: true
+      facesCascadeVerified: true,
+      enhanced: Boolean(tempEnhancedUrl),
+      enhancedUrl: tempEnhancedUrl
     };
 
     onSave(photo.id, updatedMetadata);
+
+    if (tempEnhancedUrl) {
+      try {
+        await saveEnhancedImageToDB(photo.relativePath || photo.name, tempEnhancedUrl);
+      } catch (err) {
+        console.warn('Could not save enhanced image to DB:', err);
+      }
+    } else if (!tempEnhancedUrl && (photo.enhanced || photo.enhancedUrl)) {
+      try {
+        await deleteEnhancedImageFromDB(photo.relativePath || photo.name);
+      } catch (err) {
+        console.warn('Could not clear enhanced image from DB:', err);
+      }
+    }
 
     // Automatically embed standard XMP/IPTC metadata into local JPEG on disk!
     if (photo.handle) {
@@ -981,12 +1051,34 @@ export default function MetadataModal({
   };
 
   const handleRequestClose = () => {
-    if (hasUnsavedChanges) {
-      const confirmLeave = window.confirm(
-        'You have in-progress edits for this photo.\n\nYour notes are auto-saved as a draft so you can resume anytime.\n\nClick OK to close this window, or Cancel to keep editing.'
-      );
-      if (!confirmLeave) return;
+    // If image edits (like red-eye) were applied during this modal session, revert them on Cancel!
+    const wasInitiallyEnhanced = initialEnhancedStateRef.current.enhanced;
+    const initialUrl = initialEnhancedStateRef.current.enhancedUrl;
+
+    if (!wasInitiallyEnhanced) {
+      // Photo was untouched original when opened: guarantee it stays original
+      if (photo.enhanced || photo.enhancedUrl || (photoSrc && photo.objectUrl && photoSrc !== photo.objectUrl)) {
+        if (onRevertEnhanced) {
+          onRevertEnhanced(photo.id);
+        } else {
+          onSave(photo.id, {
+            enhancedUrl: null,
+            enhanced: false
+          });
+          deleteEnhancedImageFromDB(photo.relativePath || photo.name);
+        }
+      }
+    } else if (initialUrl && photo.enhancedUrl !== initialUrl) {
+      // Restore previous enhancement from before this session
+      onSave(photo.id, {
+        enhancedUrl: initialUrl,
+        enhanced: true
+      });
+      saveEnhancedImageToDB(photo.relativePath || photo.name, initialUrl);
     }
+
+    clearPhotoDraft(photo.id || photo.name);
+    setHasUnsavedChanges(false);
     onClose();
   };
 
@@ -1129,10 +1221,10 @@ export default function MetadataModal({
               onPointerCancel={handlePointerUp}
               onWheel={handleWheelZoom}
               style={{ 
-                cursor: isAddingFaceBox ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'),
+                cursor: (isAddingFaceBox || isRedEyeClickMode) ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default'),
                 touchAction: 'none' 
               }}
-              title={isAddingFaceBox ? "Click anywhere on face to place a face box" : (zoomScale > 1 ? "Drag with mouse to pan around • Scroll wheel to zoom" : "Use Magnify buttons above to zoom in on faces")}
+              title={isAddingFaceBox ? "Click anywhere on face to place a face box" : isRedEyeClickMode ? "Click directly on the pupil to restore natural eye color" : (zoomScale > 1 ? "Drag with mouse to pan around • Scroll wheel to zoom" : "Use Magnify buttons above to zoom in on faces")}
             >
               {/* Floating Instruction Banner when Adding Face Box */}
               {isAddingFaceBox && (
@@ -1201,7 +1293,26 @@ export default function MetadataModal({
                   pointerEvents: 'auto',
                   border: '1.5px solid #fca5a5'
                 }}>
-                  <span>🎯 Click directly on the pupil (Restoring: {EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural'})</span>
+                  <span>🎯 Tap on pupil ({EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural'})</span>
+                  {redEyeHistory.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleUndoRedEye(); }}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.25)',
+                        border: '1px solid rgba(255,255,255,0.4)',
+                        color: '#ffffff',
+                        borderRadius: '12px',
+                        padding: '2px 8px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}
+                      title="Undo last eye"
+                    >
+                      ↩ Undo
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setIsRedEyeClickMode(false); }}
@@ -1220,7 +1331,7 @@ export default function MetadataModal({
                       justifyContent: 'center',
                       padding: 0
                     }}
-                    title="Exit"
+                    title="Done"
                   >
                     ×
                   </button>
@@ -1620,6 +1731,27 @@ export default function MetadataModal({
                     <option value="dark">🌑 Dark Charcoal</option>
                   </select>
                 </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  <select
+                    value={selectedEyeSize}
+                    onChange={(e) => setSelectedEyeSize(e.target.value)}
+                    className="btn btn-xs"
+                    style={{
+                      backgroundColor: 'rgba(28, 25, 23, 0.85)',
+                      color: '#e5e7eb',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}
+                    title="Iris brush size (Small, Medium, Large)"
+                  >
+                    <option value="small">Small Iris</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </div>
                 <button
                   type="button"
                   onClick={() => setIsRedEyeClickMode(prev => !prev)}
@@ -1639,6 +1771,26 @@ export default function MetadataModal({
                   <Crosshair size={12} />
                   <span>{isRedEyeClickMode ? 'Click on Eye Pupil...' : 'Tap Eye to Fix'}</span>
                 </button>
+                {redEyeHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleUndoRedEye}
+                    className="btn btn-xs"
+                    style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      border: '1px solid rgba(255, 255, 255, 0.35)',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Undo last eye fix"
+                  >
+                    <span>↩ Undo</span>
+                  </button>
+                )}
                 {onOpenEditor && (
                   <button
                     type="button"
