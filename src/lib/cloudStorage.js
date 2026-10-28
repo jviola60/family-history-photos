@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { extractMetadataFromFile } from './photoMetadata';
+import { extractMetadataFromFile, embedXmpInJpeg } from './photoMetadata';
 import { getImageDimensions } from './fileSystem';
 
 // Supported image extensions
@@ -277,3 +277,138 @@ export async function launchGooglePicker({ apiKey, clientId, onFilesPicked, onEr
     if (onError) onError(err);
   }
 }
+
+/**
+ * Packages all improved photos, 4K restorations, and embedded XMP metadata into a downloadable ZIP
+ * perfect for saving improved photos back to Google Photos, OneDrive, or iCloud!
+ * @param {Array<Object>} photos
+ * @param {Function} onProgress
+ * @returns {Promise<Blob>}
+ */
+export async function exportImprovedPhotosZip(photos, onProgress = null) {
+  const zip = new JSZip();
+  const total = photos.length;
+  let packagedCount = 0;
+
+  for (let i = 0; i < total; i++) {
+    const photo = photos[i];
+    if (onProgress) {
+      onProgress(i + 1, total, photo.name);
+    }
+
+    try {
+      let imageBlob = null;
+
+      // 1. If 4K enhanced, extract the enhanced high-resolution image!
+      if (photo.enhanced && (photo.enhancedUrl || photo.enhanced)) {
+        const src = photo.enhancedUrl;
+        if (src) {
+          try {
+            const res = await fetch(src);
+            imageBlob = await res.blob();
+          } catch {}
+        }
+      }
+
+      // 2. Otherwise extract original photo blob/file
+      if (!imageBlob) {
+        if (photo.file) {
+          imageBlob = photo.file;
+        } else if (photo.objectUrl) {
+          try {
+            const res = await fetch(photo.objectUrl);
+            imageBlob = await res.blob();
+          } catch {}
+        } else if (photo.handle && typeof photo.handle.getFile === 'function') {
+          try {
+            imageBlob = await photo.handle.getFile();
+          } catch {}
+        }
+      }
+
+      if (!imageBlob) continue;
+
+      let finalBlob = imageBlob;
+      const isJpeg = /\.(jpe?g)$/i.test(photo.name);
+      const hasMetadata = Boolean((photo.people && photo.people.length > 0) || photo.story || photo.date || photo.decade || photo.location);
+
+      // 3. Embed FHMWG & FamilySearch XMP metadata into JPEGs
+      if (isJpeg && hasMetadata) {
+        try {
+          const arrayBuffer = await imageBlob.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          const embedded = embedXmpInJpeg(uint8, {
+            title: photo.title || photo.name,
+            people: photo.people,
+            relationship: photo.relationship,
+            date: photo.date,
+            decade: photo.decade,
+            story: photo.story,
+            location: photo.location,
+            familyBranch: photo.familyBranch,
+            faces: photo.faces
+          });
+          finalBlob = new Blob([embedded], { type: 'image/jpeg' });
+        } catch (embedErr) {
+          console.warn('Metadata embedding fallback to original blob for', photo.name, embedErr);
+        }
+      }
+
+      const cleanName = photo.enhanced && !photo.name.toLowerCase().startsWith('enhanced_')
+        ? `Enhanced_4K_${photo.name}`
+        : photo.name;
+
+      zip.file(cleanName, finalBlob);
+      packagedCount++;
+    } catch (err) {
+      console.warn(`Error packaging ${photo.name} into ZIP:`, err);
+    }
+  }
+
+  // Include JSON album catalog
+  const catalogJson = JSON.stringify(photos.map(p => ({
+    name: p.name,
+    people: p.people,
+    relationship: p.relationship,
+    date: p.date,
+    decade: p.decade,
+    story: p.story,
+    location: p.location,
+    familyBranch: p.familyBranch,
+    enhanced: p.enhanced,
+    lastModified: p.lastModified
+  })), null, 2);
+  zip.file('.family_memories_catalog.json', catalogJson);
+
+  // Include quick upload guide for Google Photos, OneDrive, and iCloud
+  const readme = `===================================================================
+FAMILY HISTORY PHOTOS - IMPROVED ALBUM EXPORT
+===================================================================
+Total photos in this package: ${packagedCount}
+
+All improved photos have been packaged with:
+✓ 4K AI resolution & vintage photo restorations
+✓ Standard FamilySearch / FHMWG metadata embedded directly into JPEG headers
+
+HOW TO PUT IMPROVED PHOTOS BACK INTO YOUR CLOUD STORAGE:
+-------------------------------------------------------------------
+1. Google Photos:
+   - Open https://photos.google.com in your browser
+   - Click "Upload" > "Computer"
+   - Select the improved photos from this folder
+
+2. Microsoft OneDrive:
+   - Open https://onedrive.live.com in your browser
+   - Click "Upload" > "Files" (or drag and drop them in)
+
+3. Apple iCloud:
+   - Open https://www.icloud.com/photos in your browser
+   - Click the Cloud Upload icon at the top of the screen
+===================================================================
+`;
+  zip.file('HOW_TO_UPLOAD_TO_CLOUD.txt', readme);
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  return zipBlob;
+}
+

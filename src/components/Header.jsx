@@ -268,8 +268,8 @@ export default function Header({
                     <Download size={18} />
                   </div>
                   <div className="dropdown-item-body">
-                    <div className="dropdown-item-title">Save Album Catalog</div>
-                    <div className="dropdown-item-desc">Export your family metadata notes and tags</div>
+                    <div className="dropdown-item-title">Save &amp; Export Improved Album</div>
+                    <div className="dropdown-item-desc">Download 4K restored photos &amp; tags (ready for cloud)</div>
                   </div>
                 </button>
 

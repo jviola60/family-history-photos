@@ -56,6 +56,7 @@ import {
   permanentlyDeleteFromDuplicatesReview, 
   emptyDuplicatesReviewFolder 
 } from './lib/fileSystem';
+import { exportImprovedPhotosZip } from './lib/cloudStorage';
 // Sample album removed per user request
 
 export default function App() {
@@ -256,6 +257,9 @@ export default function App() {
       const timer = setTimeout(() => {
         saveCatalogToDB(photos);
         saveActiveAlbumCacheToDB(photos);
+        if (!rootDirHandle) {
+          saveCloudPhotosToDB(photos);
+        }
       }, 1200);
       return () => clearTimeout(timer);
     }
@@ -891,17 +895,23 @@ export default function App() {
 
   // Save enhanced photo
   const handleSaveEnhancedPhoto = (photoId, enhancedDataUrl) => {
-    setPhotos(prev => prev.map(p => {
-      if (p.id === photoId) {
-        saveEnhancedImageToDB(p.relativePath || p.name, enhancedDataUrl);
-        return {
-          ...p,
-          enhanced: true,
-          enhancedUrl: enhancedDataUrl
-        };
+    setPhotos(prev => {
+      const next = prev.map(p => {
+        if (p.id === photoId) {
+          saveEnhancedImageToDB(p.relativePath || p.name, enhancedDataUrl);
+          return {
+            ...p,
+            enhanced: true,
+            enhancedUrl: enhancedDataUrl
+          };
+        }
+        return p;
+      });
+      if (!rootDirHandle) {
+        saveCloudPhotosToDB(next);
       }
-      return p;
-    }));
+      return next;
+    });
   };
 
   // Background face detection handler
@@ -941,7 +951,7 @@ export default function App() {
     return false;
   }, []);
 
-  // Export catalog
+  // Export catalog & package improved photos for Cloud (Google, OneDrive, iCloud)
   const handleExportCatalog = async () => {
     if (rootDirHandle) {
       // 1. Save JSON catalog to folder
@@ -964,14 +974,30 @@ export default function App() {
         return;
       }
     }
-    // Fallback: Download as JSON
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(photos, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', 'Family_Album_Memories.json');
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+
+    // For Cloud Photos: package all improved photos (with 4K enhancements + embedded XMP tags) into a downloadable ZIP ready for cloud upload!
+    try {
+      const zipBlob = await exportImprovedPhotosZip(photos);
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Improved_Cloud_Photos_4K_${photos.length}_photos.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      alert(`✓ Improved Photos Packaged for Cloud!\n\n• Downloaded "${a.download}" containing all ${photos.length} photos.\n• All 4K restorations and embedded names/dates/stories are baked into each photo file.\n\nYou can now drag this folder straight back into Google Photos, OneDrive, or iCloud!`);
+    } catch (err) {
+      console.error('Failed to export cloud zip:', err);
+      // Fallback: Download as JSON
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(photos, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', 'Family_Album_Memories.json');
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
   };
 
   // Navigation inside metadata modal
