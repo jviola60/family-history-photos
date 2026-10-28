@@ -26,8 +26,7 @@ import {
   Crosshair
 } from 'lucide-react';
 import FamilySearchModal from './FamilySearchModal';
-import { detectFacesInImage, extractFaceEmbedding, findMatchingPerson } from '../lib/faceEngine';
-import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
+import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage, EYE_COLOR_PALETTES } from '../lib/redEyeRemover';
 import { 
   writeMetadataToPhotoHandle, 
   downloadPhotoWithEmbeddedMetadata,
@@ -139,6 +138,7 @@ export default function MetadataModal({
   const [faceSuggestion, setFaceSuggestion] = useState(null);
   const [isFixingRedEyes, setIsFixingRedEyes] = useState(false);
   const [isRedEyeClickMode, setIsRedEyeClickMode] = useState(false);
+  const [selectedEyeColor, setSelectedEyeColor] = useState('auto');
   const [redEyeMessage, setRedEyeMessage] = useState('');
   const imgRef = useRef(null);
 
@@ -606,7 +606,8 @@ export default function MetadataModal({
     try {
       const result = await removeRedEyesFromImage(currentSrc, {
         faceBoxes: detectedFaces.length > 0 ? detectedFaces : (photo.faces || []),
-        autoDetect: true
+        autoDetect: true,
+        eyeColor: selectedEyeColor
       });
 
       if (result.fixedCount > 0) {
@@ -615,7 +616,8 @@ export default function MetadataModal({
           enhancedUrl: result.dataUrl,
           enhanced: true
         });
-        setRedEyeMessage(`✓ Corrected red/amber reflection in ${result.fixedCount} eye${result.fixedCount === 1 ? '' : 's'}! (If any eye remains, click "Tap Eye to Fix")`);
+        const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
+        setRedEyeMessage(`✓ Corrected red/amber reflection in ${result.fixedCount} eye${result.fixedCount === 1 ? '' : 's'} with ${colorLabel}! (Click "Tap Eye to Fix" to adjust any pupil)`);
         setTimeout(() => setRedEyeMessage(''), 8000);
       } else {
         setRedEyeMessage('No high-intensity red eyes found automatically. Click "Tap Eye to Fix" and click directly on the pupil!');
@@ -632,11 +634,18 @@ export default function MetadataModal({
 
   const handleImageClickForRedEye = async (e) => {
     if (!isRedEyeClickMode) return;
-    const img = e.currentTarget;
+    if (e && e.preventDefault) e.preventDefault();
+    if (e && e.stopPropagation) e.stopPropagation();
+
+    const img = imgRef.current;
+    if (!img) return;
+
     const rect = img.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
+
     if (rect.width <= 0 || rect.height <= 0) return;
+    if (clickX < 0 || clickX > rect.width || clickY < 0 || clickY > rect.height) return;
 
     const normX = Math.max(0, Math.min(1, clickX / rect.width));
     const normY = Math.max(0, Math.min(1, clickY / rect.height));
@@ -655,9 +664,12 @@ export default function MetadataModal({
 
       const pixelX = normX * canvas.width;
       const pixelY = normY * canvas.height;
-      const radius = Math.max(14, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
+      const radius = Math.max(12, Math.min(26, Math.round(Math.min(canvas.width, canvas.height) * 0.018)));
 
-      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius);
+      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius, {
+        eyeColor: selectedEyeColor
+      });
+
       if (fixRes.success) {
         const newUrl = canvas.toDataURL('image/jpeg', 0.96);
         setPhotoSrc(newUrl);
@@ -665,10 +677,11 @@ export default function MetadataModal({
           enhancedUrl: newUrl,
           enhanced: true
         });
-        setRedEyeMessage('✓ Corrected pupil reflection! Click any other eye or turn off "Tap Eye to Fix".');
-        setTimeout(() => setRedEyeMessage(''), 7000);
+        const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
+        setRedEyeMessage(`✓ Corrected pupil with ${colorLabel}! Click the second eye, or change eye color.`);
+        setTimeout(() => setRedEyeMessage(''), 8000);
       } else {
-        setRedEyeMessage('No red or amber reflection found at that point. Click directly on the colored pupil center.');
+        setRedEyeMessage('No red or amber reflection found at click. Click directly on the colored pupil center.');
         setTimeout(() => setRedEyeMessage(''), 6000);
       }
     } catch (err) {
@@ -1176,19 +1189,19 @@ export default function MetadataModal({
                   transform: 'translateX(-50%)',
                   backgroundColor: '#dc2626',
                   color: '#ffffff',
-                  padding: '8px 16px',
-                  borderRadius: '20px',
+                  padding: '8px 18px',
+                  borderRadius: '24px',
                   fontSize: '13px',
                   fontWeight: '700',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
-                  zIndex: 60,
+                  zIndex: 80,
                   pointerEvents: 'auto',
                   border: '1.5px solid #fca5a5'
                 }}>
-                  <span>🎯 Click directly on the colored pupil to erase red or amber reflection</span>
+                  <span>🎯 Click directly on the pupil (Restoring: {EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural'})</span>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setIsRedEyeClickMode(false); }}
@@ -1216,6 +1229,7 @@ export default function MetadataModal({
 
               <div 
                 className="modal-photo-viewport"
+                onClick={isRedEyeClickMode ? handleImageClickForRedEye : undefined}
                 style={{
                   transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
                   cursor: (isAddingFaceBox || isRedEyeClickMode) ? 'crosshair' : (zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default')
@@ -1262,8 +1276,8 @@ export default function MetadataModal({
                   </div>
                 )}
 
-              {/* Face Bounding Box Overlays */}
-              {detectedFaces.map((f, idx) => (
+              {/* Face Bounding Box Overlays: hidden during pupil click mode so clicks are NEVER blocked! */}
+              {!isRedEyeClickMode && detectedFaces.map((f, idx) => (
                 <div
                   key={f.id || `face-${idx}`}
                   className="face-bounding-box"
@@ -1579,6 +1593,33 @@ export default function MetadataModal({
                   <span style={{ fontSize: '11px' }}>🔴</span>
                   <span>{isFixingRedEyes ? 'Fixing Eyes...' : 'Auto-Fix Red Eyes'}</span>
                 </button>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  <select
+                    value={selectedEyeColor}
+                    onChange={(e) => setSelectedEyeColor(e.target.value)}
+                    className="btn btn-xs"
+                    style={{
+                      backgroundColor: 'rgba(28, 25, 23, 0.85)',
+                      color: selectedEyeColor === 'blue' ? '#93c5fd' :
+                             selectedEyeColor === 'green' ? '#86efac' :
+                             selectedEyeColor === 'brown' ? '#fed7aa' :
+                             selectedEyeColor === 'hazel' ? '#fde047' : '#ffffff',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      padding: '2px 8px',
+                      borderRadius: '4px'
+                    }}
+                    title="Select eye color to restore (Blue, Brown, Green, Hazel, or Auto)"
+                  >
+                    <option value="auto">✨ Auto Natural Iris</option>
+                    <option value="blue">🔵 Blue Eyes</option>
+                    <option value="brown">🟤 Brown Eyes</option>
+                    <option value="green">🟢 Green Eyes</option>
+                    <option value="hazel">👁️ Hazel Eyes</option>
+                    <option value="dark">🌑 Dark Charcoal</option>
+                  </select>
+                </div>
                 <button
                   type="button"
                   onClick={() => setIsRedEyeClickMode(prev => !prev)}

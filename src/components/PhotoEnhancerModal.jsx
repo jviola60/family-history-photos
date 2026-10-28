@@ -21,7 +21,7 @@ import {
   Crop
 } from 'lucide-react';
 import { enhanceImage, analyzeImageLuminance } from '../lib/imageEnhancer';
-import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
+import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage, EYE_COLOR_PALETTES } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onRevertEnhanced, onOpenSettings, onOpenEditor }) {
@@ -111,6 +111,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
 
   // 🔴 Red-Eye Removal states
   const [isRedEyeClickMode, setIsRedEyeClickMode] = useState(false);
+  const [selectedEyeColor, setSelectedEyeColor] = useState('auto');
   const [redEyeHistory, setRedEyeHistory] = useState([]);
   const [redEyeStatusMsg, setRedEyeStatusMsg] = useState('');
 
@@ -396,13 +397,15 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
     try {
       const res = await removeRedEyesFromImage(currentSrc, {
         faceBoxes: photo.faces || [],
-        autoDetect: true
+        autoDetect: true,
+        eyeColor: selectedEyeColor
       });
 
       if (res.fixedCount > 0) {
         setRedEyeHistory(prev => [...prev, currentSrc]);
         setEnhancedResultUrl(res.dataUrl);
-        setRedEyeStatusMsg(`✓ Corrected ${res.fixedCount} red eye${res.fixedCount === 1 ? '' : 's'} with natural pupil restoration!`);
+        const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
+        setRedEyeStatusMsg(`✓ Corrected ${res.fixedCount} eye${res.fixedCount === 1 ? '' : 's'} with natural pupil depth and ${colorLabel}!`);
       } else {
         setRedEyeStatusMsg('No high-intensity red eyes found automatically. Turn on "Click-to-Fix Mode" below to click directly on any eye!');
       }
@@ -441,16 +444,19 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
 
       const pixelX = normX * canvas.width;
       const pixelY = normY * canvas.height;
-      const radius = Math.max(14, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
+      const radius = Math.max(12, Math.min(26, Math.round(Math.min(canvas.width, canvas.height) * 0.018)));
 
-      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius);
+      const fixRes = fixRedEyeAtCoords(canvas, pixelX, pixelY, radius, {
+        eyeColor: selectedEyeColor
+      });
       if (fixRes.success) {
         const newUrl = canvas.toDataURL('image/jpeg', 0.96);
         setRedEyeHistory(prev => [...prev, currentSrc]);
         setEnhancedResultUrl(newUrl);
-        setRedEyeStatusMsg(`✓ Corrected red pupil at (${Math.round(pixelX)}, ${Math.round(pixelY)})!`);
+        const colorLabel = EYE_COLOR_PALETTES[selectedEyeColor]?.label || 'Natural';
+        setRedEyeStatusMsg(`✓ Corrected eye with ${colorLabel} at (${Math.round(pixelX)}, ${Math.round(pixelY)})!`);
       } else {
-        setRedEyeStatusMsg('No red reflection found at click. Click directly on the red center of the pupil.');
+        setRedEyeStatusMsg('No red or amber reflection found at click. Click directly on the colored pupil center.');
       }
     } catch (err) {
       console.warn('Click red-eye fix error:', err);
@@ -1525,9 +1531,34 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onR
                     )}
                   </div>
 
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
                     Removes camera flash red reflections while keeping natural catchlight reflections and pupil depth.
                   </p>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-main)' }}>Eye Color:</span>
+                    <select
+                      value={selectedEyeColor}
+                      onChange={(e) => setSelectedEyeColor(e.target.value)}
+                      style={{
+                        fontSize: '11px',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-main)',
+                        backgroundColor: '#ffffff',
+                        fontWeight: '600',
+                        cursor: 'pointer'
+                      }}
+                      title="Select eye color to restore (Blue, Brown, Green, Hazel, or Auto)"
+                    >
+                      <option value="auto">✨ Auto Natural Iris</option>
+                      <option value="blue">🔵 Blue Eyes</option>
+                      <option value="brown">🟤 Brown Eyes</option>
+                      <option value="green">🟢 Green Eyes</option>
+                      <option value="hazel">👁️ Hazel Eyes</option>
+                      <option value="dark">🌑 Dark Charcoal</option>
+                    </select>
+                  </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <button

@@ -45,18 +45,28 @@ export function isRedEyePixel(r, g, b) {
   return isClassicRed || isAmberOrange;
 }
 
+export const EYE_COLOR_PALETTES = {
+  auto: { id: 'auto', label: 'Auto (Natural Iris)', icon: '✨', iris: null },
+  blue: { id: 'blue', label: 'Blue Eyes', icon: '🔵', iris: { r: 52, g: 102, b: 165 } },
+  brown: { id: 'brown', label: 'Brown Eyes', icon: '🟤', iris: { r: 92, g: 62, b: 40 } },
+  green: { id: 'green', label: 'Green Eyes', icon: '🟢', iris: { r: 54, g: 110, b: 65 } },
+  hazel: { id: 'hazel', label: 'Hazel Eyes', icon: '👁️', iris: { r: 96, g: 86, b: 50 } },
+  dark: { id: 'dark', label: 'Dark / Charcoal', icon: '🌑', iris: { r: 30, g: 30, b: 34 } }
+};
+
 /**
  * Corrects red-eye at a specific pixel coordinate on an HTML5 canvas.
- * Automatically searches a local radius to snap to the red pupil center.
+ * Restores a natural dark pupil center with a realistic colored iris ring (Blue, Brown, Green, Hazel, etc.)
+ * and preserves white specular flash catchlights so eyes look vibrant and alive.
  *
  * @param {HTMLCanvasElement} canvas
  * @param {number} targetX - Pixel coordinate X on canvas
  * @param {number} targetY - Pixel coordinate Y on canvas
- * @param {number} radius - Search and correction radius in pixels (default 24)
- * @param {object} options - Options { pupilDarkness: 0.7, tint: 'natural' }
+ * @param {number} radius - Search and correction radius in pixels (default 20)
+ * @param {object} options - Options { eyeColor: 'blue'|'brown'|'green'|'hazel'|'dark'|'auto' }
  * @returns {object} { success: boolean, changedPixels: number, center: { x, y } }
  */
-export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options = {}) {
+export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 20, options = {}) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const w = canvas.width;
   const h = canvas.height;
@@ -65,8 +75,7 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
   const tx = Math.max(0, Math.min(w - 1, Math.round(targetX)));
   const ty = Math.max(0, Math.min(h - 1, Math.round(targetY)));
 
-  // Bounding box for local inspection
-  const searchRadius = Math.max(12, Math.round(radius));
+  const searchRadius = Math.max(10, Math.round(radius));
   const minX = Math.max(0, tx - searchRadius);
   const minY = Math.max(0, ty - searchRadius);
   const maxX = Math.min(w - 1, tx + searchRadius);
@@ -82,13 +91,21 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
   const imgData = ctx.getImageData(minX, minY, regionW, regionH);
   const data = imgData.data;
 
-  // 1. Local centroid search: find peak redness cluster within small snap window
+  // 1. Local centroid search: snap to peak red/amber reflection ONLY within tight snap radius (max 8px)
+  // to prevent snapping to surrounding skin or cheeks
   let peakWeightSum = 0;
   let weightedX = 0;
   let weightedY = 0;
+  const snapWindow = Math.min(8, Math.round(searchRadius * 0.4));
 
   for (let y = 0; y < regionH; y++) {
+    const dy = y - (ty - minY);
+    if (Math.abs(dy) > snapWindow) continue;
+
     for (let x = 0; x < regionW; x++) {
+      const dx = x - (tx - minX);
+      if (Math.abs(dx) > snapWindow) continue;
+
       const idx = (y * regionW + x) * 4;
       const r = data[idx];
       const g = data[idx + 1];
@@ -103,19 +120,20 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
     }
   }
 
-  // If a distinct red pupil cluster was found, snap center to centroid
   let centerX = tx - minX;
   let centerY = ty - minY;
-  if (peakWeightSum > 100) {
+  if (peakWeightSum > 60) {
     centerX = Math.round(weightedX / peakWeightSum);
     centerY = Math.round(weightedY / peakWeightSum);
   }
 
-  // 2. Perform smooth feathered pupil correction
-  const effectiveRadius = Math.min(searchRadius, Math.max(8, searchRadius * 0.85));
+  // 2. Perform natural pupil + colored iris restoration
+  const effectiveRadius = Math.min(searchRadius, Math.max(8, searchRadius * 0.90));
   let changedPixels = 0;
 
-  const pupilDarkness = options.pupilDarkness !== undefined ? options.pupilDarkness : 0.65;
+  // Eye color selection
+  const chosenColorKey = (options.eyeColor || 'auto').toLowerCase();
+  const palette = EYE_COLOR_PALETTES[chosenColorKey] || EYE_COLOR_PALETTES.auto;
 
   for (let y = 0; y < regionH; y++) {
     for (let x = 0; x < regionW; x++) {
@@ -130,37 +148,63 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
       const g = data[idx + 1];
       const b = data[idx + 2];
 
-      // Protect bright specular flash catchlights
-      if (r > 235 && g > 230 && b > 220) continue;
+      // Protect bright specular flash catchlight sparkle
+      if (r > 230 && g > 225 && b > 215 && Math.abs(r - g) < 25 && Math.abs(g - b) < 25) {
+        continue;
+      }
 
       const gbAvg = (g + b) / 2;
       const redRatio = r / Math.max(1, gbAvg);
 
-      const isEligible = (r > 55 && redRatio > 1.20 && (r - Math.max(g, b)) > 12) ||
-                         (r > 70 && r > b * 1.25 && (r - b) > 18 && g < r * 0.95);
+      const isEligible = (r > 50 && redRatio > 1.15 && (r - Math.max(g, b)) > 10) ||
+                         (r > 65 && r > b * 1.20 && (r - b) > 15 && g < r * 0.96);
 
       if (isEligible) {
         // Distance falloff factor
-        const distFactor = 1 - Math.pow(dist / effectiveRadius, 2);
-        // Redness intensity factor
-        const redFactor = Math.min(1, Math.max(0.3, (redRatio - 1.20) / 0.40));
-        const weight = distFactor * redFactor;
+        const normDist = dist / effectiveRadius; // 0 at center, 1 at outer boundary
+        const distFactor = 1 - Math.pow(normDist, 2);
+        const redFactor = Math.min(1, Math.max(0.4, (redRatio - 1.15) / 0.35));
+        const weight = Math.min(1, Math.max(0.15, distFactor * redFactor));
 
-        if (weight > 0.05) {
-          // Natural dark pupil luminance
-          const naturalTone = Math.min(38, gbAvg * pupilDarkness);
+        // Anatomical Eye Gradient:
+        // Core (normDist <= 0.40): Deep dark pupil aperture (black/charcoal)
+        // Outer (normDist > 0.40): Colored Iris Ring (Blue, Brown, Green, Hazel, or Auto)
+        const pupilCoreR = 20;
+        const pupilCoreG = 20;
+        const pupilCoreB = 24;
 
-          // Subtle natural eye tint (slightly dark charcoal/slate)
-          const targetR = naturalTone;
-          const targetG = Math.min(g, naturalTone * 1.05);
-          const targetB = Math.min(b, naturalTone * 1.10);
+        let targetR, targetG, targetB;
 
-          data[idx] = Math.round(r * (1 - weight) + targetR * weight);
-          data[idx + 1] = Math.round(g * (1 - weight) + targetG * weight);
-          data[idx + 2] = Math.round(b * (1 - weight) + targetB * weight);
+        if (normDist <= 0.40) {
+          // Inside central pupil hole: always black/charcoal
+          targetR = pupilCoreR;
+          targetG = pupilCoreG;
+          targetB = pupilCoreB;
+        } else {
+          // Iris ring: blend natural eye color
+          const irisBlend = Math.min(1, Math.max(0, (normDist - 0.40) / 0.45));
 
-          changedPixels++;
+          if (palette.iris) {
+            targetR = Math.round(pupilCoreR * (1 - irisBlend) + palette.iris.r * irisBlend);
+            targetG = Math.round(pupilCoreG * (1 - irisBlend) + palette.iris.g * irisBlend);
+            targetB = Math.round(pupilCoreB * (1 - irisBlend) + palette.iris.b * irisBlend);
+          } else {
+            // Auto iris: preserve natural eye depth without flat void
+            const autoIrisR = Math.min(55, Math.round(gbAvg * 0.55));
+            const autoIrisG = Math.min(75, Math.round(g * 0.70));
+            const autoIrisB = Math.min(95, Math.round(b * 0.85));
+
+            targetR = Math.round(pupilCoreR * (1 - irisBlend) + autoIrisR * irisBlend);
+            targetG = Math.round(pupilCoreG * (1 - irisBlend) + autoIrisG * irisBlend);
+            targetB = Math.round(pupilCoreB * (1 - irisBlend) + autoIrisB * irisBlend);
+          }
         }
+
+        data[idx] = Math.round(r * (1 - weight) + targetR * weight);
+        data[idx + 1] = Math.round(g * (1 - weight) + targetG * weight);
+        data[idx + 2] = Math.round(b * (1 - weight) + targetB * weight);
+
+        changedPixels++;
       }
     }
   }
@@ -187,7 +231,7 @@ export function fixRedEyeAtCoords(canvas, targetX, targetY, radius = 24, options
  * @param {Array} faceBoxes - Detected faces with normalized box { x, y, width, height }
  * @returns {object} { fixedCount: number, eyeLocations: Array }
  */
-export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
+export function autoFixRedEyesOnCanvas(canvas, faceBoxes = [], options = {}) {
   if (!canvas || canvas.width === 0 || canvas.height === 0) {
     return { fixedCount: 0, eyeLocations: [] };
   }
@@ -221,7 +265,7 @@ export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
     const leftCandidate = findPeakRedSpot(canvas, leftEyeLeft, eyeTop, leftEyeRight, eyeBottom);
 
     if (leftCandidate && leftCandidate.pixelCount >= 6) {
-      const res = fixRedEyeAtCoords(canvas, leftCandidate.x, leftCandidate.y, eyeRadius);
+      const res = fixRedEyeAtCoords(canvas, leftCandidate.x, leftCandidate.y, eyeRadius, options);
       if (res.success) {
         eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'left' });
       }
@@ -235,7 +279,7 @@ export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
     if (rightCandidate && rightCandidate.pixelCount >= 6) {
       const isDuplicate = eyeLocations.some(loc => Math.hypot(loc.x - rightCandidate.x, loc.y - rightCandidate.y) < eyeRadius);
       if (!isDuplicate) {
-        const res = fixRedEyeAtCoords(canvas, rightCandidate.x, rightCandidate.y, eyeRadius);
+        const res = fixRedEyeAtCoords(canvas, rightCandidate.x, rightCandidate.y, eyeRadius, options);
         if (res.success) {
           eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'right' });
         }
@@ -254,7 +298,7 @@ export function autoFixRedEyesOnCanvas(canvas, faceBoxes = []) {
         eyeRadius * 1.5
       );
       if (fullBandCandidate && fullBandCandidate.pixelCount >= 5) {
-        const res = fixRedEyeAtCoords(canvas, fullBandCandidate.x, fullBandCandidate.y, eyeRadius);
+        const res = fixRedEyeAtCoords(canvas, fullBandCandidate.x, fullBandCandidate.y, eyeRadius, options);
         if (res.success) {
           eyeLocations.push({ x: res.center.x, y: res.center.y, side: 'second' });
         }
@@ -347,7 +391,7 @@ export async function removeRedEyesFromImage(imageSrc, options = {}) {
   if (manualPoints && manualPoints.length > 0) {
     const defaultRadius = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.025));
     for (const pt of manualPoints) {
-      const res = fixRedEyeAtCoords(canvas, pt.x, pt.y, pt.radius || defaultRadius);
+      const res = fixRedEyeAtCoords(canvas, pt.x, pt.y, pt.radius || defaultRadius, options);
       if (res.success) {
         totalFixed++;
         allLocations.push(res.center);
@@ -357,7 +401,7 @@ export async function removeRedEyesFromImage(imageSrc, options = {}) {
 
   // 2. Apply auto-detection for face boxes if requested
   if (options.autoDetect !== false) {
-    const autoRes = autoFixRedEyesOnCanvas(canvas, faceBoxes);
+    const autoRes = autoFixRedEyesOnCanvas(canvas, faceBoxes, options);
     totalFixed += autoRes.fixedCount;
     allLocations.push(...autoRes.eyeLocations);
   }
