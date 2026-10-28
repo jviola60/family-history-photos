@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { 
   FolderOpen, 
   Copy, 
@@ -10,7 +11,10 @@ import {
   FolderCheck,
   Settings,
   Cloud,
-  BookOpen
+  BookOpen,
+  ChevronDown,
+  Wrench,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function Header({ 
@@ -19,179 +23,357 @@ export default function Header({
   onOpenCloudModal,
   onOpenHelpGuide,
   onOpenDuplicates, 
-  duplicateCount, 
+  duplicateCount = 0, 
   onOpenJunkCleaner,
-  junkCount,
+  junkCount = 0,
   onOpenReviewFolder,
   reviewCount = 0,
   onOpenRestoration,
   lowResCount = 0,
   onOpenPeople, 
-  peopleCount, 
+  peopleCount = 0, 
   onOpenSettings,
   onToggleHelp, 
   showHelp, 
   onExportCatalog,
   onClearAlbum,
-  photoCount
+  photoCount = 0
 }) {
+  const [openMenu, setOpenMenu] = useState(null);
+  const headerRef = useRef(null);
+
+  // Total actionable items in Tools
+  const totalToolsBadge = (duplicateCount > 0 ? duplicateCount : 0) + 
+                          (junkCount > 0 ? junkCount : 0) + 
+                          (lowResCount > 0 ? lowResCount : 0) + 
+                          (reviewCount > 0 ? reviewCount : 0);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (headerRef.current && !headerRef.current.contains(event.target)) {
+        setOpenMenu(null);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setOpenMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const toggleMenu = (menuName) => {
+    setOpenMenu(current => (current === menuName ? null : menuName));
+  };
+
+  const handleAction = (callback) => {
+    setOpenMenu(null);
+    if (callback) callback();
+  };
+
   return (
-    <header className="app-header">
+    <header className="app-header" ref={headerRef}>
+      {/* Brand Identity */}
       <div className="header-brand">
-        <div className="logo-icon-wrap">
-          <HeartHandshake className="logo-icon" size={28} />
+        <div className="logo-icon-wrap" aria-hidden="true">
+          <HeartHandshake className="logo-icon" size={26} />
         </div>
-        <div>
+        <div className="brand-text">
           <h1 className="app-title">Family History Photos</h1>
-          <p className="app-subtitle">Family Photo Album & Memory Keeper</p>
+          <p className="app-subtitle">Family Photo Album &amp; Memory Keeper</p>
         </div>
       </div>
 
-      <div className="header-actions">
-        {/* Folder picker button */}
+      {/* Modern Navigation & Menus */}
+      <nav className="header-actions" aria-label="Main application toolbar">
+        {/* 1. Primary Source Selector: Folder */}
         <button 
+          type="button"
           onClick={onPickFolder} 
-          className="btn btn-secondary header-btn"
+          className="btn btn-secondary header-btn header-btn-primary-source"
           title="Open a photo folder from your computer"
         >
-          <FolderOpen size={18} />
-          <span>{folderName ? `Folder: ${folderName}` : 'Open Folder'}</span>
+          <FolderOpen size={17} className="text-primary" />
+          <span className="folder-btn-label">
+            {folderName ? `Folder: ${folderName}` : 'Open Folder'}
+          </span>
         </button>
 
-        {/* Cloud Import button */}
+        {/* 2. Cloud Import */}
         <button 
+          type="button"
           onClick={onOpenCloudModal} 
           className="btn btn-secondary header-btn"
           title="Import photos from OneDrive, Google Photos, or Apple iCloud"
         >
-          <Cloud size={18} style={{ color: '#2563eb' }} />
+          <Cloud size={17} style={{ color: '#2563eb' }} />
           <span>Cloud Import</span>
         </button>
 
-        {/* Duplicates button with badge */}
+        {/* 3. Family Directory */}
         <button 
-          onClick={onOpenDuplicates} 
-          className={`btn ${duplicateCount > 0 ? 'btn-warning-badge' : 'btn-secondary'} header-btn`}
-          title="Find and clean duplicate photos"
-        >
-          <Copy size={18} />
-          <span>Duplicates</span>
-          {duplicateCount > 0 && <span className="counter-pill">{duplicateCount}</span>}
-        </button>
-
-        {/* Smart Junk & Screenshot Cleaner button */}
-        {photoCount > 0 && junkCount > 0 && (
-          <button 
-            onClick={onOpenJunkCleaner} 
-            className="btn btn-secondary header-btn"
-            title="Clean computer app and desktop screenshots"
-          >
-            <FolderCheck size={18} />
-            <span>Clean Screenshots</span>
-            <span className="counter-pill">{junkCount}</span>
-          </button>
-        )}
-
-        {/* 4K Restoration Hub button with badge */}
-        {photoCount > 0 && lowResCount > 0 && (
-          <button 
-            onClick={onOpenRestoration} 
-            className="btn btn-secondary header-btn"
-            title="Enhance vintage photos and small thumbnails to 4K"
-            style={{ 
-              borderColor: 'rgba(194, 65, 12, 0.45)', 
-              backgroundColor: 'rgba(194, 65, 12, 0.08)',
-              color: 'var(--accent)'
-            }}
-          >
-            <Sparkles size={18} className="text-accent" />
-            <span>Restore to 4K</span>
-            <span className="counter-pill" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-              {lowResCount}
-            </span>
-          </button>
-        )}
-
-        {/* Review Folder button with badge */}
-        {reviewCount > 0 && (
-          <button 
-            onClick={onOpenReviewFolder} 
-            className="btn btn-warning-badge header-btn"
-            title="View photos waiting in your _Duplicates_Review folder"
-            style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', borderColor: 'rgba(217, 119, 6, 0.4)' }}
-          >
-            <FolderCheck size={18} className="text-warning" />
-            <span>Review Folder</span>
-            <span className="counter-pill">{reviewCount}</span>
-          </button>
-        )}
-
-        {/* People Directory */}
-        <button 
+          type="button"
           onClick={onOpenPeople} 
           className="btn btn-secondary header-btn"
           title="View family members and relations"
         >
-          <Users size={18} />
+          <Users size={17} className="text-primary" />
           <span>Family ({peopleCount})</span>
         </button>
 
-        {/* Export / Save Catalog */}
+        {/* 4. Modern Tools Menu (Duplicates, 4K Restoration, Screenshots, Review Folder) */}
+        <div className="menu-container">
+          <button
+            type="button"
+            onClick={() => toggleMenu('tools')}
+            className={`btn btn-secondary header-btn menu-trigger ${openMenu === 'tools' ? 'is-active' : ''}`}
+            aria-expanded={openMenu === 'tools'}
+            aria-haspopup="menu"
+            title="Photo clean-up and AI restoration tools"
+          >
+            <Sparkles size={17} className="text-accent" />
+            <span>Tools</span>
+            {totalToolsBadge > 0 && (
+              <span className="counter-pill counter-pill-tools">
+                {totalToolsBadge > 999 ? `${(totalToolsBadge / 1000).toFixed(1)}k` : totalToolsBadge}
+              </span>
+            )}
+            <ChevronDown size={14} className={`menu-chevron ${openMenu === 'tools' ? 'is-open' : ''}`} />
+          </button>
+
+          {openMenu === 'tools' && (
+            <div className="modern-dropdown modern-dropdown-tools" role="menu">
+              <div className="dropdown-header">PHOTO TOOLS &amp; AI</div>
+
+              {/* Restore to 4K */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenRestoration)}
+              >
+                <div className="dropdown-item-icon icon-restore">
+                  <Sparkles size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Restore to 4K</div>
+                  <div className="dropdown-item-desc">Enhance vintage photos and small thumbnails</div>
+                </div>
+                {lowResCount > 0 && (
+                  <span className="counter-pill counter-pill-accent">
+                    {lowResCount.toLocaleString()}
+                  </span>
+                )}
+              </button>
+
+              {/* Duplicates Finder */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenDuplicates)}
+              >
+                <div className="dropdown-item-icon icon-duplicates">
+                  <Copy size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Find Duplicates</div>
+                  <div className="dropdown-item-desc">Detect identical and similar photos</div>
+                </div>
+                {duplicateCount > 0 && (
+                  <span className="counter-pill counter-pill-warning">
+                    {duplicateCount.toLocaleString()}
+                  </span>
+                )}
+              </button>
+
+              {/* Screenshot & Junk Cleaner */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenJunkCleaner)}
+              >
+                <div className="dropdown-item-icon icon-cleaner">
+                  <FolderCheck size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Clean Screenshots</div>
+                  <div className="dropdown-item-desc">Filter computer app and desktop screenshots</div>
+                </div>
+                {junkCount > 0 && (
+                  <span className="counter-pill counter-pill-danger">
+                    {junkCount.toLocaleString()}
+                  </span>
+                )}
+              </button>
+
+              {/* Review Folder */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenReviewFolder)}
+              >
+                <div className="dropdown-item-icon icon-review">
+                  <FolderOpen size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Review Folder</div>
+                  <div className="dropdown-item-desc">View photos waiting in _Duplicates_Review</div>
+                </div>
+                {reviewCount > 0 && (
+                  <span className="counter-pill counter-pill-warning">
+                    {reviewCount.toLocaleString()}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 5. Modern Album Menu (Save & Close) - only if photos loaded */}
         {photoCount > 0 && (
-          <>
-            <button 
-              onClick={onExportCatalog} 
-              className="btn btn-secondary header-btn"
-              title="Download or save your notes and album catalog"
+          <div className="menu-container">
+            <button
+              type="button"
+              onClick={() => toggleMenu('album')}
+              className={`btn btn-secondary header-btn menu-trigger ${openMenu === 'album' ? 'is-active' : ''}`}
+              aria-expanded={openMenu === 'album'}
+              aria-haspopup="menu"
+              title="Album management and export"
             >
-              <Download size={18} />
-              <span>Save Album</span>
+              <Download size={17} />
+              <span>Album</span>
+              <ChevronDown size={14} className={`menu-chevron ${openMenu === 'album' ? 'is-open' : ''}`} />
             </button>
 
-            {onClearAlbum && (
-              <button 
-                onClick={onClearAlbum} 
-                className="btn btn-secondary header-btn"
-                title="Close this album and start fresh"
-              >
-                <FolderX size={18} />
-                <span>Close Album</span>
-              </button>
+            {openMenu === 'album' && (
+              <div className="modern-dropdown" role="menu">
+                <div className="dropdown-header">ALBUM MANAGEMENT</div>
+
+                <button
+                  type="button"
+                  className="dropdown-item"
+                  role="menuitem"
+                  onClick={() => handleAction(onExportCatalog)}
+                >
+                  <div className="dropdown-item-icon icon-export">
+                    <Download size={18} />
+                  </div>
+                  <div className="dropdown-item-body">
+                    <div className="dropdown-item-title">Save Album Catalog</div>
+                    <div className="dropdown-item-desc">Export your family metadata notes and tags</div>
+                  </div>
+                </button>
+
+                {onClearAlbum && (
+                  <>
+                    <div className="dropdown-divider" />
+                    <button
+                      type="button"
+                      className="dropdown-item item-danger"
+                      role="menuitem"
+                      onClick={() => handleAction(onClearAlbum)}
+                    >
+                      <div className="dropdown-item-icon icon-danger">
+                        <FolderX size={18} />
+                      </div>
+                      <div className="dropdown-item-body">
+                        <div className="dropdown-item-title">Close Album</div>
+                        <div className="dropdown-item-desc">Exit current album and start fresh</div>
+                      </div>
+                    </button>
+                  </>
+                )}
+              </div>
             )}
-          </>
+          </div>
         )}
 
-        {/* Settings modal button */}
-        <button 
-          onClick={onOpenSettings} 
-          className="btn btn-secondary header-btn"
-          title="App settings & AI photo restoration providers"
-        >
-          <Settings size={18} />
-          <span>Settings</span>
-        </button>
+        {/* 6. Settings & Help Menu */}
+        <div className="menu-container">
+          <button
+            type="button"
+            onClick={() => toggleMenu('settings')}
+            className={`btn btn-secondary header-btn menu-trigger ${openMenu === 'settings' ? 'is-active' : ''}`}
+            aria-expanded={openMenu === 'settings'}
+            aria-haspopup="menu"
+            title="App settings, user guide, and helpful tips"
+          >
+            <Settings size={17} />
+            <span>Settings</span>
+            <ChevronDown size={14} className={`menu-chevron ${openMenu === 'settings' ? 'is-open' : ''}`} />
+          </button>
 
-        {/* Complete Help Menu & User Guide Modal */}
-        <button 
-          onClick={onOpenHelpGuide} 
-          className="btn btn-secondary header-btn"
-          title="Open complete User Guide explaining all features"
-          style={{ borderColor: 'rgba(217, 119, 6, 0.45)', backgroundColor: 'rgba(217, 119, 6, 0.08)' }}
-        >
-          <BookOpen size={18} className="text-primary" />
-          <span>User Guide</span>
-        </button>
+          {openMenu === 'settings' && (
+            <div className="modern-dropdown" role="menu">
+              <div className="dropdown-header">PREFERENCES &amp; HELP</div>
 
-        {/* Help & Guided Tour toggle */}
-        <button 
-          onClick={onToggleHelp} 
-          className={`btn ${showHelp ? 'btn-primary' : 'btn-outline'} header-btn-help`}
-          title="Show guided instructions and tips"
-        >
-          <HelpCircle size={18} />
-          <span>{showHelp ? 'Hide Tips' : 'Quick Tips'}</span>
-        </button>
-      </div>
+              {/* App Settings */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenSettings)}
+              >
+                <div className="dropdown-item-icon icon-settings">
+                  <Settings size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">App Settings</div>
+                  <div className="dropdown-item-desc">AI photo restoration keys &amp; cloud preferences</div>
+                </div>
+              </button>
+
+              {/* User Guide */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onOpenHelpGuide)}
+              >
+                <div className="dropdown-item-icon icon-guide">
+                  <BookOpen size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Complete User Guide</div>
+                  <div className="dropdown-item-desc">Step-by-step illustrated guide for all features</div>
+                </div>
+              </button>
+
+              <div className="dropdown-divider" />
+
+              {/* Quick Tips Toggle */}
+              <button
+                type="button"
+                className="dropdown-item"
+                role="menuitem"
+                onClick={() => handleAction(onToggleHelp)}
+              >
+                <div className="dropdown-item-icon icon-tips">
+                  <HelpCircle size={18} />
+                </div>
+                <div className="dropdown-item-body">
+                  <div className="dropdown-item-title">Quick Tips Tour</div>
+                  <div className="dropdown-item-desc">
+                    {showHelp ? 'Guided tour is currently active' : 'Turn on guided tour tips'}
+                  </div>
+                </div>
+                <span className={`toggle-status-pill ${showHelp ? 'status-active' : ''}`}>
+                  {showHelp ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      </nav>
     </header>
   );
 }
