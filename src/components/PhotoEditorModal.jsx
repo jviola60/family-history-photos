@@ -10,14 +10,12 @@ import {
   Undo2, 
   Redo2, 
   ZoomIn, 
-  ZoomOut, 
   Maximize2, 
   Minimize2, 
   Sparkles, 
   Eye, 
   Trash2,
-  RefreshCw,
-  Sliders
+  RefreshCw
 } from 'lucide-react';
 import { cropImage, inpaintImage, loadImage } from '../lib/imageEditor';
 import { checkLocalAiHealth, inpaintWithLocalAi } from '../lib/localAiService';

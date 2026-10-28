@@ -4,10 +4,8 @@ import {
   CheckCircle, 
   AlertCircle, 
   Search, 
-  User, 
   ExternalLink, 
   X, 
-  Info, 
   LogIn, 
   LogOut, 
   ShieldCheck, 
@@ -17,68 +15,24 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
-  ShieldAlert,
-  FileText
+  ShieldAlert
 } from 'lucide-react';
 import { 
-  getStoredFamilySearchToken, 
   startFamilySearchLogin, 
   clearFamilySearchToken, 
   getFamilySearchCurrentUser,
   getFamilySearchConfig,
-  getStoredRedirectUriOverride,
   setStoredRedirectUriOverride
 } from '../lib/familySearchAuth';
 import { 
   uploadPhotoToFamilySearchMemories, 
   searchFamilySearchPersons, 
-  attachPersonTagsToMemory 
+  attachPersonTagsToMemory,
+  KNOWN_SEEDS,
+  resolvePersonMapping
 } from '../lib/familySearchMemories';
 import { getFamilySearchPersonMappings, saveFamilySearchPersonMapping } from '../lib/db';
 import { generateFamilySearchFilename } from '../lib/photoMetadata';
-
-const KNOWN_SEEDS = {
-  'Jeff Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
-  'Jeffrey Alan Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
-  'Rayna Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
-  'Rayna Lee Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
-  'Brittany Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
-  'Brittany Denae Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
-  'Makinzie Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
-  'Makinzie Rae Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
-  'Kourtnie Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
-  'Kourtnie Barnes': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
-  'Kourtnie Shae Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' }
-};
-
-export function resolvePersonMapping(name, mappings) {
-  if (!name || !mappings) return null;
-  const clean = name.trim().toLowerCase();
-
-  // 1. Direct exact key match
-  for (const [k, v] of Object.entries(mappings)) {
-    if (k.trim().toLowerCase() === clean) return v;
-  }
-
-  // 2. First + Last name match (skips middle names like Denae, Shae, Rae)
-  const parts = clean.split(/\s+/).filter(Boolean);
-  if (parts.length >= 3) {
-    const firstLast = `${parts[0]} ${parts[parts.length - 1]}`;
-    for (const [k, v] of Object.entries(mappings)) {
-      const kParts = k.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const kFirstLast = kParts.length >= 2 ? `${kParts[0]} ${kParts[kParts.length - 1]}` : k.trim().toLowerCase();
-      if (kFirstLast === firstLast || k.trim().toLowerCase() === firstLast) return v;
-    }
-  }
-
-  // 3. Substring match
-  for (const [k, v] of Object.entries(mappings)) {
-    const kClean = k.trim().toLowerCase();
-    if (clean.includes(kClean) || kClean.includes(clean)) return v;
-  }
-
-  return null;
-}
 
 export default function FamilySearchModal({
   photo,
@@ -155,8 +109,6 @@ export default function FamilySearchModal({
   if (!isOpen) return null;
 
   const targetFilename = generateFamilySearchFilename(photo, metadata);
-  const config = getFamilySearchConfig();
-
   // Combine people and faces
   const peopleList = metadata?.people || [];
   const facesList = metadata?.faces || [];
@@ -164,13 +116,6 @@ export default function FamilySearchModal({
     ...peopleList,
     ...facesList.map(f => f.name).filter(Boolean)
   ]));
-
-  const handleToggleSlash = () => {
-    const current = activeRedirectUri;
-    const toggled = current.endsWith('/') ? current.slice(0, -1) : `${current}/`;
-    setActiveRedirectUri(toggled);
-    setStoredRedirectUriOverride(toggled);
-  };
 
   const handleLogin = async () => {
     try {

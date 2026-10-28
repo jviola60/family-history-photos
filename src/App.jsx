@@ -33,7 +33,6 @@ import {
   loadCatalogFromDB, 
   savePeopleDirectoryToDB, 
   loadPeopleDirectoryFromDB,
-  clearAllLocalData,
   saveIgnoredDuplicatesToDB,
   loadIgnoredDuplicatesFromDB,
   saveIgnoredJunkToDB,
@@ -98,6 +97,24 @@ export default function App() {
 
   const isInitialLoadRef = React.useRef(true);
   const savedMetadataMapRef = React.useRef(new Map());
+
+  // Run high-performance duplicate detector
+  const checkDuplicates = useCallback(async (photoList = photos, mode = 'all') => {
+    if (!photoList || photoList.length === 0) return;
+    try {
+      setIsScanningDuplicates(true);
+      setDuplicateScanProgress({ percent: 10, message: 'Starting duplicate detection...' });
+      const groups = await findDuplicateGroups(photoList, { mode, rootDirHandle, ignoredPairs }, (progress) => {
+        setDuplicateScanProgress(progress);
+      });
+      setDuplicateGroups(groups);
+    } catch (err) {
+      console.warn('Duplicate check failed:', err);
+    } finally {
+      setIsScanningDuplicates(false);
+      setDuplicateScanProgress(null);
+    }
+  }, [photos, rootDirHandle, ignoredPairs]);
 
   // Load initial cached data from IndexedDB safely without crashing
   useEffect(() => {
@@ -526,24 +543,6 @@ export default function App() {
   };
 
   // Sample album loader removed per user request
-
-  // Run high-performance duplicate detector
-  const checkDuplicates = async (photoList = photos, mode = 'all') => {
-    if (!photoList || photoList.length === 0) return;
-    try {
-      setIsScanningDuplicates(true);
-      setDuplicateScanProgress({ percent: 10, message: 'Starting duplicate detection...' });
-      const groups = await findDuplicateGroups(photoList, { mode, rootDirHandle, ignoredPairs }, (progress) => {
-        setDuplicateScanProgress(progress);
-      });
-      setDuplicateGroups(groups);
-    } catch (err) {
-      console.warn('Duplicate check failed:', err);
-    } finally {
-      setIsScanningDuplicates(false);
-      setDuplicateScanProgress(null);
-    }
-  };
 
   // Ignore / dismiss false duplicate pair permanently
   const handleIgnoreDuplicatePair = (photoA, photoB) => {

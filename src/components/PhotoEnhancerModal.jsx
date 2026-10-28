@@ -5,14 +5,12 @@ import {
   Download, 
   Check, 
   RefreshCw,
-  Palette,
   SunMedium,
   Columns,
   Eye,
   Sliders,
   RotateCcw,
   Zap,
-  Layers,
   Settings,
   ShieldCheck,
   ZoomIn,
@@ -22,10 +20,9 @@ import {
   Crosshair,
   Crop
 } from 'lucide-react';
-import { enhanceImage, analyzeImageLuminance, runExtraPass } from '../lib/imageEnhancer';
+import { enhanceImage, analyzeImageLuminance } from '../lib/imageEnhancer';
 import { removeRedEyesFromImage, fixRedEyeAtCoords, loadImage } from '../lib/redEyeRemover';
 import { getAiSettings, restoreWithCloudAi, FAL_MODELS } from '../lib/aiSettings';
-import { checkLocalAiHealth, restoreWithLocalAi } from '../lib/localAiService';
 
 export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onOpenSettings, onOpenEditor }) {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -34,15 +31,13 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   const [cloudError, setCloudError] = useState(null);
   const [targetRes, setTargetRes] = useState('4k'); // Default to 4K
   const [styleMode, setStyleMode] = useState(photo.faces && photo.faces.length > 0 ? 'portrait' : 'portrait'); // 'portrait' | 'natural' | 'shadow' | 'local_ai'
-  const [passCount, setPassCount] = useState(1); // 1 clean pass by default to prevent overprocessing
+  const passCount = 1;
   const [appliedPassesCount, setAppliedPassesCount] = useState(1);
   const [passProgressMessage, setPassProgressMessage] = useState('');
   const [baseSource, setBaseSource] = useState(photo.enhancedUrl ? 'enhanced' : 'original');
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
 
   // 100% Offline Local AI Restoration States (initialized from global Settings)
-  const [localAiHealth, setLocalAiHealth] = useState(null);
-  const [isCheckingLocalAi, setIsCheckingLocalAi] = useState(false);
   const [localFaceModel, setLocalFaceModel] = useState(aiSettings.localFaceModel || 'codeformer'); // 'codeformer' | 'gfpgan' | 'none'
   const [localFidelity, setLocalFidelity] = useState(aiSettings.localFidelity ?? 0.75);
   const [localRepairScratches, setLocalRepairScratches] = useState(aiSettings.localRepairScratches ?? true);
@@ -389,28 +384,6 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     }
   }, [photo.objectUrl, photo.enhancedUrl, baseSource]);
 
-  // Instant Extra Pass (+1 Pass) stacked directly onto current result
-  const handleAddExtraPass = async () => {
-    if (!enhancedResultUrl || isProcessing) return;
-    setIsLocalProcessing(true);
-    setPassProgressMessage(`Applying extra 4K reconstruction pass (${appliedPassesCount + 1})...`);
-    try {
-      const newResult = await runExtraPass(enhancedResultUrl, {
-        sharpenAmount,
-        contrastBoost,
-        shadowLift: shadowLift * 0.7,
-        brightnessBoost: 0.02
-      });
-      setEnhancedResultUrl(newResult);
-      setAppliedPassesCount(prev => prev + 1);
-    } catch (err) {
-      console.error('Failed to add extra pass:', err);
-    } finally {
-      setIsLocalProcessing(false);
-      setPassProgressMessage('');
-    }
-  };
-
   // 🔴 Red-Eye Removal Handlers
   const handleAutoFixRedEyes = async () => {
     const currentSrc = enhancedResultUrl || (baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl));
@@ -626,73 +599,6 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
     return () => window.removeEventListener('ai_settings_changed', handleSettingsUpdate);
   }, []);
 
-  // Check Local AI Server Health on mount and provide refresh capability
-  const refreshLocalAiHealth = useCallback(async () => {
-    setIsCheckingLocalAi(true);
-    try {
-      const health = await checkLocalAiHealth(true);
-      setLocalAiHealth(health);
-    } finally {
-      setIsCheckingLocalAi(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshLocalAiHealth();
-  }, [refreshLocalAiHealth]);
-
-  // 100% Offline Local AI Restoration Action
-  const handleLocalAiRestoration = async () => {
-    setIsLocalProcessing(true);
-    setCloudError(null);
-    setPassProgressMessage('⚡ Connecting to 100% Offline Local AI Engine...');
-    try {
-      let chosenBase = baseSource === 'enhanced' && photo.enhancedUrl ? photo.enhancedUrl : (originalUrl || photo.objectUrl);
-      if (!chosenBase && photo.handle && typeof photo.handle.getFile === 'function') {
-        try {
-          const file = await photo.handle.getFile();
-          if (file) {
-            chosenBase = URL.createObjectURL(file);
-            photo.objectUrl = chosenBase;
-            setOriginalUrl(chosenBase);
-          }
-        } catch {}
-      }
-
-      const res = await restoreWithLocalAi(
-        chosenBase,
-        {
-          faceModel: localFaceModel,
-          fidelity: localFidelity,
-          repairScratches: localRepairScratches,
-          scratchStrength: localScratchStrength,
-          restoreColor: localRestoreColor,
-          defadeStrength: localDefadeStrength,
-          upscale: localUpscale,
-          faceBox: (photo.faces && photo.faces[0]) ? {
-            x: photo.faces[0].x,
-            y: photo.faces[0].y,
-            width: photo.faces[0].width,
-            height: photo.faces[0].height
-          } : null
-        },
-        (msg) => setPassProgressMessage(msg)
-      );
-
-      if (res && res.url) {
-        setEnhancedResultUrl(res.url);
-        setAppliedPassesCount(1);
-        setStyleMode('local_ai');
-      }
-    } catch (err) {
-      console.error('Local AI restoration failed:', err);
-      setCloudError(err.message || 'Local AI restoration failed. Is the local Python server running at http://localhost:8008?');
-    } finally {
-      setIsLocalProcessing(false);
-      setPassProgressMessage('');
-    }
-  };
-
   // Fal.ai Cloud AI Restoration Action
   const handleFalAiRestoration = async () => {
     const currentSettings = getAiSettings();
@@ -793,7 +699,7 @@ export default function PhotoEnhancerModal({ photo, onClose, onSaveEnhanced, onO
   };
 
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop" onClick={handleBackdropClick}>
       <div 
         className={`enhancer-modal-dialog ${isMaximized ? 'modal-dialog-maximized' : ''}`} 
         onClick={(e) => e.stopPropagation()}

@@ -6,6 +6,49 @@
 import { getStoredFamilySearchToken, getFamilySearchConfig } from './familySearchAuth';
 import { generateFamilySearchFilename, formatFamilySearchSummary } from './photoMetadata';
 
+export const KNOWN_SEEDS = {
+  'Jeff Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
+  'Jeffrey Alan Viola': { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola' },
+  'Rayna Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
+  'Rayna Lee Baber': { id: 'BM6T-HYB', name: 'Rayna Lee Baber' },
+  'Brittany Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
+  'Brittany Denae Viola': { id: 'BM6T-68V', name: 'Brittany Denae Viola' },
+  'Makinzie Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
+  'Makinzie Rae Viola': { id: 'BM6T-8QC', name: 'Makinzie Rae Viola' },
+  'Kourtnie Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
+  'Kourtnie Barnes': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' },
+  'Kourtnie Shae Viola': { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola' }
+};
+
+export function resolvePersonMapping(name, mappings) {
+  if (!name || !mappings) return null;
+  const clean = name.trim().toLowerCase();
+
+  // 1. Direct exact key match
+  for (const [k, v] of Object.entries(mappings)) {
+    if (k.trim().toLowerCase() === clean) return v;
+  }
+
+  // 2. First + Last name match (skips middle names like Denae, Shae, Rae)
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 3) {
+    const firstLast = `${parts[0]} ${parts[parts.length - 1]}`;
+    for (const [k, v] of Object.entries(mappings)) {
+      const kParts = k.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const kFirstLast = kParts.length >= 2 ? `${kParts[0]} ${kParts[kParts.length - 1]}` : k.trim().toLowerCase();
+      if (kFirstLast === firstLast || k.trim().toLowerCase() === firstLast) return v;
+    }
+  }
+
+  // 3. Substring match
+  for (const [k, v] of Object.entries(mappings)) {
+    const kClean = k.trim().toLowerCase();
+    if (clean.includes(kClean) || kClean.includes(clean)) return v;
+  }
+
+  return null;
+}
+
 /**
  * Searches the user's Family Tree by name or direct Person ID (e.g. KWQJ-123)
  */

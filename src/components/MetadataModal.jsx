@@ -17,12 +17,10 @@ import {
   Minimize2,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   Download,
   ShieldCheck,
   Copy,
   Crop,
-  Eraser,
   CloudUpload
 } from 'lucide-react';
 import FamilySearchModal from './FamilySearchModal';
@@ -138,6 +136,13 @@ export default function MetadataModal({
   const [isFixingRedEyes, setIsFixingRedEyes] = useState(false);
   const [redEyeMessage, setRedEyeMessage] = useState('');
   const imgRef = useRef(null);
+
+  // 🔍 Senior Magnification & Fullscreen View States
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ startX: 0, startY: 0, originX: 0, originY: 0 });
 
   // 📷 Resilient image source state with automatic file-handle recovery
   const [photoSrc, setPhotoSrc] = useState(photo.enhancedUrl || photo.objectUrl || null);
@@ -316,13 +321,6 @@ export default function MetadataModal({
 
     return () => clearTimeout(timer);
   }, [people, relationship, personRelationships, decade, date, story, location, familyBranch, detectedFaces]);
-
-  // 🔍 Senior Magnification & Fullscreen View States
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [zoomScale, setZoomScale] = useState(1);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panStartRef = useRef({ startX: 0, startY: 0, originX: 0, originY: 0 });
 
   const handleZoomIn = () => {
     setZoomScale(s => Math.min(4, +(s + 0.5).toFixed(1)));

@@ -11,8 +11,7 @@ import {
   Eye,
   EyeOff,
   Sliders,
-  Cpu,
-  RefreshCw
+  Cpu
 } from 'lucide-react';
 import { getAiSettings, saveAiSettings, testFalConnection, FAL_MODELS } from '../lib/aiSettings';
 import { checkLocalAiHealth } from '../lib/localAiService';
@@ -25,15 +24,13 @@ export default function SettingsModal({ onClose }) {
 
   // Local AI Engine status
   const [localHealth, setLocalHealth] = useState(null);
-  const [isCheckingLocal, setIsCheckingLocal] = useState(false);
 
   const checkLocal = async () => {
-    setIsCheckingLocal(true);
     try {
       const res = await checkLocalAiHealth(true);
       setLocalHealth(res);
-    } finally {
-      setIsCheckingLocal(false);
+    } catch {
+      setLocalHealth(null);
     }
   };
 
