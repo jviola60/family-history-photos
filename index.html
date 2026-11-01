@@ -1874,6 +1874,7 @@
     </main>
   </div>
 
+  <script src="exifr.js"></script>
   <script src="leaflet/leaflet.js"></script>
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
@@ -2563,6 +2564,58 @@
           }
 
           
+      
+      async function geocodeAddress(query) {
+        if (!query || !query.trim()) return null;
+        const q = query.trim();
+
+        // Check local dictionary first
+        if (typeof GEO_PLACES !== 'undefined' && GEO_PLACES[q]) {
+          return { lat: GEO_PLACES[q][0], lng: GEO_PLACES[q][1], displayName: q };
+        }
+
+        // Try OpenStreetMap Nominatim
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+          const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const item = data[0];
+            const lat = parseFloat(item.lat);
+            const lng = parseFloat(item.lon);
+            if (!isNaN(lat) && !isNaN(lng)) {
+              return {
+                lat: Number(lat.toFixed(5)),
+                lng: Number(lng.toFixed(5)),
+                displayName: item.display_name
+              };
+            }
+          }
+        } catch (err) {
+          console.warn('Geocoding network error:', err);
+        }
+        return null;
+      }
+
+      async function reverseGeocode(lat, lng) {
+        try {
+          const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+          const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          if (data && data.address) {
+            const a = data.address;
+            const city = a.city || a.town || a.village || a.hamlet || a.county || '';
+            const state = a.state || '';
+            return [city, state].filter(Boolean).join(', ') || data.display_name.split(',').slice(0, 3).join(',');
+          }
+        } catch (err) {
+          console.warn('Reverse geocoding error:', err);
+        }
+        return null;
+      }
+
       function setupMapFilterListeners() {
         document.querySelectorAll('[data-map-branch]').forEach((btn) => {
           btn.onclick = () => {
@@ -2827,7 +2880,7 @@
             </div>
           </div>
 
-          <!-- LOCATION & GLOBAL MAP PIN -->
+<!-- LOCATION & GLOBAL MAP PIN -->
           <div class="field">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
               <label for="f-place" style="margin:0;font-weight:600;">Location &amp; Map Pin</label>
@@ -2836,10 +2889,16 @@
                 : `<span class="pill warn" style="font-size:10px;padding:2px 6px;">Unpinned</span>`}
             </div>
             <div style="display:flex;gap:6px;">
-              <input id="f-place" type="text" placeholder="e.g. Swallow Cliff Woods, Palos Park, IL" value="${esc(p.place)}" style="flex:1;">
-              <button class="btn sm" type="button" id="btn-show-map" title="View or drop pin on the Global Map">
+              <input id="f-place" type="text" placeholder="e.g. 1633 W Wooster St, Bowling Green, OH" value="${esc(p.place)}" style="flex:1;">
+              <button class="btn sm" type="button" id="btn-show-map" title="Locate address and view pin on the Global Map">
                 <span data-icon="pin"></span><span>${(typeof p.lat === 'number') ? 'View Pin' : 'Drop Pin'}</span>
               </button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+              <button class="link-btn" type="button" id="btn-auto-geocode" style="font-size:11px;color:var(--accent);text-decoration:underline;">
+                🔍 Auto-Geocode Address &amp; EXIF
+              </button>
+              ${(typeof p.lat === 'number') ? `<button class="link-btn" type="button" id="btn-clear-pin" style="font-size:11px;color:var(--negative);">Clear Pin</button>` : ''}
             </div>
           </div>
 
@@ -2931,13 +2990,95 @@
             box.querySelector('#insp-open-lab').onclick = () => {
               openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
             };
-            // Wire Map Pin button
+            // Wire Map Pin button with automatic address geocoding
             const showMapBtn = box.querySelector('#btn-show-map');
             if (showMapBtn) {
-              showMapBtn.onclick = () => {
+              showMapBtn.onclick = async () => {
+                const placeVal = box.querySelector('#f-place').value.trim();
+                if (placeVal && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                  showMapBtn.disabled = true;
+                  showMapBtn.innerHTML = '<span>Locating...</span>';
+                  const geo = await geocodeAddress(placeVal);
+                  showMapBtn.disabled = false;
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    p.place = placeVal;
+                    notify(`📍 Located "${placeVal}" at ${p.lat}°, ${p.lng}°!`);
+                  } else {
+                    notify(`Could not geocode "${placeVal}". Click anywhere on the map to place pin manually.`);
+                  }
+                }
+
                 layout = 'map';
                 document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === 'map' ? 'true' : 'false'));
                 render();
+
+                if (leafletMap && typeof p.lat === 'number' && typeof p.lng === 'number') {
+                  leafletMap.setView([p.lat, p.lng], 14);
+                }
+              };
+            }
+
+            // Wire Auto-Geocode and EXIF extraction button
+            const autoGeocodeBtn = box.querySelector('#btn-auto-geocode');
+            if (autoGeocodeBtn) {
+              autoGeocodeBtn.onclick = async () => {
+                const placeVal = box.querySelector('#f-place').value.trim();
+                let foundGeo = false;
+
+                if (placeVal) {
+                  autoGeocodeBtn.textContent = 'Geocoding address...';
+                  const geo = await geocodeAddress(placeVal);
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    p.place = placeVal;
+                    foundGeo = true;
+                    notify(`📍 Geocoded "${placeVal}" to [${p.lat}, ${p.lng}].`);
+                  }
+                }
+
+                if (p._file && window.exifr) {
+                  autoGeocodeBtn.textContent = 'Reading EXIF...';
+                  try {
+                    const meta = await window.exifr.parse(p._file, { tiff: true, xmp: true, iptc: true, gps: true });
+                    if (meta) {
+                      const dt = meta.DateTimeOriginal || meta.CreateDate || meta.DateCreated;
+                      if (dt) {
+                        const d = new Date(dt);
+                        if (!isNaN(d.getTime())) p.isoDate = d.toISOString().slice(0, 10);
+                      }
+                      if (typeof meta.latitude === 'number' && typeof meta.longitude === 'number') {
+                        p.lat = Number(meta.latitude.toFixed(5));
+                        p.lng = Number(meta.longitude.toFixed(5));
+                        foundGeo = true;
+                      }
+                      if (meta.title || meta.Headline) p.title = String(meta.title || meta.Headline).trim();
+                      if (meta.description || meta.ImageDescription) p.story = String(meta.description || meta.ImageDescription).trim();
+                      notify(`Extracted embedded EXIF metadata from ${p.file}.`);
+                    }
+                  } catch (err) {
+                    console.warn('EXIF read error:', err);
+                  }
+                }
+
+                autoGeocodeBtn.textContent = '🔍 Auto-Geocode Address & EXIF';
+                renderSidebarCounts();
+                renderInspector();
+                if (layout === 'map') renderGlobalMap();
+              };
+            }
+
+            const clearPinBtn = box.querySelector('#btn-clear-pin');
+            if (clearPinBtn) {
+              clearPinBtn.onclick = () => {
+                p.lat = null;
+                p.lng = null;
+                notify(`Cleared map pin for ${p.id}.`);
+                renderSidebarCounts();
+                renderInspector();
+                if (layout === 'map') renderGlobalMap();
               };
             }
 
@@ -2997,19 +3138,25 @@
               render();
             };
 
-            box.querySelector('#btn-save-meta').onclick = () => {
+            box.querySelector('#btn-save-meta').onclick = async () => {
               p.title = box.querySelector('#f-title').value.trim() || p.title;
               p.isoDate = box.querySelector('#f-date').value.trim();
               p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
               p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
               p.fsSynced = Boolean(p.fsId);
               const newPlace = box.querySelector('#f-place').value.trim();
-              if (newPlace !== p.place) {
-                p.place = newPlace;
-                if (GEO_PLACES[newPlace]) {
-                  p.lat = GEO_PLACES[newPlace][0];
-                  p.lng = GEO_PLACES[newPlace][1];
-                }
+              p.place = newPlace;
+              if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                // Background geocode address so saving with an address immediately pins it
+                geocodeAddress(newPlace).then((geo) => {
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    renderSidebarCounts();
+                    renderInspector();
+                    if (layout === 'map') renderGlobalMap();
+                  }
+                });
               }
               p.story = box.querySelector('#f-story').value.trim();
               notify(`Saved EXIF & catalog metadata for ${p.id}.`);
@@ -5254,11 +5401,13 @@
           items = imgFiles.slice(0, 200).map((file, i) => {
             const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
             const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
-            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_]?(\d{2})?[-_]?(\d{2})?/);
+            // Support dates formatted with hyphens, underscores, or spaces (e.g. '2003 03 02')
+            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
             const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
             const isoDate = dateMatch
-              ? `${dateMatch[1]}-${dateMatch[2] || '01'}-${dateMatch[3] || '01'}`
-              : fallbackDate;
+              ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+              : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
             const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
             const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
             const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
@@ -5294,6 +5443,7 @@
               story: '',
               src: url,
               workingSrc: null,
+              _file: file,
               edits: [],
               rotation: 0,
               straighten: 0,
@@ -5342,6 +5492,89 @@
               }
             };
             probe.src = url;
+
+            // Extract embedded EXIF, GPS, IPTC, and XMP metadata automatically
+            if (window.exifr) {
+              window.exifr.parse(file, {
+                tiff: true,
+                xmp: true,
+                iptc: true,
+                gps: true
+              }).then((meta) => {
+                if (!meta) return;
+                let changed = false;
+
+                // 1. Date & Time from EXIF
+                const dt = meta.DateTimeOriginal || meta.CreateDate || meta.DateCreated || meta.ModifyDate;
+                if (dt) {
+                  const d = new Date(dt);
+                  if (!isNaN(d.getTime())) {
+                    rec.isoDate = d.toISOString().slice(0, 10);
+                    const yr = d.getFullYear();
+                    rec.decade = (yr >= 1900 && yr <= 2030) ? `${String(yr).slice(0, 3)}0s` : rec.decade;
+                    changed = true;
+                  }
+                }
+
+                // 2. GPS Location from EXIF
+                if (typeof meta.latitude === 'number' && typeof meta.longitude === 'number') {
+                  rec.lat = Number(meta.latitude.toFixed(5));
+                  rec.lng = Number(meta.longitude.toFixed(5));
+                  changed = true;
+
+                  if (!rec.place) {
+                    reverseGeocode(rec.lat, rec.lng).then((addr) => {
+                      if (addr) {
+                        rec.place = addr;
+                        if (rec.id === selectedId) renderInspector();
+                        renderSidebarCounts();
+                        if (layout === 'map') renderGlobalMap();
+                      }
+                    });
+                  }
+                }
+
+                // 3. IPTC / XMP Location text
+                const placeParts = [meta.Sublocation, meta.City, meta.State || meta.ProvinceState, meta.Country || meta.CountryName].filter(Boolean);
+                if (placeParts.length > 0 && !rec.place) {
+                  rec.place = placeParts.join(', ');
+                  changed = true;
+                  if (typeof rec.lat !== 'number') {
+                    geocodeAddress(rec.place).then((geo) => {
+                      if (geo) {
+                        rec.lat = geo.lat;
+                        rec.lng = geo.lng;
+                        if (rec.id === selectedId) renderInspector();
+                        if (layout === 'map') renderGlobalMap();
+                        renderSidebarCounts();
+                      }
+                    });
+                  }
+                }
+
+                // 4. IPTC / XMP Title & Caption
+                if (meta.title || meta.ObjectName || meta.Headline) {
+                  rec.title = String(meta.title || meta.ObjectName || meta.Headline).trim();
+                  changed = true;
+                }
+                if (meta.description || meta.ImageDescription || meta.Caption || meta.UserComment) {
+                  rec.story = String(meta.description || meta.ImageDescription || meta.Caption || meta.UserComment).trim();
+                  changed = true;
+                }
+
+                if (changed) {
+                  renderSidebarCounts();
+                  if (rec.id === selectedId) renderInspector();
+                  if (mode === 'catalog') {
+                    if (layout === 'ledger' || layout === 'sheet') renderCatalogCenter();
+                    if (layout === 'map') renderGlobalMap();
+                  }
+                }
+              }).catch((e) => {
+                console.warn('EXIF parse skip for', file.name, e);
+              });
+            }
+
             return rec;
           });
 
