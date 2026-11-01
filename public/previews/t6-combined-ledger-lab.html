@@ -1879,6 +1879,7 @@
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
   <script src="familysearch-client.js"></script>
+  <script src="jpeg-metadata-writer.js"></script>
   <script>
     (() => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
@@ -2037,6 +2038,117 @@
 
       function currentPhoto() {
         return items.find((p) => p.id === selectedId) || items[0] || null;
+      }
+
+      function saveItemMetadata(p) {
+        if (!p) return;
+        try {
+          const raw = localStorage.getItem('fhp_saved_metadata_catalog') || '{}';
+          const catalog = JSON.parse(raw);
+          const key = p.file || p.id;
+          catalog[key] = {
+            id: p.id,
+            file: p.file,
+            title: p.title,
+            isoDate: p.isoDate,
+            decade: p.decade,
+            place: p.place,
+            lat: p.lat,
+            lng: p.lng,
+            branch: p.branch,
+            people: p.people,
+            story: p.story,
+            fsId: p.fsId,
+            fsSynced: p.fsSynced,
+            fsMemoryId: p.fsMemoryId,
+            rotation: p.rotation,
+            edits: p.edits
+          };
+          if (p.id) catalog[p.id] = catalog[key];
+          localStorage.setItem('fhp_saved_metadata_catalog', JSON.stringify(catalog));
+        } catch (e) {
+          console.warn('Could not save metadata to localStorage:', e);
+        }
+      }
+
+      function restoreCatalogMetadata(itemsList) {
+        if (!itemsList || !itemsList.length) return;
+        try {
+          const raw = localStorage.getItem('fhp_saved_metadata_catalog');
+          if (!raw) return;
+          const catalog = JSON.parse(raw);
+          itemsList.forEach((p) => {
+            const saved = (p.file && catalog[p.file]) || (p.id && catalog[p.id]);
+            if (saved) {
+              if (saved.title) p.title = saved.title;
+              if (saved.isoDate) p.isoDate = saved.isoDate;
+              if (saved.decade) p.decade = saved.decade;
+              if (saved.place) p.place = saved.place;
+              if (typeof saved.lat === 'number') p.lat = saved.lat;
+              if (typeof saved.lng === 'number') p.lng = saved.lng;
+              if (saved.branch) p.branch = saved.branch;
+              if (Array.isArray(saved.people)) p.people = saved.people;
+              if (saved.story) p.story = saved.story;
+              if (saved.fsId) p.fsId = saved.fsId;
+              if (typeof saved.fsSynced === 'boolean') p.fsSynced = saved.fsSynced;
+              if (saved.fsMemoryId) p.fsMemoryId = saved.fsMemoryId;
+              if (typeof saved.rotation === 'number') p.rotation = saved.rotation;
+              if (Array.isArray(saved.edits)) p.edits = saved.edits;
+            }
+          });
+        } catch (e) {
+          console.warn('Could not restore metadata from localStorage:', e);
+        }
+      }
+
+      function showFsPidSuggestions(p, matches) {
+        const host = document.getElementById('fs-matches-host');
+        if (!host) return;
+        if (!matches || matches.length === 0) {
+          host.innerHTML = '';
+          return;
+        }
+        host.innerHTML = `
+          <div style="margin-top:6px;padding:6px 8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <span style="font-weight:600;font-size:11px;color:var(--text);">FamilySearch Tree Suggestions:</span>
+              <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:11px;color:var(--muted);cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto;">
+              ${matches.map(m => `
+                <div class="fs-match-item" data-pid="${esc(m.id)}" style="cursor:pointer;padding:4px 6px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;background:${p.fsId === m.id ? 'rgba(37,99,235,0.12)' : 'var(--ground)'};border:1px solid ${p.fsId === m.id ? 'var(--accent)' : 'var(--border)'};" title="Click to use PID ${esc(m.id)}">
+                  <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <strong>${esc(m.name)}</strong>
+                    ${m.lifespan ? `<span class="muted" style="font-size:11px;"> · ${esc(m.lifespan)}</span>` : ''}
+                  </div>
+                  <span class="pill mono ${p.fsId === m.id ? 'pos' : 'neu'}" style="font-size:10px;margin-left:6px;">${esc(m.id)}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px;">
+              Click any person above to set PID, or type/paste in field.
+            </div>
+          </div>
+        `;
+        const closeBtn = host.querySelector('#btn-close-fs-matches');
+        if (closeBtn) closeBtn.onclick = () => { host.innerHTML = ''; };
+
+        host.querySelectorAll('.fs-match-item').forEach(item => {
+          item.onclick = () => {
+            const selectedPid = item.getAttribute('data-pid');
+            p.fsId = selectedPid;
+            const fFs = document.getElementById('f-fs');
+            if (fFs) fFs.value = selectedPid;
+            saveItemMetadata(p);
+            notify(`Selected FamilySearch PID: ${selectedPid} for ${p.id}.`);
+            showFsPidSuggestions(p, matches);
+            renderSidebarCounts();
+            const btnFs = document.getElementById('btn-insp-fs');
+            if (btnFs) {
+              btnFs.textContent = p.fsSynced ? `✓ Synced (${p.fsMemoryId ? `Mem #${p.fsMemoryId}` : p.fsId})` : `Upload to FamilySearch (${p.fsId})`;
+            }
+          };
+        });
       }
 
       function pushSnapshot(p) {
@@ -2876,10 +2988,16 @@
               <input id="f-date" class="mono" type="text" placeholder="YYYY-MM-DD" value="${esc(p.isoDate)}">
             </div>
             <div class="field">
-              <label for="f-fs">FamilySearch PID</label>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                <label for="f-fs" style="margin:0;">FamilySearch PID</label>
+                <button type="button" class="link-btn" id="btn-fs-lookup" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">
+                  🔍 Search Tree
+                </button>
+              </div>
               <input id="f-fs" class="mono" type="text" placeholder="MM9R-4K2" value="${esc(p.fsId)}">
             </div>
           </div>
+          <div id="fs-matches-host"></div>
 
 <!-- LOCATION & GLOBAL MAP PIN -->
           <div class="field">
@@ -2958,8 +3076,11 @@
             <textarea id="f-story" placeholder="Write who is here, what happened, or transcribe pencil notes from the back...">${esc(p.story)}</textarea>
           </div>
 
-          <div style="display:flex;gap:8px;margin-top:12px;">
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
             <button class="btn primary" type="button" id="btn-save-meta" style="flex:1;">Save record</button>
+            <button class="btn sm" type="button" id="btn-download-meta" title="Download JPEG with XMP, IPTC & EXIF metadata embedded">
+              💾 Save to File
+            </button>
             ${p.inReview ? `<button class="btn" type="button" id="btn-restore-review">Restore</button>` : ''}
           </div>
 
@@ -3130,16 +3251,72 @@
             }
 
             // Tag person button
-            box.querySelector('#btn-tag-person').onclick = () => {
+            box.querySelector('#btn-tag-person').onclick = async () => {
               const name = nameInput ? nameInput.value.trim() : '';
               if (!name) return;
               const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
               const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
               p.people.push({ name, rel, branch });
               if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
-              notify(`Tagged ${name} (${rel}) on ${p.id}.`);
+              saveItemMetadata(p);
+              notify(`Tagged ${name} (${rel}) on ${p.id}. Querying FamilySearch Tree...`);
               render();
+
+              // Auto-sync PID from FamilySearch
+              if (window.FamilySearchClient) {
+                try {
+                  const matches = await window.FamilySearchClient.searchPersons(name);
+                  if (matches && matches.length > 0) {
+                    const topMatch = matches[0];
+                    if (!p.fsId) {
+                      p.fsId = topMatch.id;
+                      saveItemMetadata(p);
+                      notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
+                      render();
+                    }
+                    showFsPidSuggestions(p, matches);
+                  }
+                } catch (e) {
+                  console.warn('FamilySearch PID lookup failed:', e);
+                }
+              }
             };
+
+            const lookupBtn = box.querySelector('#btn-fs-lookup');
+            if (lookupBtn) {
+              lookupBtn.onclick = async () => {
+                const query = (p.people.length ? p.people[0].name : (p.title || '')).trim();
+                if (!query) {
+                  notify('Please tag a relative or enter a title first to search FamilySearch.');
+                  return;
+                }
+                notify(`Searching FamilySearch Tree for "${query}"...`);
+                if (window.FamilySearchClient) {
+                  try {
+                    const matches = await window.FamilySearchClient.searchPersons(query);
+                    if (matches && matches.length) {
+                      showFsPidSuggestions(p, matches);
+                    } else {
+                      notify(`No FamilySearch Tree matches found for "${query}". You can type/paste the PID.`);
+                    }
+                  } catch (err) {
+                    notify(`FamilySearch search notice: ${err.message}`);
+                  }
+                }
+              };
+            }
+
+            const fFsInput = box.querySelector('#f-fs');
+            if (fFsInput) {
+              fFsInput.oninput = () => {
+                p.fsId = fFsInput.value.trim().toUpperCase();
+                saveItemMetadata(p);
+                const btnFs = box.querySelector('#btn-insp-fs');
+                if (btnFs && !p.fsSynced) {
+                  btnFs.textContent = p.fsId ? `Upload to FamilySearch (${p.fsId})` : 'Upload to FamilySearch';
+                }
+              };
+            }
 
             box.querySelector('#btn-save-meta').onclick = async () => {
               p.title = box.querySelector('#f-title').value.trim() || p.title;
@@ -3158,6 +3335,7 @@
                   if (geo) {
                     p.lat = geo.lat;
                     p.lng = geo.lng;
+                    saveItemMetadata(p);
                     renderSidebarCounts();
                     renderInspector();
                     if (layout === 'map') renderGlobalMap();
@@ -3165,9 +3343,28 @@
                 });
               }
               p.story = box.querySelector('#f-story').value.trim();
-              notify(`Saved EXIF & catalog metadata for ${p.id}.`);
+              saveItemMetadata(p);
+              if (p._handle && window.JpegMetadataWriter) {
+                window.JpegMetadataWriter.writeMetadataToHandle(p._handle, p).catch(() => {});
+              }
+              notify(`Saved metadata for ${p.id} (persisted in browser storage & ready to bake).`);
               render();
             };
+
+            const dlMetaBtn = box.querySelector('#btn-download-meta');
+            if (dlMetaBtn) {
+              dlMetaBtn.onclick = async () => {
+                notify(`Embedding metadata into JPEG file for ${p.id}...`);
+                if (window.JpegMetadataWriter) {
+                  const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(p, p);
+                  if (ok) {
+                    notify(`✓ Downloaded ${p.title || p.file} with embedded metadata!`);
+                  } else {
+                    notify('Could not generate metadata JPEG file.');
+                  }
+                }
+              };
+            }
             box.querySelector('#btn-insp-fs').onclick = async () => {
               if (p.fsSynced && p.fsMemoryId) {
                 const choice = confirm(`Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick OK to open this memory in FamilySearch Beta.\nClick Cancel if you want to re-upload.`);
@@ -5746,6 +5943,8 @@
             return rec;
           });
 
+          restoreCatalogMetadata(items);
+
           selectedId = items[0].id;
           mode = 'catalog';
           document.getElementById('sidebar').classList.remove('open');
@@ -5818,6 +6017,7 @@
       }
 
       mountIcons();
+      restoreCatalogMetadata(items);
       render();
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth();

@@ -428,6 +428,119 @@
     };
   }
 
+  var KNOWN_FAMILY = [
+    { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'gill', 'mom', 'patricia gill', 'patricia josephine gill'] },
+    { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'viola', 'jeff viola', 'jeffrey alan viola'] },
+    { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'baber', 'rayna baber'] },
+    { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'viola', 'brittany viola'] },
+    { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'viola', 'kourtnie viola'] },
+    { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'viola', 'makinzie viola'] }
+  ];
+
+  async function searchPersons(query) {
+    if (!query || !query.trim()) return [];
+    var trimmed = query.trim();
+    var lower = trimmed.toLowerCase();
+
+    // 1. Check local seeds
+    var localMatches = KNOWN_FAMILY.filter(function (f) {
+      if (f.id.toLowerCase() === lower) return true;
+      if (f.name.toLowerCase().includes(lower) || lower.includes(f.name.toLowerCase())) return true;
+      if (f.aliases && f.aliases.some(function (a) { return lower.includes(a) || a.includes(lower); })) return true;
+      return false;
+    });
+
+    var token = getStoredToken();
+    if (!token) {
+      return localMatches;
+    }
+
+    // 2. Direct PID lookup
+    var isPid = /^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed);
+    if (isPid) {
+      try {
+        var pidRes = await fetch(API_BASE + '/platform/tree/persons/' + trimmed.toUpperCase(), {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-gedcomx-v1+json'
+          }
+        });
+        if (pidRes.ok) {
+          var pData = await pidRes.json();
+          var pItem = pData && pData.persons && pData.persons[0];
+          if (pItem) {
+            var d = pItem.display || {};
+            var pName = d.name;
+            if (!pName && pItem.names && pItem.names[0] && pItem.names[0].nameForms && pItem.names[0].nameForms[0]) {
+              pName = pItem.names[0].nameForms[0].fullText;
+            }
+            return [{
+              id: pItem.id || trimmed.toUpperCase(),
+              name: pName || trimmed.toUpperCase(),
+              lifespan: d.lifespan || '',
+              gender: d.gender || ''
+            }];
+          }
+        }
+      } catch (e) {
+        console.warn('Direct PID lookup notice:', e);
+      }
+    }
+
+    // 3. Search Family Tree REST API
+    try {
+      var searchParams = new URLSearchParams();
+      var parts = trimmed.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) {
+        searchParams.set('q.surname', parts[0]);
+      } else {
+        searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
+        searchParams.set('q.surname', parts[parts.length - 1]);
+      }
+      searchParams.set('count', '8');
+
+      var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-gedcomx-atom+json'
+        }
+      });
+
+      if (searchRes.ok) {
+        var sData = await searchRes.json();
+        var entries = sData.entries || [];
+        var serverResults = entries.map(function (e) {
+          var g = e.content && e.content.gedcomx;
+          var pers = g && g.persons && g.persons[0];
+          var disp = pers && pers.display || {};
+          var id = pers && pers.id || (e.id ? e.id.split('/').pop() : null);
+          var name = disp.name || (pers && pers.names && pers.names[0] && pers.names[0].nameForms && pers.names[0].nameForms[0] && pers.names[0].nameForms[0].fullText) || e.title;
+          return {
+            id: id,
+            name: name,
+            lifespan: disp.lifespan || '',
+            gender: disp.gender || ''
+          };
+        }).filter(function (r) { return Boolean(r.id); });
+
+        var seen = new Set();
+        var combined = [];
+        localMatches.forEach(function (m) { seen.add(m.id); combined.push(m); });
+        serverResults.forEach(function (r) {
+          if (!seen.has(r.id)) {
+            seen.add(r.id);
+            combined.push(r);
+          }
+        });
+        return combined;
+      }
+    } catch (searchErr) {
+      console.warn('FamilySearch tree search notice:', searchErr);
+    }
+
+    return localMatches;
+  }
+
   global.FamilySearchClient = {
     getClientId: getClientId,
     getRedirectUri: getRedirectUri,
@@ -439,6 +552,7 @@
     handleCallbackCode: handleCallbackCode,
     getCurrentUser: getCurrentUser,
     uploadMemory: uploadMemory,
+    searchPersons: searchPersons,
     AUTH_URL: AUTH_URL,
     API_BASE: API_BASE,
     WEB_BASE: WEB_BASE
