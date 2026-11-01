@@ -1878,6 +1878,7 @@
   <script src="leaflet/leaflet.js"></script>
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
+  <script src="familysearch-client.js"></script>
   <script>
     (() => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
@@ -2963,8 +2964,10 @@
           </div>
 
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-            <button class="btn sm" type="button" id="btn-insp-fs" style="flex:1;">
-              ${p.fsSynced ? `Synced (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS')}
+            <button class="btn sm ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs" style="flex:1;">
+              ${p.fsSynced
+                ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
+                : (p.fsId ? `Upload to FamilySearch (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
             </button>
             <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
               Copy citation
@@ -3142,8 +3145,11 @@
               p.title = box.querySelector('#f-title').value.trim() || p.title;
               p.isoDate = box.querySelector('#f-date').value.trim();
               p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
+              const oldFsId = p.fsId;
               p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
-              p.fsSynced = Boolean(p.fsId);
+              if (p.fsId !== oldFsId || !p.fsMemoryId) {
+                p.fsSynced = Boolean(p.fsMemoryId);
+              }
               const newPlace = box.querySelector('#f-place').value.trim();
               p.place = newPlace;
               if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
@@ -3162,11 +3168,15 @@
               notify(`Saved EXIF & catalog metadata for ${p.id}.`);
               render();
             };
-            box.querySelector('#btn-insp-fs').onclick = () => {
-              if (!fsUser) {
-                signInFamilySearch();
+            box.querySelector('#btn-insp-fs').onclick = async () => {
+              if (p.fsSynced && p.fsMemoryId) {
+                const choice = confirm(`Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick OK to open this memory in FamilySearch Beta.\nClick Cancel if you want to re-upload.`);
+                if (choice) {
+                  window.open(`https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`, '_blank');
+                  return;
+                }
               }
-              uploadPrintToFamilySearch(p);
+              await uploadPrintToFamilySearch(p);
               render();
             };
             box.querySelector('#btn-insp-cite').onclick = () => {
@@ -4937,19 +4947,138 @@
                                    GENEALOGY AUTH, CITATION HELPERS & 3-SITE SYNC / EXPORT HUB
                                    ================================================================= */
                                 function signInFamilySearch() {
-                                  fsUser = { name: 'Jeff Viola', pid: 'KWJ8-102' };
-                                  notify('Signed in to FamilySearch.org via OAuth2 PKCE (Jeff Viola · KWJ8-102).');
+                                  if (window.FamilySearchClient) {
+                                    notify('Redirecting to FamilySearch Beta OAuth2 login...');
+                                    window.FamilySearchClient.startLogin();
+                                  } else {
+                                    notify('FamilySearch client library not loaded yet.');
+                                  }
                                 }
 
-                                function uploadPrintToFamilySearch(p) {
-                                  if (p.fsSynced && p.fsId) {
-                                    notify(`${p.id} is already synced to FamilySearch Memories (${p.fsId}).`);
+                                async function uploadPrintToFamilySearch(p) {
+                                  if (!window.FamilySearchClient) {
+                                    notify('FamilySearch client library not loaded.');
                                     return;
                                   }
-                                  const suffix = p.id.replace('FH-', '');
-                                  p.fsId = p.fsId || `MM9R-${suffix}A`;
-                                  p.fsSynced = true;
-                                  notify(`Uploaded ${p.id} + ${p.people.length} person tag(s) to FamilySearch Memories (${p.fsId}).`);
+                                  const token = window.FamilySearchClient.getStoredToken();
+                                  if (!token) {
+                                    const doAuth = confirm('You are not signed in to FamilySearch.\n\nClick OK to sign in securely with your FamilySearch account via OAuth2.');
+                                    if (doAuth) {
+                                      window.FamilySearchClient.startLogin();
+                                    }
+                                    return;
+                                  }
+
+                                  notify(`Preparing "${p.title}" for FamilySearch upload...`);
+                                  let imageBlob = null;
+                                  try {
+                                    if (p._file && (!p.edits || p.edits.length === 0) && !p.rotation && !p.restored4k) {
+                                      imageBlob = p._file;
+                                    } else {
+                                      const srcUrl = afterSrc(p);
+                                      const res = await fetch(srcUrl);
+                                      imageBlob = await res.blob();
+                                    }
+                                  } catch (blobErr) {
+                                    console.error('Failed to obtain image data:', blobErr);
+                                    notify(`Failed to prepare image: ${blobErr.message}`);
+                                    return;
+                                  }
+
+                                  try {
+                                    const targetPid = p.fsId ? p.fsId.trim().toUpperCase() : null;
+                                    notify(`Uploading "${p.title}" to FamilySearch Beta Memories${targetPid ? ` (Person ${targetPid})` : ''}...`);
+                                    const result = await window.FamilySearchClient.uploadMemory({
+                                      photo: p,
+                                      imageBlob: imageBlob,
+                                      title: p.title,
+                                      story: p.story,
+                                      isoDate: p.isoDate,
+                                      place: p.place,
+                                      people: p.people,
+                                      targetPersonId: targetPid,
+                                      onProgress: (status) => {
+                                        if (status && status.message) notify(status.message);
+                                      }
+                                    });
+
+                                    if (result && result.success) {
+                                      p.fsSynced = true;
+                                      p.fsMemoryId = result.memoryId;
+                                      notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
+                                      
+                                      setTimeout(() => {
+                                        if (result.personMemoriesUrl) {
+                                          const openTab = confirm(`✓ Memory #${result.memoryId} successfully attached to ${targetPid} on FamilySearch!\n\nOpen ${targetPid} Memories tab in beta.familysearch.org now?`);
+                                          if (openTab) {
+                                            window.open(result.personMemoriesUrl, '_blank');
+                                          }
+                                        } else if (result.memoryUrl) {
+                                          const openTab = confirm(`✓ Memory #${result.memoryId} created!\n\nOpen memory in beta.familysearch.org now?`);
+                                          if (openTab) {
+                                            window.open(result.memoryUrl, '_blank');
+                                          }
+                                        }
+                                      }, 300);
+                                    }
+                                  } catch (err) {
+                                    console.error('FamilySearch upload error:', err);
+                                    if (String(err).includes('401') || String(err).includes('token')) {
+                                      window.FamilySearchClient.clearToken();
+                                      fsUser = null;
+                                      render();
+                                      const retry = confirm('Your FamilySearch login session has expired.\n\nClick OK to re-authenticate with FamilySearch Beta.');
+                                      if (retry) {
+                                        window.FamilySearchClient.startLogin();
+                                      }
+                                    } else {
+                                      notify(`FamilySearch upload failed: ${err.message || err}`);
+                                    }
+                                  } finally {
+                                    render();
+                                  }
+                                }
+
+                                async function initFamilySearchAuth() {
+                                  if (!window.FamilySearchClient) return;
+                                  const params = new URLSearchParams(window.location.search);
+                                  const code = params.get('code');
+                                  const error = params.get('error');
+                                  if (error) {
+                                    notify(`FamilySearch sign in cancelled or error: ${error}`);
+                                    cleanUrlOAuthParams();
+                                  } else if (code) {
+                                    try {
+                                      notify('Exchanging FamilySearch authorization code...');
+                                      await window.FamilySearchClient.handleCallbackCode(code);
+                                      cleanUrlOAuthParams();
+                                      notify('✓ Connected to FamilySearch Beta!');
+                                    } catch (e) {
+                                      console.error('FamilySearch callback error:', e);
+                                      cleanUrlOAuthParams();
+                                      notify(`FamilySearch sign in error: ${e.message}`);
+                                    }
+                                  }
+
+                                  try {
+                                    const user = await window.FamilySearchClient.getCurrentUser();
+                                    if (user) {
+                                      fsUser = {
+                                        name: user.contactName || 'Jeff Viola',
+                                        pid: user.treePersonId || ''
+                                      };
+                                      render();
+                                    }
+                                  } catch (e) {
+                                    console.warn('FamilySearch user load error:', e);
+                                  }
+                                }
+
+                                function cleanUrlOAuthParams() {
+                                  try {
+                                    const cleanUrl = window.location.origin + window.location.pathname;
+                                    window.history.replaceState({}, document.title, cleanUrl);
+                                  } catch (e) {}
                                 }
 
                                 function formatExportFilename(p) {
@@ -5012,6 +5141,16 @@
                     Sign in to FamilySearch.org
                   </button>
                 `}
+                <div style="margin-top:8px;font-size:11px;background:var(--ground);padding:6px 8px;border-radius:6px;border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+                    <span style="font-weight:600;color:var(--text);">OAuth Redirect URI:</span>
+                    <div style="display:flex;gap:4px;">
+                      <button type="button" class="btn sm" id="btn-fs-noslash" style="font-size:10px;padding:1px 6px;">No Slash</button>
+                      <button type="button" class="btn sm" id="btn-fs-slash" style="font-size:10px;padding:1px 6px;">With Slash (/)</button>
+                    </div>
+                  </div>
+                  <code style="font-size:10px;word-break:break-all;color:var(--muted);">${window.FamilySearchClient ? esc(window.FamilySearchClient.getRedirectUri()) : ''}</code>
+                </div>
               </div>
 
               <div>
@@ -5103,39 +5242,67 @@
           </div>
         `;
 
+                                  const noSlashBtn = host.querySelector('#btn-fs-noslash');
+                                  if (noSlashBtn) {
+                                    noSlashBtn.onclick = () => {
+                                      const cur = window.FamilySearchClient.getRedirectUri();
+                                      const target = cur.endsWith('/') ? cur.slice(0, -1) : cur;
+                                      window.FamilySearchClient.setRedirectUri(target);
+                                      notify(`FamilySearch Redirect URI set to: ${target}`);
+                                      render();
+                                    };
+                                  }
+                                  const slashBtn = host.querySelector('#btn-fs-slash');
+                                  if (slashBtn) {
+                                    slashBtn.onclick = () => {
+                                      const cur = window.FamilySearchClient.getRedirectUri();
+                                      const target = cur.endsWith('/') ? cur : `${cur}/`;
+                                      window.FamilySearchClient.setRedirectUri(target);
+                                      notify(`FamilySearch Redirect URI set to: ${target}`);
+                                      render();
+                                    };
+                                  }
                                   const signInBtn = host.querySelector('#btn-sync-signin');
                                   if (signInBtn) {
                                     signInBtn.onclick = () => {
                                       signInFamilySearch();
-                                      render();
                                     };
                                   }
                                   const signOutBtn = host.querySelector('#btn-sync-signout');
                                   if (signOutBtn) {
                                     signOutBtn.onclick = () => {
+                                      if (window.FamilySearchClient) window.FamilySearchClient.clearToken();
                                       fsUser = null;
                                       notify('Signed out of FamilySearch.');
                                       render();
                                     };
                                   }
                                   host.querySelectorAll('[data-fs-one]').forEach((btn) => {
-                                    btn.onclick = () => {
-                                      if (!fsUser) signInFamilySearch();
+                                    btn.onclick = async () => {
                                       const item = items.find((x) => x.id === btn.getAttribute('data-fs-one'));
-                                      if (item) uploadPrintToFamilySearch(item);
-                                      render();
+                                      if (item) {
+                                        btn.disabled = true;
+                                        btn.textContent = 'Uploading...';
+                                        await uploadPrintToFamilySearch(item);
+                                        render();
+                                      }
                                     };
                                   });
                                   const uploadAllBtn = host.querySelector('#btn-fs-upload-all');
                                   if (uploadAllBtn) {
-                                    uploadAllBtn.onclick = () => {
-                                      if (!fsUser) signInFamilySearch();
-                                      unsynced.forEach((item) => {
-                                        const suffix = item.id.replace('FH-', '');
-                                        item.fsId = item.fsId || `MM9R-${suffix}A`;
-                                        item.fsSynced = true;
-                                      });
-                                      notify(`Uploaded ${unsynced.length} prints directly to FamilySearch Memories.`);
+                                    uploadAllBtn.onclick = async () => {
+                                      if (!fsUser) {
+                                        signInFamilySearch();
+                                        return;
+                                      }
+                                      uploadAllBtn.disabled = true;
+                                      for (let i = 0; i < unsynced.length; i++) {
+                                        const item = unsynced[i];
+                                        uploadAllBtn.textContent = `Uploading ${i + 1} of ${unsynced.length}...`;
+                                        await uploadPrintToFamilySearch(item);
+                                      }
+                                      uploadAllBtn.disabled = false;
+                                      notify(`Completed upload of ${unsynced.length} prints to FamilySearch Memories!`);
                                       render();
                                     };
                                   }
@@ -5435,6 +5602,7 @@
               restored4k: false,
               fsId: '',
               fsSynced: false,
+              fsMemoryId: '',
               inReview: false,
               screenshot: /screen|capture|snap/i.test(file.name),
               crop: '50% 50%',
@@ -5651,6 +5819,9 @@
 
       mountIcons();
       render();
+      if (typeof initFamilySearchAuth === 'function') {
+        initFamilySearchAuth();
+      }
     })();
   </script>
 </body>

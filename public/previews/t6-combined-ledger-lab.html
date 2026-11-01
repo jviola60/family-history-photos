@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Combined Concept — Genealogist's Ledger + Light Table + Photo Lab</title>
+  <title>Family History Photos — Mom's Family Memory Assistant &amp; 4K Photo Restorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -1504,20 +1504,17 @@
       background: #e4e2de;
       z-index: 1;
     }
-
     .leaflet-popup-content-wrapper {
       border-radius: 8px;
       padding: 0;
       overflow: hidden;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.22);
       border: 1px solid var(--border);
     }
-
     .leaflet-popup-content {
       margin: 10px;
       line-height: 1.4;
     }
-
     .photo-map-pin {
       width: 34px;
       height: 34px;
@@ -1528,32 +1525,27 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.35);
       cursor: pointer;
       transition: transform 140ms ease, box-shadow 140ms ease;
     }
-
     .photo-map-pin:hover {
       transform: scale(1.22);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.5);
       z-index: 1000 !important;
     }
-
     .photo-map-pin.branch-Gill {
       background: #1e3a6d;
       border-color: #eef1f8;
     }
-
     .photo-map-pin.branch-Costello {
       background: #144943;
       border-color: #e8f3f1;
     }
-
     .photo-map-pin.branch-Russo {
       background: #61213b;
       border-color: #f6ecf0;
     }
-
     .map-filter-btn {
       font-size: 11px;
       padding: 4px 9px;
@@ -1565,13 +1557,11 @@
       font-weight: 500;
       transition: all 120ms ease;
     }
-
     .map-filter-btn.active {
       background: var(--primary);
       color: var(--primary-ink);
       border-color: var(--primary);
     }
-
     .person-tag-row {
       display: flex;
       align-items: center;
@@ -1582,11 +1572,9 @@
       border-radius: 6px;
       padding: 6px 8px;
     }
-
     .person-tag-row:hover {
       border-color: var(--control);
     }
-
     .btn-del-person {
       background: none;
       border: none;
@@ -1597,11 +1585,11 @@
       padding: 2px 5px;
       border-radius: 4px;
     }
-
     .btn-del-person:hover {
       color: var(--negative);
       background: #fee2e2;
     }
+  
   </style>
 </head>
 
@@ -1618,8 +1606,7 @@
         <button class="btn primary folder-pick-btn" type="button" id="btn-choose-folder">
           <span data-icon="folder"></span><span>Choose Photo Folder...</span>
         </button>
-        <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo"
-          title="Remove sample photos to work with your own real scans">
+        <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
           ✕ Clear Demo Photos
         </button>
         <div class="folder-current">
@@ -1658,10 +1645,10 @@
       <div id="folder-nav"></div>
 
       <div class="sidebar-foot">
-        <a href="../classic.html" class="nav-item sidebar-back" title="Switch to previous classic version">
+        <a href="./classic.html" class="nav-item sidebar-back" title="Switch to previous classic version">
           <span data-icon="folder"></span><span>Previous Classic View</span>
         </a>
-        <a href="index.html" class="nav-item sidebar-back">
+        <a href="./previews/index.html" class="nav-item sidebar-back">
           <span data-icon="arrowLeft"></span><span>All design previews</span>
         </a>
       </div>
@@ -1681,8 +1668,7 @@
         <button class="btn sm" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
           <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
         </button>
-        <button class="btn sm" type="button" id="btn-top-clear-demo"
-          title="Clear sample demo prints to load your own photos">
+        <button class="btn sm" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
           ✕ Clear Demo
         </button>
         <button class="btn sm" type="button" id="btn-fs-auth">
@@ -1892,6 +1878,7 @@
   <script src="leaflet/leaflet.js"></script>
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
+  <script src="familysearch-client.js"></script>
   <script>
     (() => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
@@ -2198,136 +2185,136 @@
         }
       }
 
-      function isLowRes(p) {
-        return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
-      }
-
-      function filteredItems() {
-        return items.filter((p) => {
-          if (activeFolder) {
-            if (p.subfolder !== activeFolder) return false;
-          } else {
-            if (activeQueue === 'review') return p.inReview;
-            if (activeQueue === 'screenshots') return p.screenshot;
-            if (p.inReview && activeQueue !== 'duplicates') return false;
-            if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
-            if (activeQueue === 'unsynced' && p.fsSynced) return false;
-            if (activeQueue === 'lowres' && !isLowRes(p)) return false;
+          function isLowRes(p) {
+            return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
           }
-          if (search) {
-            const hay = `${p.id} ${p.file} ${p.title} ${p.place} ${p.fsId} ${p.people.map((x) => x.name).join(' ')}`.toLowerCase();
-            if (!hay.includes(search)) return false;
+
+          function filteredItems() {
+            return items.filter((p) => {
+              if (activeFolder) {
+                if (p.subfolder !== activeFolder) return false;
+              } else {
+                if (activeQueue === 'review') return p.inReview;
+                if (activeQueue === 'screenshots') return p.screenshot;
+                if (p.inReview && activeQueue !== 'duplicates') return false;
+                if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
+                if (activeQueue === 'unsynced' && p.fsSynced) return false;
+                if (activeQueue === 'lowres' && !isLowRes(p)) return false;
+              }
+              if (search) {
+                const hay = `${p.id} ${p.file} ${p.title} ${p.place} ${p.fsId} ${p.people.map((x) => x.name).join(' ')}`.toLowerCase();
+                if (!hay.includes(search)) return false;
+              }
+              return true;
+            });
           }
-          return true;
-        });
-      }
 
-      function openPhotoLab(id, tool) {
-        if (id) selectedId = id;
-        if (tool) activeTool = tool;
-        panX = 0;
-        panY = 0;
-        mode = 'lab';
-        render();
-      }
+          function openPhotoLab(id, tool) {
+            if (id) selectedId = id;
+            if (tool) activeTool = tool;
+            panX = 0;
+            panY = 0;
+            mode = 'lab';
+            render();
+          }
 
-      function renderSidebarCounts() {
-        document.getElementById('sidebar-folder-name').textContent = rootFolderName;
-        document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
-        document.getElementById('btn-reset-sample').hidden = !isCustomFolder;
+          function renderSidebarCounts() {
+            document.getElementById('sidebar-folder-name').textContent = rootFolderName;
+            document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
+            document.getElementById('btn-reset-sample').hidden = !isCustomFolder;
 
-        const toggleDemoBtn = document.getElementById('btn-toggle-demo');
-        const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
-        if (items.length === 0) {
-          if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
-          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
-        } else if (isCustomFolder) {
-          if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
-          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
-        } else {
-          if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Demo Photos';
-          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Demo';
-        }
+            const toggleDemoBtn = document.getElementById('btn-toggle-demo');
+            const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
+            if (items.length === 0) {
+              if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
+              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
+            } else if (isCustomFolder) {
+              if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
+              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
+            } else {
+              if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Demo Photos';
+              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Demo';
+            }
 
-        const s = stats(items);
-        document.getElementById('q-all').textContent = s.activeCount;
-        document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
-        document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
-        document.getElementById('q-lowres').textContent = s.lowResCount;
-        document.getElementById('q-dups').textContent = (duplicateResolved || isCustomFolder) ? '0' : '1';
-        document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot).length;
-        document.getElementById('q-review').textContent = s.reviewCount;
+            const s = stats(items);
+            document.getElementById('q-all').textContent = s.activeCount;
+            document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
+            document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
+            document.getElementById('q-lowres').textContent = s.lowResCount;
+            document.getElementById('q-dups').textContent = (duplicateResolved || isCustomFolder) ? '0' : '1';
+            document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot).length;
+            document.getElementById('q-review').textContent = s.reviewCount;
 
-        document.getElementById('kpi-active').textContent = s.activeCount;
-        document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in _Duplicates_Review`;
-        document.getElementById('kpi-faces').textContent = s.unnamedFacesTotal;
-        document.getElementById('kpi-faces-note').textContent = `Across ${s.unnamedPhotoCount} prints`;
-        const totalNeedOrDone = s.restoredCount + s.lowResCount;
-        document.getElementById('kpi-repairs').textContent = `${s.restoredCount} / ${totalNeedOrDone}`;
-        document.getElementById('kpi-repairs-note').textContent = `${s.lowResCount} small scans ready for Lab`;
-        document.getElementById('kpi-fs').textContent = `${s.fsSyncedCount} / ${s.activeCount}`;
+            document.getElementById('kpi-active').textContent = s.activeCount;
+            document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in _Duplicates_Review`;
+            document.getElementById('kpi-faces').textContent = s.unnamedFacesTotal;
+            document.getElementById('kpi-faces-note').textContent = `Across ${s.unnamedPhotoCount} prints`;
+            const totalNeedOrDone = s.restoredCount + s.lowResCount;
+            document.getElementById('kpi-repairs').textContent = `${s.restoredCount} / ${totalNeedOrDone}`;
+            document.getElementById('kpi-repairs-note').textContent = `${s.lowResCount} small scans ready for Lab`;
+            document.getElementById('kpi-fs').textContent = `${s.fsSyncedCount} / ${s.activeCount}`;
 
-        const folders = {};
-        items.filter((p) => !p.inReview).forEach((p) => {
-          folders[p.subfolder] = (folders[p.subfolder] || 0) + 1;
-        });
-        const fNav = document.getElementById('folder-nav');
-        fNav.innerHTML = Object.entries(folders).map(([name, cnt]) => `
+            const folders = {};
+            items.filter((p) => !p.inReview).forEach((p) => {
+              folders[p.subfolder] = (folders[p.subfolder] || 0) + 1;
+            });
+            const fNav = document.getElementById('folder-nav');
+            fNav.innerHTML = Object.entries(folders).map(([name, cnt]) => `
           <button class="nav-item" type="button" data-folder="${esc(name)}" aria-current="${activeFolder === name ? 'page' : 'false'}">
             <span data-icon="folder"></span>
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(name)}</span>
             <span class="nav-count">${cnt}</span>
           </button>
         `).join('');
-        mountIcons(fNav);
+            mountIcons(fNav);
 
-        fNav.querySelectorAll('[data-folder]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            activeFolder = btn.getAttribute('data-folder');
-            activeQueue = '';
-            mode = 'catalog';
-            document.getElementById('sidebar').classList.remove('open');
-            render();
-          });
-        });
+            fNav.querySelectorAll('[data-folder]').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                activeFolder = btn.getAttribute('data-folder');
+                activeQueue = '';
+                mode = 'catalog';
+                document.getElementById('sidebar').classList.remove('open');
+                render();
+              });
+            });
 
-        document.querySelectorAll('[data-queue]').forEach((btn) => {
-          const q = btn.getAttribute('data-queue');
-          btn.setAttribute('aria-current', (!activeFolder && activeQueue === q) ? 'page' : 'false');
-        });
-      }
+            document.querySelectorAll('[data-queue]').forEach((btn) => {
+              const q = btn.getAttribute('data-queue');
+              btn.setAttribute('aria-current', (!activeFolder && activeQueue === q) ? 'page' : 'false');
+            });
+          }
 
-      function renderCharts() {
-        const drawer = document.getElementById('charts-drawer');
-        drawer.hidden = !showCharts;
-        if (!showCharts) return;
+          function renderCharts() {
+            const drawer = document.getElementById('charts-drawer');
+            drawer.hidden = !showCharts;
+            if (!showCharts) return;
 
-        const active = items.filter((p) => !p.inReview);
-        const order = ['1950s', '1960s', '1970s', '1980s', '1990s', '2000s'];
-        const values = order.map((d) => active.filter((p) => p.decade === d).length);
-        window.Charts.bars(document.getElementById('chart-decades'), {
-          labels: order,
-          values,
-          highlight: [1, 2],
-          height: 156
-        });
+            const active = items.filter((p) => !p.inReview);
+            const order = ['1950s', '1960s', '1970s', '1980s', '1990s', '2000s'];
+            const values = order.map((d) => active.filter((p) => p.decade === d).length);
+            window.Charts.bars(document.getElementById('chart-decades'), {
+              labels: order,
+              values,
+              highlight: [1, 2],
+              height: 156
+            });
 
-        const brData = ['Gill', 'Costello', 'Russo'].map((b) => {
-          const stories = active.filter((p) => p.branch === b && p.story).length;
-          return {
-            label: `${b} branch (${stories} ${stories === 1 ? 'story' : 'stories'})`,
-            value: active.filter((p) => p.branch === b).length
-          };
-        });
-        window.Charts.barList(document.getElementById('chart-branches'), brData);
-      }
+            const brData = ['Gill', 'Costello', 'Russo'].map((b) => {
+              const stories = active.filter((p) => p.branch === b && p.story).length;
+              return {
+                label: `${b} branch (${stories} ${stories === 1 ? 'story' : 'stories'})`,
+                value: active.filter((p) => p.branch === b).length
+              };
+            });
+            window.Charts.barList(document.getElementById('chart-branches'), brData);
+          }
 
-      function renderCatalogCenter() {
-        const host = document.getElementById('catalog-center');
+          function renderCatalogCenter() {
+            const host = document.getElementById('catalog-center');
 
-        /* Empty state when demo prints are cleared */
-        if (items.length === 0) {
-          host.innerHTML = `
+            /* Empty state when demo prints are cleared */
+            if (items.length === 0) {
+              host.innerHTML = `
                 <div class="panel" style="padding:48px 24px;text-align:center;max-width:620px;margin:28px auto;">
                   <div style="width:56px;height:56px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
                     <span data-icon="folder" style="font-size:24px;"></span>
@@ -2348,27 +2335,27 @@
                     100% private: All scans and edits stay in your browser on your computer.
                   </p>
                 </div>`;
-          mountIcons(host);
-          host.querySelector('#btn-empty-choose').onclick = pickPhotoFolder;
-          host.querySelector('#btn-empty-reload-demo').onclick = resetToSampleArchive;
-          return;
-        }
+              mountIcons(host);
+              host.querySelector('#btn-empty-choose').onclick = pickPhotoFolder;
+              host.querySelector('#btn-empty-reload-demo').onclick = resetToSampleArchive;
+              return;
+            }
 
-        /* Special Batch Queue: Find Duplicates side-by-side comparison */
-        if (!activeFolder && activeQueue === 'duplicates') {
-          const orig = items.find((p) => p.id === 'FH-001');
-          const copy = items.find((p) => p.id === 'FH-008');
-          if (duplicateResolved || !orig || !copy) {
-            host.innerHTML = `
+            /* Special Batch Queue: Find Duplicates side-by-side comparison */
+            if (!activeFolder && activeQueue === 'duplicates') {
+              const orig = items.find((p) => p.id === 'FH-001');
+              const copy = items.find((p) => p.id === 'FH-008');
+              if (duplicateResolved || !orig || !copy) {
+                host.innerHTML = `
               <div class="panel" style="padding:28px;text-align:center;">
                 <p style="font-weight:600;">No duplicate pairs pending review</p>
                 <p class="muted" style="font-size:13px;margin-top:4px;">Smaller copies are safely held in _Duplicates_Review until you empty it.</p>
                 <button class="btn sm" type="button" style="margin-top:12px;" id="btn-see-all">Return to all prints</button>
               </div>`;
-            host.querySelector('#btn-see-all').onclick = () => { activeQueue = 'all'; render(); };
-            return;
-          }
-          host.innerHTML = `
+                host.querySelector('#btn-see-all').onclick = () => { activeQueue = 'all'; render(); };
+                return;
+              }
+              host.innerHTML = `
             <div class="panel">
               <div class="panel-head">
                 <h2>Duplicate pair 1 of 1 — 98% visual match</h2>
@@ -2399,33 +2386,33 @@
                 <button class="btn" type="button" id="btn-ignore-dup">Keep both prints</button>
               </div>
             </div>`;
-          host.querySelector('#btn-keep-master').onclick = () => {
-            copy.inReview = true;
-            duplicateResolved = true;
-            notify('Kept FH-001 master; FH-008 safely staged in _Duplicates_Review.');
-            render();
-          };
-          host.querySelector('#btn-ignore-dup').onclick = () => {
-            duplicateResolved = true;
-            notify('Marked pair as distinct prints to keep.');
-            render();
-          };
-          return;
-        }
+              host.querySelector('#btn-keep-master').onclick = () => {
+                copy.inReview = true;
+                duplicateResolved = true;
+                notify('Kept FH-001 master; FH-008 safely staged in _Duplicates_Review.');
+                render();
+              };
+              host.querySelector('#btn-ignore-dup').onclick = () => {
+                duplicateResolved = true;
+                notify('Marked pair as distinct prints to keep.');
+                render();
+              };
+              return;
+            }
 
-        const list = filteredItems();
-        if (!list.find((p) => p.id === selectedId) && list[0]) {
-          selectedId = list[0].id;
-        }
+            const list = filteredItems();
+            if (!list.find((p) => p.id === selectedId) && list[0]) {
+              selectedId = list[0].id;
+            }
 
-        if (list.length === 0) {
-          host.innerHTML = `<div class="panel" style="padding:28px;text-align:center;"><p style="font-weight:500;">No matching prints in this queue</p><p class="muted" style="font-size:13px;margin-top:4px;">Clear search or pick All album prints on the left.</p></div>`;
-          return;
-        }
+            if (list.length === 0) {
+              host.innerHTML = `<div class="panel" style="padding:28px;text-align:center;"><p style="font-weight:500;">No matching prints in this queue</p><p class="muted" style="font-size:13px;margin-top:4px;">Clear search or pick All album prints on the left.</p></div>`;
+              return;
+            }
 
-        /* #4 GENEALOGIST'S LEDGER TABLE */
-        if (layout === 'ledger') {
-          host.innerHTML = `
+            /* #4 GENEALOGIST'S LEDGER TABLE */
+            if (layout === 'ledger') {
+              host.innerHTML = `
             <div class="table-wrap">
               <table>
                 <thead>
@@ -2440,23 +2427,23 @@
                 </thead>
                 <tbody>
                   ${list.map((p) => {
-            const low = isLowRes(p);
-            const statusPill = p.restored4k
-              ? `<span class="pill pos">4K Restored</span>`
-              : low
-                ? `<span class="pill warn">${p.width}×${p.height} · Low-res</span>`
-                : `<span class="pill neu">${p.width}×${p.height}</span>`;
-            const extraEdits = p.edits.length > (p.restored4k ? 1 : 0)
-              ? `<span class="pill info" style="margin-left:4px;">+${p.edits.length - (p.restored4k ? 1 : 0)} fix</span>`
-              : '';
-            const peopleLine = p.people.length
-              ? p.people.map((x) => `${esc(x.name)}${x.rel ? ` <span class="pill neu" style="font-size:11px;padding:1px 5px;font-weight:600;background:var(--raised);border:1px solid var(--border);border-radius:4px;">${esc(x.rel)}</span>` : ''}`).join(', ')
-              : `<span class="muted">Unidentified</span>`;
-            const faceNote = p.unnamedFaces > 0
-              ? ` <span class="pill warn" style="margin-left:4px;">${p.unnamedFaces} unnamed</span>`
-              : '';
+                const low = isLowRes(p);
+                const statusPill = p.restored4k
+                  ? `<span class="pill pos">4K Restored</span>`
+                  : low
+                    ? `<span class="pill warn">${p.width}×${p.height} · Low-res</span>`
+                    : `<span class="pill neu">${p.width}×${p.height}</span>`;
+                const extraEdits = p.edits.length > (p.restored4k ? 1 : 0)
+                  ? `<span class="pill info" style="margin-left:4px;">+${p.edits.length - (p.restored4k ? 1 : 0)} fix</span>`
+                  : '';
+                const peopleLine = p.people.length
+                  ? p.people.map((x) => `${esc(x.name)}${x.rel ? ` <span class="pill neu" style="font-size:11px;padding:1px 5px;font-weight:600;background:var(--raised);border:1px solid var(--border);border-radius:4px;">${esc(x.rel)}</span>` : ''}`).join(', ')
+                  : `<span class="muted">Unidentified</span>`;
+                const faceNote = p.unnamedFaces > 0
+                  ? ` <span class="pill warn" style="margin-left:4px;">${p.unnamedFaces} unnamed</span>`
+                  : '';
 
-            return `
+                return `
                       <tr data-row="${esc(p.id)}" aria-selected="${p.id === selectedId ? 'true' : 'false'}">
                         <td>
                           <div class="plate-cell">
@@ -2481,15 +2468,15 @@
                         </td>
                       </tr>
                     `;
-          }).join('')}
+              }).join('')}
                 </tbody>
               </table>
             </div>`;
-        } else {
-          /* #3 GLOBAL MAP VIEW */
-          if (layout === 'map') {
-            const active = items.filter((p) => !p.inReview);
-            host.innerHTML = `
+            } else {
+              /* #3 GLOBAL MAP VIEW */
+            if (layout === 'map') {
+              const active = items.filter((p) => !p.inReview);
+              host.innerHTML = `
                 <div class="map-view-shell" style="display:flex;flex-direction:column;gap:10px;">
                   <div class="map-filter-bar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:var(--surface);padding:8px 12px;border-radius:8px;border:1px solid var(--border);">
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -2520,26 +2507,26 @@
                   <div id="family-global-map" style="height:620px;border-radius:10px;border:1px solid var(--border);overflow:hidden;position:relative;"></div>
                 </div>
               `;
-            mountIcons(host);
-            renderGlobalMap();
-            setupMapFilterListeners();
-            return;
-          }
+              mountIcons(host);
+              renderGlobalMap();
+              setupMapFilterListeners();
+              return;
+            }
 
-          /* #2 CONTACT SHEET SPECIMEN GRID */
-          host.innerHTML = `
+            /* #2 CONTACT SHEET SPECIMEN GRID */
+            host.innerHTML = `
             <div class="contact-grid">
               ${list.map((p) => {
-            const low = isLowRes(p);
-            return `
+                const low = isLowRes(p);
+                return `
                   <article class="specimen" data-row="${esc(p.id)}" aria-selected="${p.id === selectedId ? 'true' : 'false'}">
                     <div class="spec-head">
                       <span class="mono">${esc(p.id)}</span>
                       ${p.restored4k
-                ? '<span class="pill pos">4K Restored</span>'
-                : low
-                  ? `<span class="pill warn">${p.width}×${p.height}</span>`
-                  : `<span class="mono muted">${p.width}×${p.height}</span>`}
+                    ? '<span class="pill pos">4K Restored</span>'
+                    : low
+                      ? `<span class="pill warn">${p.width}×${p.height}</span>`
+                      : `<span class="mono muted">${p.width}×${p.height}</span>`}
                     </div>
                     <div class="spec-frame">
                       <img src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)}">
@@ -2551,33 +2538,33 @@
                     </div>
                   </article>
                 `;
-          }).join('')}
+              }).join('')}
             </div>`;
-        }
+            }
 
-        host.querySelectorAll('[data-row]').forEach((el) => {
-          el.addEventListener('click', (e) => {
-            if (e.target.closest('[data-open-lab]')) return;
-            selectedId = el.getAttribute('data-row');
-            renderCatalogCenter();
-            renderInspector();
-          });
-          el.addEventListener('dblclick', () => {
-            openPhotoLab(el.getAttribute('data-row'), 'restore');
-          });
-        });
+            host.querySelectorAll('[data-row]').forEach((el) => {
+              el.addEventListener('click', (e) => {
+                if (e.target.closest('[data-open-lab]')) return;
+                selectedId = el.getAttribute('data-row');
+                renderCatalogCenter();
+                renderInspector();
+              });
+              el.addEventListener('dblclick', () => {
+                openPhotoLab(el.getAttribute('data-row'), 'restore');
+              });
+            });
 
-        host.querySelectorAll('[data-open-lab]').forEach((btn) => {
-          btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const id = btn.getAttribute('data-open-lab');
-            const target = items.find((x) => x.id === id);
-            openPhotoLab(id, isLowRes(target) ? 'restore' : 'tone');
-          });
-        });
-      }
+            host.querySelectorAll('[data-open-lab]').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.getAttribute('data-open-lab');
+                const target = items.find((x) => x.id === id);
+                openPhotoLab(id, isLowRes(target) ? 'restore' : 'tone');
+              });
+            });
+          }
 
-
+          
       
       async function geocodeAddress(query) {
         if (!query || !query.trim()) return null;
@@ -2835,25 +2822,25 @@
       }
 
       function renderInspector() {
-        const p = currentPhoto();
-        const box = document.getElementById('catalog-inspector');
+            const p = currentPhoto();
+            const box = document.getElementById('catalog-inspector');
 
-        if (!p) {
-          box.innerHTML = `
+            if (!p) {
+              box.innerHTML = `
                 <div style="padding:32px 16px;text-align:center;">
                   <p class="muted" style="font-size:13px;line-height:1.5;">No photo selected. Open a photo folder or reload demo data.</p>
                   <button class="btn sm primary" type="button" style="margin-top:12px;width:100%;" id="insp-choose-empty">
                     <span data-icon="folder"></span> Choose Photo Folder...
                   </button>
                 </div>`;
-          mountIcons(box);
-          box.querySelector('#insp-choose-empty').onclick = pickPhotoFolder;
-          return;
-        }
+              mountIcons(box);
+              box.querySelector('#insp-choose-empty').onclick = pickPhotoFolder;
+              return;
+            }
 
-        const bStyle = branches[p.branch] || branches.Gill;
+            const bStyle = branches[p.branch] || branches.Gill;
 
-        box.innerHTML = `
+            box.innerHTML = `
           <div class="insp-top">
             <span class="mono" style="font-weight:500;">${esc(p.id)} · ${p.width}×${p.height}</span>
             <span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>
@@ -2894,19 +2881,25 @@
             </div>
           </div>
 
-          <!-- LOCATION & GLOBAL MAP PIN -->
+<!-- LOCATION & GLOBAL MAP PIN -->
           <div class="field">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
               <label for="f-place" style="margin:0;font-weight:600;">Location &amp; Map Pin</label>
               ${(typeof p.lat === 'number' && typeof p.lng === 'number')
-            ? `<span class="pill pos" style="font-size:10px;padding:2px 6px;">📍 Pinned (${p.lat.toFixed(2)}°, ${p.lng.toFixed(2)}°)</span>`
-            : `<span class="pill warn" style="font-size:10px;padding:2px 6px;">Unpinned</span>`}
+                ? `<span class="pill pos" style="font-size:10px;padding:2px 6px;">📍 Pinned (${p.lat.toFixed(2)}°, ${p.lng.toFixed(2)}°)</span>`
+                : `<span class="pill warn" style="font-size:10px;padding:2px 6px;">Unpinned</span>`}
             </div>
             <div style="display:flex;gap:6px;">
-              <input id="f-place" type="text" placeholder="e.g. Swallow Cliff Woods, Palos Park, IL" value="${esc(p.place)}" style="flex:1;">
-              <button class="btn sm" type="button" id="btn-show-map" title="View or drop pin on the Global Map">
+              <input id="f-place" type="text" placeholder="e.g. 1633 W Wooster St, Bowling Green, OH" value="${esc(p.place)}" style="flex:1;">
+              <button class="btn sm" type="button" id="btn-show-map" title="Locate address and view pin on the Global Map">
                 <span data-icon="pin"></span><span>${(typeof p.lat === 'number') ? 'View Pin' : 'Drop Pin'}</span>
               </button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+              <button class="link-btn" type="button" id="btn-auto-geocode" style="font-size:11px;color:var(--accent);text-decoration:underline;">
+                🔍 Auto-Geocode Address &amp; EXIF
+              </button>
+              ${(typeof p.lat === 'number') ? `<button class="link-btn" type="button" id="btn-clear-pin" style="font-size:11px;color:var(--negative);">Clear Pin</button>` : ''}
             </div>
           </div>
 
@@ -2927,7 +2920,7 @@
                       <select class="person-rel-select" data-idx="${idx}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--ground);color:var(--text);" title="Change relationship to me">
                         ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}" ${person.rel === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}
                       </select>
-                      ${person.branch ? `<span class="pill" style="font-size:10px;padding:1px 5px;background:${(branches[person.branch] || branches.Gill).bg};color:${(branches[person.branch] || branches.Gill).ink};">${esc(person.branch)}</span>` : ''}
+                      ${person.branch ? `<span class="pill" style="font-size:10px;padding:1px 5px;background:${(branches[person.branch]||branches.Gill).bg};color:${(branches[person.branch]||branches.Gill).ink};">${esc(person.branch)}</span>` : ''}
                     </div>
                   </div>
                   <button type="button" class="btn-del-person" data-idx="${idx}" title="Remove tag for ${esc(person.name)}">✕</button>
@@ -2971,137 +2964,234 @@
           </div>
 
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-            <button class="btn sm" type="button" id="btn-insp-fs" style="flex:1;">
-              ${p.fsSynced ? `Synced (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS')}
+            <button class="btn sm ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs" style="flex:1;">
+              ${p.fsSynced
+                ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
+                : (p.fsId ? `Upload to FamilySearch (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
             </button>
             <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
               Copy citation
             </button>
           </div>
         `;
-        mountIcons(box);
+            mountIcons(box);
 
-        box.querySelector('#insp-rot-l').onclick = () => {
-          pushSnapshot(p);
-          p.rotation = (p.rotation - 90) % 360;
-          addEditLabel(p, 'Rotated');
-          notify(`Rotated ${p.id} counter-clockwise.`);
-          render();
-        };
-        box.querySelector('#insp-rot-r').onclick = () => {
-          pushSnapshot(p);
-          p.rotation = (p.rotation + 90) % 360;
-          addEditLabel(p, 'Rotated');
-          notify(`Rotated ${p.id} clockwise.`);
-          render();
-        };
-        box.querySelector('#insp-open-lab').onclick = () => {
-          openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
-        };
-        // Wire Map Pin button
-        const showMapBtn = box.querySelector('#btn-show-map');
-        if (showMapBtn) {
-          showMapBtn.onclick = () => {
-            layout = 'map';
-            document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === 'map' ? 'true' : 'false'));
-            render();
-          };
-        }
-
-        // Relationship change listener
-        box.querySelectorAll('.person-rel-select').forEach((sel) => {
-          sel.addEventListener('change', (e) => {
-            const idx = parseInt(sel.getAttribute('data-idx'), 10);
-            if (p.people[idx]) {
-              p.people[idx].rel = sel.value;
-              notify(`Updated ${p.people[idx].name}'s relationship to "${sel.value}".`);
-              renderSidebarCounts();
-              renderCatalogCenter();
-            }
-          });
-        });
-
-        // Delete person listener
-        box.querySelectorAll('.btn-del-person').forEach((btn) => {
-          btn.addEventListener('click', (e) => {
-            const idx = parseInt(btn.getAttribute('data-idx'), 10);
-            if (p.people[idx]) {
-              const removed = p.people.splice(idx, 1)[0];
-              p.unnamedFaces = (p.unnamedFaces || 0) + 1;
-              notify(`Removed tag for ${removed.name}.`);
+            box.querySelector('#insp-rot-l').onclick = () => {
+              pushSnapshot(p);
+              p.rotation = (p.rotation - 90) % 360;
+              addEditLabel(p, 'Rotated');
+              notify(`Rotated ${p.id} counter-clockwise.`);
               render();
-            }
-          });
-        });
+            };
+            box.querySelector('#insp-rot-r').onclick = () => {
+              pushSnapshot(p);
+              p.rotation = (p.rotation + 90) % 360;
+              addEditLabel(p, 'Rotated');
+              notify(`Rotated ${p.id} clockwise.`);
+              render();
+            };
+            box.querySelector('#insp-open-lab').onclick = () => {
+              openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
+            };
+            // Wire Map Pin button with automatic address geocoding
+            const showMapBtn = box.querySelector('#btn-show-map');
+            if (showMapBtn) {
+              showMapBtn.onclick = async () => {
+                const placeVal = box.querySelector('#f-place').value.trim();
+                if (placeVal && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                  showMapBtn.disabled = true;
+                  showMapBtn.innerHTML = '<span>Locating...</span>';
+                  const geo = await geocodeAddress(placeVal);
+                  showMapBtn.disabled = false;
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    p.place = placeVal;
+                    notify(`📍 Located "${placeVal}" at ${p.lat}°, ${p.lng}°!`);
+                  } else {
+                    notify(`Could not geocode "${placeVal}". Click anywhere on the map to place pin manually.`);
+                  }
+                }
 
-        // Autocomplete pre-fill relationship & branch
-        const nameInput = box.querySelector('#f-person-name');
-        const relInput = box.querySelector('#f-person-rel');
-        const branchInput = box.querySelector('#f-person-branch');
-        if (nameInput) {
-          nameInput.addEventListener('input', () => {
-            const val = nameInput.value.trim().toLowerCase();
-            for (const item of items) {
-              const match = item.people && item.people.find((pr) => pr.name.toLowerCase() === val);
-              if (match) {
-                if (match.rel && relInput && !relInput.value) relInput.value = match.rel;
-                if (match.branch && branchInput && !branchInput.value) branchInput.value = match.branch;
-                break;
+                layout = 'map';
+                document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === 'map' ? 'true' : 'false'));
+                render();
+
+                if (leafletMap && typeof p.lat === 'number' && typeof p.lng === 'number') {
+                  leafletMap.setView([p.lat, p.lng], 14);
+                }
+              };
+            }
+
+            // Wire Auto-Geocode and EXIF extraction button
+            const autoGeocodeBtn = box.querySelector('#btn-auto-geocode');
+            if (autoGeocodeBtn) {
+              autoGeocodeBtn.onclick = async () => {
+                const placeVal = box.querySelector('#f-place').value.trim();
+                let foundGeo = false;
+
+                if (placeVal) {
+                  autoGeocodeBtn.textContent = 'Geocoding address...';
+                  const geo = await geocodeAddress(placeVal);
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    p.place = placeVal;
+                    foundGeo = true;
+                    notify(`📍 Geocoded "${placeVal}" to [${p.lat}, ${p.lng}].`);
+                  }
+                }
+
+                if (p._file && window.exifr) {
+                  autoGeocodeBtn.textContent = 'Reading EXIF...';
+                  try {
+                    const meta = await window.exifr.parse(p._file, { tiff: true, xmp: true, iptc: true, gps: true });
+                    if (meta) {
+                      const dt = meta.DateTimeOriginal || meta.CreateDate || meta.DateCreated;
+                      if (dt) {
+                        const d = new Date(dt);
+                        if (!isNaN(d.getTime())) p.isoDate = d.toISOString().slice(0, 10);
+                      }
+                      if (typeof meta.latitude === 'number' && typeof meta.longitude === 'number') {
+                        p.lat = Number(meta.latitude.toFixed(5));
+                        p.lng = Number(meta.longitude.toFixed(5));
+                        foundGeo = true;
+                      }
+                      if (meta.title || meta.Headline) p.title = String(meta.title || meta.Headline).trim();
+                      if (meta.description || meta.ImageDescription) p.story = String(meta.description || meta.ImageDescription).trim();
+                      notify(`Extracted embedded EXIF metadata from ${p.file}.`);
+                    }
+                  } catch (err) {
+                    console.warn('EXIF read error:', err);
+                  }
+                }
+
+                autoGeocodeBtn.textContent = '🔍 Auto-Geocode Address & EXIF';
+                renderSidebarCounts();
+                renderInspector();
+                if (layout === 'map') renderGlobalMap();
+              };
+            }
+
+            const clearPinBtn = box.querySelector('#btn-clear-pin');
+            if (clearPinBtn) {
+              clearPinBtn.onclick = () => {
+                p.lat = null;
+                p.lng = null;
+                notify(`Cleared map pin for ${p.id}.`);
+                renderSidebarCounts();
+                renderInspector();
+                if (layout === 'map') renderGlobalMap();
+              };
+            }
+
+            // Relationship change listener
+            box.querySelectorAll('.person-rel-select').forEach((sel) => {
+              sel.addEventListener('change', (e) => {
+                const idx = parseInt(sel.getAttribute('data-idx'), 10);
+                if (p.people[idx]) {
+                  p.people[idx].rel = sel.value;
+                  notify(`Updated ${p.people[idx].name}'s relationship to "${sel.value}".`);
+                  renderSidebarCounts();
+                  renderCatalogCenter();
+                }
+              });
+            });
+
+            // Delete person listener
+            box.querySelectorAll('.btn-del-person').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.getAttribute('data-idx'), 10);
+                if (p.people[idx]) {
+                  const removed = p.people.splice(idx, 1)[0];
+                  p.unnamedFaces = (p.unnamedFaces || 0) + 1;
+                  notify(`Removed tag for ${removed.name}.`);
+                  render();
+                }
+              });
+            });
+
+            // Autocomplete pre-fill relationship & branch
+            const nameInput = box.querySelector('#f-person-name');
+            const relInput = box.querySelector('#f-person-rel');
+            const branchInput = box.querySelector('#f-person-branch');
+            if (nameInput) {
+              nameInput.addEventListener('input', () => {
+                const val = nameInput.value.trim().toLowerCase();
+                for (const item of items) {
+                  const match = item.people && item.people.find((pr) => pr.name.toLowerCase() === val);
+                  if (match) {
+                    if (match.rel && relInput && !relInput.value) relInput.value = match.rel;
+                    if (match.branch && branchInput && !branchInput.value) branchInput.value = match.branch;
+                    break;
+                  }
+                }
+              });
+            }
+
+            // Tag person button
+            box.querySelector('#btn-tag-person').onclick = () => {
+              const name = nameInput ? nameInput.value.trim() : '';
+              if (!name) return;
+              const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
+              const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
+              p.people.push({ name, rel, branch });
+              if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+              notify(`Tagged ${name} (${rel}) on ${p.id}.`);
+              render();
+            };
+
+            box.querySelector('#btn-save-meta').onclick = async () => {
+              p.title = box.querySelector('#f-title').value.trim() || p.title;
+              p.isoDate = box.querySelector('#f-date').value.trim();
+              p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
+              const oldFsId = p.fsId;
+              p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
+              if (p.fsId !== oldFsId || !p.fsMemoryId) {
+                p.fsSynced = Boolean(p.fsMemoryId);
               }
-            }
-          });
-        }
-
-        // Tag person button
-        box.querySelector('#btn-tag-person').onclick = () => {
-          const name = nameInput ? nameInput.value.trim() : '';
-          if (!name) return;
-          const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
-          const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
-          p.people.push({ name, rel, branch });
-          if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
-          notify(`Tagged ${name} (${rel}) on ${p.id}.`);
-          render();
-        };
-
-        box.querySelector('#btn-save-meta').onclick = () => {
-          p.title = box.querySelector('#f-title').value.trim() || p.title;
-          p.isoDate = box.querySelector('#f-date').value.trim();
-          p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
-          p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
-          p.fsSynced = Boolean(p.fsId);
-          const newPlace = box.querySelector('#f-place').value.trim();
-          if (newPlace !== p.place) {
-            p.place = newPlace;
-            if (GEO_PLACES[newPlace]) {
-              p.lat = GEO_PLACES[newPlace][0];
-              p.lng = GEO_PLACES[newPlace][1];
+              const newPlace = box.querySelector('#f-place').value.trim();
+              p.place = newPlace;
+              if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                // Background geocode address so saving with an address immediately pins it
+                geocodeAddress(newPlace).then((geo) => {
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    renderSidebarCounts();
+                    renderInspector();
+                    if (layout === 'map') renderGlobalMap();
+                  }
+                });
+              }
+              p.story = box.querySelector('#f-story').value.trim();
+              notify(`Saved EXIF & catalog metadata for ${p.id}.`);
+              render();
+            };
+            box.querySelector('#btn-insp-fs').onclick = async () => {
+              if (p.fsSynced && p.fsMemoryId) {
+                const choice = confirm(`Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick OK to open this memory in FamilySearch Beta.\nClick Cancel if you want to re-upload.`);
+                if (choice) {
+                  window.open(`https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`, '_blank');
+                  return;
+                }
+              }
+              await uploadPrintToFamilySearch(p);
+              render();
+            };
+            box.querySelector('#btn-insp-cite').onclick = () => {
+              copyCitation(p);
+            };
+            const restoreBtn = box.querySelector('#btn-restore-review');
+            if (restoreBtn) {
+              restoreBtn.onclick = () => {
+                p.inReview = false;
+                p.subfolder = '2003 Gill Reunion';
+                notify(`Restored ${p.id} back into active album.`);
+                render();
+              };
             }
           }
-          p.story = box.querySelector('#f-story').value.trim();
-          notify(`Saved EXIF & catalog metadata for ${p.id}.`);
-          render();
-        };
-        box.querySelector('#btn-insp-fs').onclick = () => {
-          if (!fsUser) {
-            signInFamilySearch();
-          }
-          uploadPrintToFamilySearch(p);
-          render();
-        };
-        box.querySelector('#btn-insp-cite').onclick = () => {
-          copyCitation(p);
-        };
-        const restoreBtn = box.querySelector('#btn-restore-review');
-        if (restoreBtn) {
-          restoreBtn.onclick = () => {
-            p.inReview = false;
-            p.subfolder = '2003 Gill Reunion';
-            notify(`Restored ${p.id} back into active album.`);
-            render();
-          };
-        }
-      }
 
       /* =================================================================
          RENDER UNIFIED 6-TAB PHOTO LAB + REAL CANVAS RESTORATION ENGINES
@@ -4853,53 +4943,172 @@
         }
       }
 
-      /* =================================================================
-         GENEALOGY AUTH, CITATION HELPERS & 3-SITE SYNC / EXPORT HUB
-         ================================================================= */
-      function signInFamilySearch() {
-        fsUser = { name: 'Jeff Viola', pid: 'KWJ8-102' };
-        notify('Signed in to FamilySearch.org via OAuth2 PKCE (Jeff Viola · KWJ8-102).');
-      }
+                                /* =================================================================
+                                   GENEALOGY AUTH, CITATION HELPERS & 3-SITE SYNC / EXPORT HUB
+                                   ================================================================= */
+                                function signInFamilySearch() {
+                                  if (window.FamilySearchClient) {
+                                    notify('Redirecting to FamilySearch Beta OAuth2 login...');
+                                    window.FamilySearchClient.startLogin();
+                                  } else {
+                                    notify('FamilySearch client library not loaded yet.');
+                                  }
+                                }
 
-      function uploadPrintToFamilySearch(p) {
-        if (p.fsSynced && p.fsId) {
-          notify(`${p.id} is already synced to FamilySearch Memories (${p.fsId}).`);
-          return;
-        }
-        const suffix = p.id.replace('FH-', '');
-        p.fsId = p.fsId || `MM9R-${suffix}A`;
-        p.fsSynced = true;
-        notify(`Uploaded ${p.id} + ${p.people.length} person tag(s) to FamilySearch Memories (${p.fsId}).`);
-      }
+                                async function uploadPrintToFamilySearch(p) {
+                                  if (!window.FamilySearchClient) {
+                                    notify('FamilySearch client library not loaded.');
+                                    return;
+                                  }
+                                  const token = window.FamilySearchClient.getStoredToken();
+                                  if (!token) {
+                                    const doAuth = confirm('You are not signed in to FamilySearch.\n\nClick OK to sign in securely with your FamilySearch account via OAuth2.');
+                                    if (doAuth) {
+                                      window.FamilySearchClient.startLogin();
+                                    }
+                                    return;
+                                  }
 
-      function formatExportFilename(p) {
-        const dt = p.isoDate || 'Undated';
-        const slug = p.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 34);
-        return `${dt}_${p.branch}_${slug}.jpg`;
-      }
+                                  notify(`Preparing "${p.title}" for FamilySearch upload...`);
+                                  let imageBlob = null;
+                                  try {
+                                    if (p._file && (!p.edits || p.edits.length === 0) && !p.rotation && !p.restored4k) {
+                                      imageBlob = p._file;
+                                    } else {
+                                      const srcUrl = afterSrc(p);
+                                      const res = await fetch(srcUrl);
+                                      imageBlob = await res.blob();
+                                    }
+                                  } catch (blobErr) {
+                                    console.error('Failed to obtain image data:', blobErr);
+                                    notify(`Failed to prepare image: ${blobErr.message}`);
+                                    return;
+                                  }
 
-      function formatCitation(p) {
-        const who = p.people.length ? p.people.map((x) => x.name).join(', ') : 'Unidentified relatives';
-        const story = p.story || 'Transcribed from family archive print.';
-        return `${p.title} (${p.isoDate || 'Undated'}) — ${p.place || 'Location unrecorded'}. Relatives: ${who}. Notes: ${story}`;
-      }
+                                  try {
+                                    const targetPid = p.fsId ? p.fsId.trim().toUpperCase() : null;
+                                    notify(`Uploading "${p.title}" to FamilySearch Beta Memories${targetPid ? ` (Person ${targetPid})` : ''}...`);
+                                    const result = await window.FamilySearchClient.uploadMemory({
+                                      photo: p,
+                                      imageBlob: imageBlob,
+                                      title: p.title,
+                                      story: p.story,
+                                      isoDate: p.isoDate,
+                                      place: p.place,
+                                      people: p.people,
+                                      targetPersonId: targetPid,
+                                      onProgress: (status) => {
+                                        if (status && status.message) notify(status.message);
+                                      }
+                                    });
 
-      function copyCitation(p) {
-        const text = formatCitation(p);
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).catch(() => { });
-        }
-        notify(`Copied story & citation for ${p.id} — ready to paste into Ancestry or MyHeritage.`);
-      }
+                                    if (result && result.success) {
+                                      p.fsSynced = true;
+                                      p.fsMemoryId = result.memoryId;
+                                      notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
+                                      
+                                      setTimeout(() => {
+                                        if (result.personMemoriesUrl) {
+                                          const openTab = confirm(`✓ Memory #${result.memoryId} successfully attached to ${targetPid} on FamilySearch!\n\nOpen ${targetPid} Memories tab in beta.familysearch.org now?`);
+                                          if (openTab) {
+                                            window.open(result.personMemoriesUrl, '_blank');
+                                          }
+                                        } else if (result.memoryUrl) {
+                                          const openTab = confirm(`✓ Memory #${result.memoryId} created!\n\nOpen memory in beta.familysearch.org now?`);
+                                          if (openTab) {
+                                            window.open(result.memoryUrl, '_blank');
+                                          }
+                                        }
+                                      }, 300);
+                                    }
+                                  } catch (err) {
+                                    console.error('FamilySearch upload error:', err);
+                                    if (String(err).includes('401') || String(err).includes('token')) {
+                                      window.FamilySearchClient.clearToken();
+                                      fsUser = null;
+                                      render();
+                                      const retry = confirm('Your FamilySearch login session has expired.\n\nClick OK to re-authenticate with FamilySearch Beta.');
+                                      if (retry) {
+                                        window.FamilySearchClient.startLogin();
+                                      }
+                                    } else {
+                                      notify(`FamilySearch upload failed: ${err.message || err}`);
+                                    }
+                                  } finally {
+                                    render();
+                                  }
+                                }
 
-      function renderSyncHub() {
-        const host = document.getElementById('sync-hub-host');
-        const p = currentPhoto();
-        const active = items.filter((x) => !x.inReview);
-        const unsynced = active.filter((x) => !x.fsSynced);
-        const syncedCount = active.length - unsynced.length;
+                                async function initFamilySearchAuth() {
+                                  if (!window.FamilySearchClient) return;
+                                  const params = new URLSearchParams(window.location.search);
+                                  const code = params.get('code');
+                                  const error = params.get('error');
+                                  if (error) {
+                                    notify(`FamilySearch sign in cancelled or error: ${error}`);
+                                    cleanUrlOAuthParams();
+                                  } else if (code) {
+                                    try {
+                                      notify('Exchanging FamilySearch authorization code...');
+                                      await window.FamilySearchClient.handleCallbackCode(code);
+                                      cleanUrlOAuthParams();
+                                      notify('✓ Connected to FamilySearch Beta!');
+                                    } catch (e) {
+                                      console.error('FamilySearch callback error:', e);
+                                      cleanUrlOAuthParams();
+                                      notify(`FamilySearch sign in error: ${e.message}`);
+                                    }
+                                  }
 
-        host.innerHTML = `
+                                  try {
+                                    const user = await window.FamilySearchClient.getCurrentUser();
+                                    if (user) {
+                                      fsUser = {
+                                        name: user.contactName || 'Jeff Viola',
+                                        pid: user.treePersonId || ''
+                                      };
+                                      render();
+                                    }
+                                  } catch (e) {
+                                    console.warn('FamilySearch user load error:', e);
+                                  }
+                                }
+
+                                function cleanUrlOAuthParams() {
+                                  try {
+                                    const cleanUrl = window.location.origin + window.location.pathname;
+                                    window.history.replaceState({}, document.title, cleanUrl);
+                                  } catch (e) {}
+                                }
+
+                                function formatExportFilename(p) {
+                                  const dt = p.isoDate || 'Undated';
+                                  const slug = p.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 34);
+                                  return `${dt}_${p.branch}_${slug}.jpg`;
+                                }
+
+                                function formatCitation(p) {
+                                  const who = p.people.length ? p.people.map((x) => x.name).join(', ') : 'Unidentified relatives';
+                                  const story = p.story || 'Transcribed from family archive print.';
+                                  return `${p.title} (${p.isoDate || 'Undated'}) — ${p.place || 'Location unrecorded'}. Relatives: ${who}. Notes: ${story}`;
+                                }
+
+                                function copyCitation(p) {
+                                  const text = formatCitation(p);
+                                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                                    navigator.clipboard.writeText(text).catch(() => { });
+                                  }
+                                  notify(`Copied story & citation for ${p.id} — ready to paste into Ancestry or MyHeritage.`);
+                                }
+
+                                function renderSyncHub() {
+                                  const host = document.getElementById('sync-hub-host');
+                                  const p = currentPhoto();
+                                  const active = items.filter((x) => !x.inReview);
+                                  const unsynced = active.filter((x) => !x.fsSynced);
+                                  const syncedCount = active.length - unsynced.length;
+
+                                  host.innerHTML = `
           <div class="sync-grid">
             <!-- SITE 1: FAMILYSEARCH.ORG (OFFICIAL OAUTH2 + MEMORIES API) -->
             <article class="sync-card">
@@ -4932,6 +5141,16 @@
                     Sign in to FamilySearch.org
                   </button>
                 `}
+                <div style="margin-top:8px;font-size:11px;background:var(--ground);padding:6px 8px;border-radius:6px;border:1px solid var(--border);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+                    <span style="font-weight:600;color:var(--text);">OAuth Redirect URI:</span>
+                    <div style="display:flex;gap:4px;">
+                      <button type="button" class="btn sm" id="btn-fs-noslash" style="font-size:10px;padding:1px 6px;">No Slash</button>
+                      <button type="button" class="btn sm" id="btn-fs-slash" style="font-size:10px;padding:1px 6px;">With Slash (/)</button>
+                    </div>
+                  </div>
+                  <code style="font-size:10px;word-break:break-all;color:var(--muted);">${window.FamilySearchClient ? esc(window.FamilySearchClient.getRedirectUri()) : ''}</code>
+                </div>
               </div>
 
               <div>
@@ -5023,59 +5242,87 @@
           </div>
         `;
 
-        const signInBtn = host.querySelector('#btn-sync-signin');
-        if (signInBtn) {
-          signInBtn.onclick = () => {
-            signInFamilySearch();
-            render();
-          };
-        }
-        const signOutBtn = host.querySelector('#btn-sync-signout');
-        if (signOutBtn) {
-          signOutBtn.onclick = () => {
-            fsUser = null;
-            notify('Signed out of FamilySearch.');
-            render();
-          };
-        }
-        host.querySelectorAll('[data-fs-one]').forEach((btn) => {
-          btn.onclick = () => {
-            if (!fsUser) signInFamilySearch();
-            const item = items.find((x) => x.id === btn.getAttribute('data-fs-one'));
-            if (item) uploadPrintToFamilySearch(item);
-            render();
-          };
-        });
-        const uploadAllBtn = host.querySelector('#btn-fs-upload-all');
-        if (uploadAllBtn) {
-          uploadAllBtn.onclick = () => {
-            if (!fsUser) signInFamilySearch();
-            unsynced.forEach((item) => {
-              const suffix = item.id.replace('FH-', '');
-              item.fsId = item.fsId || `MM9R-${suffix}A`;
-              item.fsSynced = true;
-            });
-            notify(`Uploaded ${unsynced.length} prints directly to FamilySearch Memories.`);
-            render();
-          };
-        }
-        host.querySelector('#btn-ancestry-pack').onclick = () => {
-          notify(`Exported ${active.length} EXIF-tagged 4K JPEGs pre-named for Ancestry.com gallery drop.`);
-        };
-        host.querySelector('#btn-ancestry-cite').onclick = () => copyCitation(p);
-        host.querySelector('#btn-ancestry-open').onclick = () => {
-          copyCitation(p);
-          notify('Copied citation to clipboard — ready to drop 4K JPEG into Ancestry.com Trees > Gallery.');
-        };
-        host.querySelector('#btn-mh-pack').onclick = () => {
-          notify(`Exported ${active.length} IPTC/EXIF 4K JPEGs + GEDCOM 5.5.1 media manifest for MyHeritage.`);
-        };
-        host.querySelector('#btn-mh-cite').onclick = () => copyCitation(p);
-        host.querySelector('#btn-mh-open').onclick = () => {
-          copyCitation(p);
-          notify('Copied citation to clipboard — ready to drop 4K JPEG into MyHeritage > Photos.');
-        };
-      }
+                                  const noSlashBtn = host.querySelector('#btn-fs-noslash');
+                                  if (noSlashBtn) {
+                                    noSlashBtn.onclick = () => {
+                                      const cur = window.FamilySearchClient.getRedirectUri();
+                                      const target = cur.endsWith('/') ? cur.slice(0, -1) : cur;
+                                      window.FamilySearchClient.setRedirectUri(target);
+                                      notify(`FamilySearch Redirect URI set to: ${target}`);
+                                      render();
+                                    };
+                                  }
+                                  const slashBtn = host.querySelector('#btn-fs-slash');
+                                  if (slashBtn) {
+                                    slashBtn.onclick = () => {
+                                      const cur = window.FamilySearchClient.getRedirectUri();
+                                      const target = cur.endsWith('/') ? cur : `${cur}/`;
+                                      window.FamilySearchClient.setRedirectUri(target);
+                                      notify(`FamilySearch Redirect URI set to: ${target}`);
+                                      render();
+                                    };
+                                  }
+                                  const signInBtn = host.querySelector('#btn-sync-signin');
+                                  if (signInBtn) {
+                                    signInBtn.onclick = () => {
+                                      signInFamilySearch();
+                                    };
+                                  }
+                                  const signOutBtn = host.querySelector('#btn-sync-signout');
+                                  if (signOutBtn) {
+                                    signOutBtn.onclick = () => {
+                                      if (window.FamilySearchClient) window.FamilySearchClient.clearToken();
+                                      fsUser = null;
+                                      notify('Signed out of FamilySearch.');
+                                      render();
+                                    };
+                                  }
+                                  host.querySelectorAll('[data-fs-one]').forEach((btn) => {
+                                    btn.onclick = async () => {
+                                      const item = items.find((x) => x.id === btn.getAttribute('data-fs-one'));
+                                      if (item) {
+                                        btn.disabled = true;
+                                        btn.textContent = 'Uploading...';
+                                        await uploadPrintToFamilySearch(item);
+                                        render();
+                                      }
+                                    };
+                                  });
+                                  const uploadAllBtn = host.querySelector('#btn-fs-upload-all');
+                                  if (uploadAllBtn) {
+                                    uploadAllBtn.onclick = async () => {
+                                      if (!fsUser) {
+                                        signInFamilySearch();
+                                        return;
+                                      }
+                                      uploadAllBtn.disabled = true;
+                                      for (let i = 0; i < unsynced.length; i++) {
+                                        const item = unsynced[i];
+                                        uploadAllBtn.textContent = `Uploading ${i + 1} of ${unsynced.length}...`;
+                                        await uploadPrintToFamilySearch(item);
+                                      }
+                                      uploadAllBtn.disabled = false;
+                                      notify(`Completed upload of ${unsynced.length} prints to FamilySearch Memories!`);
+                                      render();
+                                    };
+                                  }
+                                  host.querySelector('#btn-ancestry-pack').onclick = () => {
+                                    notify(`Exported ${active.length} EXIF-tagged 4K JPEGs pre-named for Ancestry.com gallery drop.`);
+                                  };
+                                  host.querySelector('#btn-ancestry-cite').onclick = () => copyCitation(p);
+                                  host.querySelector('#btn-ancestry-open').onclick = () => {
+                                    copyCitation(p);
+                                    notify('Copied citation to clipboard — ready to drop 4K JPEG into Ancestry.com Trees > Gallery.');
+                                  };
+                                  host.querySelector('#btn-mh-pack').onclick = () => {
+                                    notify(`Exported ${active.length} IPTC/EXIF 4K JPEGs + GEDCOM 5.5.1 media manifest for MyHeritage.`);
+                                  };
+                                  host.querySelector('#btn-mh-cite').onclick = () => copyCitation(p);
+                                  host.querySelector('#btn-mh-open').onclick = () => {
+                                    copyCitation(p);
+                                    notify('Copied citation to clipboard — ready to drop 4K JPEG into MyHeritage > Photos.');
+                                  };
+                                }
 
       function render() {
         renderSidebarCounts();
@@ -5355,6 +5602,7 @@
               restored4k: false,
               fsId: '',
               fsSynced: false,
+              fsMemoryId: '',
               inReview: false,
               screenshot: /screen|capture|snap/i.test(file.name),
               crop: '50% 50%',
@@ -5571,6 +5819,9 @@
 
       mountIcons();
       render();
+      if (typeof initFamilySearchAuth === 'function') {
+        initFamilySearchAuth();
+      }
     })();
   </script>
 </body>
