@@ -1,24 +1,174 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>UI Previews – Family History Photos</title>
-<link rel="stylesheet" href="common.css">
-<style>
-body{background:linear-gradient(135deg,#fdf1de,#e8eefc);color:#2a2018;padding:40px 20px;min-height:100vh}
-.w{max-width:960px;margin:0 auto}h1{font-size:30px;margin-bottom:6px}p.s{color:#6b5a48;margin-bottom:28px}
-.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-a.c{display:block;background:#fff;border-radius:18px;padding:20px;text-decoration:none;color:inherit;box-shadow:0 6px 20px #0001;transition:.2s}a.c:hover{transform:translateY(-4px);box-shadow:0 12px 28px #0002}
-a.c b{font-size:18px;display:block;margin-bottom:6px}a.c span{color:#6b5a48;font-size:14px;line-height:1.4}.n{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c67a14;color:#fff;margin-bottom:10px;font-weight:700}
-.tip{margin-top:26px;padding:16px;border-radius:14px;background:#fff8;font-size:14px;line-height:1.5}
-a.c.star{border:3px solid #d9a93f}
-</style></head><body><div class="w">
-<h1>UI Redesign Previews</h1><p class="s">Clickable demos with sample data. Nothing is saved. Every page works on desktop and phone-size screens.</p>
-<div class="g">
-<a class="c" href="1-wizard.html"><div class="n">1</div><b>Guided Wizard</b><span>One question at a time: Who → When &amp; Where → Story. Tools tucked in "More tools".</span></a>
-<a class="c" href="2-tabs.html"><div class="n">2</div><b>Tabbed Panel</b><span>People / Details / Story / Share tabs with an icon toolbar. Bottom tab bar on phones.</span></a>
-<a class="c" href="3-immersive.html"><div class="n">3</div><b>Photo-first Immersive</b><span>Dark, photo fills the screen. Click ✎ on any row to edit in place.</span></a>
-<a class="c" href="4-accordion.html"><div class="n">4</div><b>Smart Accordion</b><span>Collapsible sections with a live completion ring and a photo filmstrip.</span></a>
-<a class="c" href="5-gallery.html"><div class="n">5</div><b>Gallery + Side Drawer</b><span>Photo grid with filters and search. Click a photo to edit in a drawer (full-screen on phones).</span></a>
-<a class="c star" href="6-gallery-full.html"><div class="n">6</div><b>Gallery + Drawer — Full Features ⭐</b><span>Design 5 with every feature of the current app: all tools, filters, sorting, face boxes, magnify, 4K, red-eye, FamilySearch and more.</span></a>
-</div>
-<div class="tip">📱 <b>See the phone version:</b> narrow your browser window below ~760px wide, or press F12 and toggle the device toolbar. Or open this page's address from your phone while on the same Wi-Fi.</div>
-</div></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UI Previews – Family History Photos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font: 14px/1.5 "Inter", system-ui, -apple-system, sans-serif;
+      background: #f6f7f8;
+      color: #131416;
+      padding: 40px 24px 64px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1080px; margin: 0 auto; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.015em; }
+    .lead { margin-top: 6px; color: #57595c; max-width: 72ch; }
+    h2 { font-size: 16px; font-weight: 600; margin: 32px 0 14px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 16px;
+    }
+    a.card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #ffffff;
+      border: 1px solid #e3e5e8;
+      border-radius: 10px;
+      padding: 18px 20px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 140ms ease, background-color 140ms ease;
+    }
+    a.card:hover { border-color: #131416; }
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .tag {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eef0f2;
+      color: #2f3237;
+    }
+    .swatches { display: inline-flex; gap: 4px; }
+    .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.12); }
+    .grid-featured { margin-bottom: 8px; }
+    a.card.card-featured { border-color: #1d5fbf; }
+    .tag-featured { background: #e8f0fe; color: #164388; }
+    .sw-white { background: #ffffff; }
+    .sw-t1-well { background: #f4f5f3; }
+    .sw-t1-acc { background: #1b6e66; }
+    .sw-t2-ground { background: #f4f6f8; }
+    .sw-t2-acc { background: #1b6c80; }
+    .sw-t3-black { background: #000000; }
+    .sw-t3-step { background: #111111; }
+    .sw-t3-amber { background: #f2b33d; }
+    .sw-t4-stone { background: #f4f3f1; }
+    .sw-t4-ink { background: #0a0a0a; }
+    .sw-t4-blue { background: #1d5fbf; }
+    .sw-t5-ground { background: #fbf7f8; }
+    .sw-t5-tint { background: #fdf2f7; }
+    .sw-t5-berry { background: #9e2a54; }
+    .sw-t6-ink { background: #111110; }
+    .card b { font-size: 16px; font-weight: 600; }
+    .card p { color: #57595c; font-size: 13px; line-height: 1.45; }
+    .flow { margin-top: auto; padding-top: 10px; border-top: 1px solid #f0f1f3; font-size: 12px; color: #1b6c80; font-weight: 500; }
+    .legacy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    a.legacy {
+      display: block;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px 16px;
+      text-decoration: none;
+      color: inherit;
+    }
+    a.legacy:hover { border-color: #9ca3af; }
+    a.legacy b { display: block; font-size: 14px; margin-bottom: 4px; }
+    a.legacy span { font-size: 12px; color: #5f6368; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Family History Photos — Interactive UI Mockups</h1>
+    <p class="lead">Click any proposal below to test both its visual design and its live workflow (switching between the Folder Opener and Working Album, filtering queues, naming faces, writing stories, and restoring scans to 4K).</p>
+
+    <h2>Combined Concept — #4 Ledger + #2 Light Table + 5-Tool Photo Lab</h2>
+    <div class="grid grid-featured">
+      <a class="card card-featured" href="t6-combined-ledger-lab.html">
+        <div class="card-top">
+          <span class="tag tag-featured">Combined · #4 + #2 + Photo Lab</span>
+          <span class="swatches"><span class="sw sw-t4-stone"></span><span class="sw sw-white"></span><span class="sw sw-t6-ink"></span><span class="sw sw-t4-blue"></span></span>
+        </div>
+        <b>Genealogist's Ledger + Light Table + Unified Photo Lab</b>
+        <p>Merges #4's archival Ledger &amp; charts with #2's Contact Sheet, batch cleanup sidebar (Duplicates, Screenshots, 4K Queue), docked right inspector, and a 5-tab Photo Lab (4K AI, Tone &amp; Light, Crop &amp; Rotate, Magic Eraser, and Red-Eye).</p>
+        <div class="flow">Test flow: Ledger ↔ Contact sheet → Click "Open Lab" → Try all 5 repair tabs &amp; filmstrip →</div>
+      </a>
+    </div>
+
+    <h2>5 Modern Proposals (`design-taste-frontend` v2)</h2>
+    <div class="grid">
+      <a class="card" href="t1-kitchen-table.html">
+        <div class="card-top">
+          <span class="tag">Proposal 1 · editorial-greeting</span>
+          <span class="swatches"><span class="sw sw-white"></span><span class="sw sw-t1-well"></span><span class="sw sw-t1-acc"></span></span>
+        </div>
+        <b>The Kitchen Table Album</b>
+        <p>Warm, senior-friendly open plane in Instrument Serif &amp; Sans. Click any print to write names and stories on its inline "Back of Print" verso sheet.</p>
+        <div class="flow">Test flow: Count tiles → Verso back-of-print editor → Folder opener →</div>
+      </a>
+
+      <a class="card" href="t2-light-table.html">
+        <div class="card-top">
+          <span class="tag">Proposal 2 · framed-sheet</span>
+          <span class="swatches"><span class="sw sw-t2-ground"></span><span class="sw sw-white"></span><span class="sw sw-t2-acc"></span></span>
+        </div>
+        <b>The Archivist's Light Table</b>
+        <p>Cool paper L-frame + inset white contact sheet in IBM Plex Sans &amp; Mono, paired with a docked 368px right inspector and arrow-key navigation.</p>
+        <div class="flow">Test flow: Action queues → Contact sheet → Docked right inspector →</div>
+      </a>
+
+      <a class="card" href="t3-darkroom-loupe.html">
+        <div class="card-top">
+          <span class="tag">Proposal 3 · true-black-flat</span>
+          <span class="swatches"><span class="sw sw-t3-black"></span><span class="sw sw-t3-step"></span><span class="sw sw-t3-amber"></span></span>
+        </div>
+        <b>The Darkroom &amp; 4K Loupe</b>
+        <p>True-black darkroom T-frame with safelight-amber face frames, a draggable Original vs. 4K CodeFormer split curtain, and uncropped aspect ratios.</p>
+        <div class="flow">Test flow: Drag 4K split slider → Toggle face boxes → Aspect masonry →</div>
+      </a>
+
+      <a class="card" href="t4-genealogist-ledger.html">
+        <div class="card-top">
+          <span class="tag">Proposal 4 · achromatic-ledger</span>
+          <span class="swatches"><span class="sw sw-t4-stone"></span><span class="sw sw-t4-ink"></span><span class="sw sw-t4-blue"></span></span>
+        </div>
+        <b>The Genealogist's Ledger</b>
+        <p>Publication-grade archival stone index in Geist &amp; Geist Mono with Decade &amp; Branch charts, Specimen Plates toggle, and FamilySearch sync IDs.</p>
+        <div class="flow">Test flow: Decade bars → Ledger table ↔ Specimen plates → Sync FS →</div>
+      </a>
+
+      <a class="card" href="t5-living-chronicle.html">
+        <div class="card-top">
+          <span class="tag">Proposal 5 · accent-ladder</span>
+          <span class="swatches"><span class="sw sw-t5-ground"></span><span class="sw sw-t5-tint"></span><span class="sw sw-t5-berry"></span></span>
+        </div>
+        <b>The Living Family Chronicle</b>
+        <p>Story-first heirloom book in DM Sans with an heirloom berry tint ladder, Decade Chapters, Family Directory, and an oral-history right rail.</p>
+        <div class="flow">Test flow: Branch story progress → Decade chapters → Save memory rail →</div>
+      </a>
+    </div>
+
+    <h2>Earlier Exploration Previews</h2>
+    <div class="legacy-grid">
+      <a class="legacy" href="1-wizard.html"><b>1. Guided Wizard</b><span>Step-by-step Who → When &amp; Where → Story.</span></a>
+      <a class="legacy" href="2-tabs.html"><b>2. Tabbed Panel</b><span>People / Details / Story / Share tabs.</span></a>
+      <a class="legacy" href="3-immersive.html"><b>3. Photo-first Immersive</b><span>Full-screen dark photo editor.</span></a>
+      <a class="legacy" href="4-accordion.html"><b>4. Smart Accordion</b><span>Collapsible sections + filmstrip.</span></a>
+      <a class="legacy" href="5-gallery.html"><b>5. Gallery + Side Drawer</b><span>Grid with slide-in right drawer.</span></a>
+      <a class="legacy" href="6-gallery-full.html"><b>6. Gallery + Drawer (Full)</b><span>Extended drawer prototype.</span></a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal 2 — The Archivist's Light Table (Family History Photos)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ground: #f4f6f8;
+      --surface: #ffffff;
+      --raised: #f4f6f8;
+      --active: #e6eaee;
+      --border: #e4e7eb;
+      --rule: #eef0f2;
+      --control: #c9cdd2;
+      --text: #131416;
+      --muted: #57595c;
+      --faint: #64676a;
+      --accent: #1b6c80;
+      --primary: #131416;
+      --primary-ink: #ffffff;
+      --positive: #1e7b4f;
+      --negative: #c4242a;
+      --warning: #92400e;
+      --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+      --pill-warning-bg: #fffbeb; --pill-warning-ink: #92400e;
+      --pill-neutral-bg: #ebedee; --pill-neutral-ink: #353736;
+      --radius-sheet: 16px;
+      --radius-card: 8px;
+      --radius-control: 6px;
+      --sidebar-width: 228px;
+      --gap: 20px;
+      --control-height: 32px;
+      --font: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font: 14px/20px var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, p { margin: 0; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    img, svg { display: block; max-width: 100%; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    .num { font-variant-numeric: tabular-nums; }
+    .mono { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+    /* Tinted L-frame + inset 8px white sheet, zero border between sidebar & topbar, zero shadow */
+    .frame {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      grid-template-rows: 48px minmax(0, 1fr);
+      min-height: 100svh;
+    }
+    .sidebar {
+      grid-row: 1 / -1;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: var(--ground);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 36px;
+      padding: 0 8px;
+      margin-bottom: 8px;
+    }
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      border-radius: 5px;
+      background: var(--accent);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .group-label {
+      margin: 16px 8px 4px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 32px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+    .nav-item svg { width: 16px; height: 16px; flex: none; }
+    .nav-item:hover { background: var(--active); color: var(--text); }
+    .nav-item[aria-current="page"] { background: var(--active); color: var(--text); font-weight: 500; }
+    .q-badge {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 16px 0 8px;
+      background: var(--ground);
+    }
+    .top-search {
+      position: relative;
+      width: min(480px, 100%);
+    }
+    .top-search svg {
+      position: absolute;
+      left: 10px;
+      top: 8px;
+      width: 15px;
+      height: 15px;
+      color: var(--faint);
+    }
+    .top-search input {
+      width: 100%;
+      height: 32px;
+      padding: 0 72px 0 32px;
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+      background: var(--surface);
+      font-size: 13px;
+    }
+    .kbd-hint {
+      position: absolute;
+      right: 8px;
+      top: 6px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--ground);
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .menu-toggle { display: none; }
+
+    /* White work sheet inset 8px from right and bottom */
+    .sheet {
+      margin: 0 8px 8px 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sheet);
+      padding: 24px;
+      min-width: 0;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .title-row h1 { font-size: 22px; line-height: 1.25; font-weight: 600; }
+    .title-sub { margin-top: 3px; color: var(--muted); font-size: 13px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: var(--control-height);
+      padding: 0 12px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: var(--surface);
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn svg { width: 15px; height: 15px; flex: none; }
+    .btn:hover { background: var(--raised); }
+    .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+    .btn.accent { background: var(--accent); color: #ffffff; border-color: transparent; }
+    .btn.menu-toggle { display: none; }
+
+    /* Underline tabs on full-width 1px rule with 2px accent indicator */
+    .tabs-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--gap);
+      flex-wrap: wrap;
+    }
+    .tabs { display: flex; gap: 22px; }
+    .tab-btn {
+      position: relative;
+      padding: 9px 0 10px;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .tab-btn[aria-selected="true"] { color: var(--text); font-weight: 600; }
+    .tab-btn[aria-selected="true"]::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    /* Main workspace: Contact sheet + pinned 368px Right Inspector */
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 368px;
+      gap: var(--gap);
+      align-items: start;
+    }
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--gap);
+    }
+    .kpi-cell {
+      padding: 12px 16px;
+    }
+    .kpi-cell + .kpi-cell { border-left: 1px solid var(--border); }
+    .kpi-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .kpi-val { font-size: 26px; font-weight: 400; line-height: 1.2; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .kpi-sub { font-size: 12px; color: var(--faint); margin-top: 2px; }
+
+    .contact-sheet {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .sheet-cell {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 8px;
+      background: var(--surface);
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      gap: 8px;
+    }
+    .sheet-cell:hover { border-color: var(--control); }
+    .sheet-cell[aria-selected="true"] {
+      border-color: var(--accent);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .matte {
+      aspect-ratio: 4 / 3;
+      background: var(--raised);
+      overflow: hidden;
+    }
+    .matte img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .cell-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+      flex: none;
+    }
+    .dot.ok { background: var(--positive); }
+    .dot.warn { background: var(--warning); }
+    .dot.accent { background: var(--accent); }
+
+    /* Docked Right Inspector */
+    .inspector-heading {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .inspector {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 16px;
+      background: var(--surface);
+      display: grid;
+      gap: 14px;
+    }
+    .loupe-frame {
+      aspect-ratio: 16 / 10;
+      background: var(--raised);
+      overflow: hidden;
+      border-radius: 4px;
+    }
+    .loupe-frame img { width: 100%; height: 100%; object-fit: cover; }
+    .spec-well {
+      background: var(--raised);
+      border-radius: 6px;
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .field { display: grid; gap: 5px; }
+    .field label { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .input, textarea.input {
+      width: 100%;
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+      background: var(--surface);
+      font-size: 13px;
+    }
+    textarea.input { min-height: 68px; resize: vertical; }
+    .face-tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      background: var(--pill-neutral-bg);
+      color: var(--pill-neutral-ink);
+    }
+    .pill.pos { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+    .pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+
+    /* Opener Screen inside Sheet */
+    .opener-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: 24px;
+      align-items: start;
+    }
+    .opener-panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 24px;
+    }
+
+    @media (max-width: 960px) {
+      .frame { grid-template-columns: minmax(0, 1fr); }
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+      .sidebar.open { transform: none; }
+      .btn.menu-toggle { display: inline-flex; }
+      .kbd-hint, #cloudTopBtn { display: none; }
+      .top-search input { padding-right: 12px; }
+      .title-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .title-row h1 { font-size: 20px; }
+      .sheet { margin: 0; border-radius: 0; border-left: 0; border-right: 0; padding: 16px; }
+      .workspace, .opener-grid { grid-template-columns: minmax(0, 1fr); }
+      .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi-cell:nth-child(3) { border-left: 0; }
+      .kpi-cell:nth-child(n+3) { border-top: 1px solid var(--border); }
+      .contact-sheet { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .brand-title { font-weight: 600; font-size: 13px; }
+    .brand-sub { font-size: 11px; color: var(--faint); }
+    .sidebar-bottom { margin-top: auto; padding-top: 12px; }
+    .topbar-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .opener-title { font-size: 18px; font-weight: 600; }
+    .opener-desc { margin-top: 8px; color: var(--muted); }
+    .recent-box { margin-top: 18px; padding: 14px; background: var(--raised); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .fw-600 { font-weight: 600; }
+    .muted-ink { color: var(--muted); }
+    .recent-stats { color: var(--muted); margin-top: 2px; }
+    .opener-btns { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .saved-head { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .saved-list { display: grid; gap: 8px; }
+    .saved-row { padding: 10px; border: 1px solid var(--border); border-radius: 6px; display: flex; justify-content: space-between; }
+    .sort-wrap { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+    .sort-label { font-size: 12px; color: var(--muted); }
+    .sort-select { height: 28px; width: auto; padding: 0 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <aside class="sidebar" id="sidebar" aria-label="Archive folders and queues">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">FH</div>
+        <div>
+          <div class="brand-title">Family History Photos</div>
+          <div class="brand-sub">Local Catalog v2</div>
+        </div>
+      </div>
+
+      <div class="group-label">Screen mode</div>
+      <button type="button" class="nav-item" id="modeWorkBtn" aria-current="page">Contact sheet</button>
+      <button type="button" class="nav-item" id="modeOpenBtn">Mount folder</button>
+
+      <div class="group-label">Subfolders</div>
+      <div id="folderNav"></div>
+
+      <div class="group-label">Action queues</div>
+      <div id="queueNav"></div>
+
+      <div class="sidebar-bottom">
+        <a href="index.html" class="nav-item" id="backNav">All previews</a>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <button type="button" class="btn menu-toggle" id="menuBtn">Menu</button>
+        <div class="top-search">
+          <span id="searchIcon"></span>
+          <input type="search" id="searchInput" placeholder="Filter by relative, parish, year, or FamilySearch ID" aria-label="Filter catalog">
+          <span class="kbd-hint mono">← / →</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button type="button" class="btn" id="cloudTopBtn">Cloud Import</button>
+        <button type="button" class="btn primary" id="exportZipBtn">Export Catalog</button>
+      </div>
+    </header>
+
+    <main class="sheet">
+      <div class="title-row">
+        <div>
+          <h1 id="pageTitle">Contact Sheet — Gill &amp; Costello Archive</h1>
+          <p class="title-sub" id="pageSub"></p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" id="scanDupesBtn">Scan duplicates</button>
+          <button type="button" class="btn accent" id="openFolderBtn">Switch folder</button>
+        </div>
+      </div>
+
+      <section id="openerView" hidden aria-label="Select local archive folder">
+        <div class="opener-grid">
+          <div class="opener-panel">
+            <h2 class="opener-title">Mount a local photo directory</h2>
+            <p class="opener-desc">Reads JPEG, PNG, WebP, and TIFF scans in place via browser directory handle. Face recognition and EXIF tagging run locally with zero external upload.</p>
+            <div class="recent-box">
+              <div>
+                <div class="fw-600">Recent handle: C:\Photos\Gill_Costello_Scans</div>
+                <div class="mono recent-stats" id="recentStatsLine">12 files indexed · 3 subfolders</div>
+              </div>
+              <button type="button" class="btn accent" id="resumeHandleBtn">Resume session</button>
+            </div>
+            <div class="opener-btns">
+              <button type="button" class="btn primary" id="mountNewBtn">Select local folder</button>
+              <button type="button" class="btn" id="cloudMountBtn">Import from OneDrive / Google Photos</button>
+            </div>
+          </div>
+          <div class="opener-panel">
+            <h2 class="saved-head">Saved folder handles</h2>
+            <div class="saved-list">
+              <div class="saved-row">
+                <span>Grandma Album (1950–1969)</span><span class="mono muted-ink">3 prints</span>
+              </div>
+              <div class="saved-row">
+                <span>Shoebox Batch 1 &amp; 2</span><span class="mono muted-ink">4 prints</span>
+              </div>
+              <div class="saved-row">
+                <span>2003 Gill Reunion</span><span class="mono muted-ink">2 prints</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="workView">
+        <div class="tabs-bar">
+          <div class="tabs" role="tablist" id="scopeTabs">
+            <button type="button" class="tab-btn" role="tab" data-tab="all" aria-selected="true">All active</button>
+            <button type="button" class="tab-btn" role="tab" data-tab="needs">Needs metadata</button>
+            <button type="button" class="tab-btn" role="tab" data-tab="restored">4K restored</button>
+            <button type="button" class="tab-btn" role="tab" data-tab="review">_Duplicates_Review</button>
+          </div>
+          <div class="sort-wrap">
+            <label for="sortSelect" class="sort-label">Sort</label>
+            <select id="sortSelect" class="input sort-select">
+              <option value="date_asc">Oldest first</option>
+              <option value="date_desc">Newest first</option>
+              <option value="res_asc">Lowest resolution first</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="kpi-strip" id="kpiStrip"></div>
+
+        <div class="workspace">
+          <section aria-label="Contact sheet frames">
+            <div class="contact-sheet" id="contactGrid"></div>
+          </section>
+
+          <aside aria-label="Selected photo inspector">
+            <div class="inspector-heading">
+              <span>Selected Frame Inspector</span>
+              <span class="mono muted-ink" id="selectedIndexLabel"></span>
+            </div>
+            <div class="inspector" id="inspectorPane"></div>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="taste-data.js"></script>
+  <script>
+    (() => {
+      const { cloneItems, stats, ICONS, esc, notify } = window.TasteArchive;
+      const photos = cloneItems();
+      let viewMode = 'work';
+      let tab = 'all';
+      let folder = 'all';
+      let sortBy = 'date_asc';
+      let query = '';
+      let selectedId = 'FH-002';
+
+      document.getElementById('searchIcon').innerHTML = ICONS.search;
+      document.getElementById('modeWorkBtn').innerHTML = `${ICONS.grid}<span>Contact sheet</span>`;
+      document.getElementById('modeOpenBtn').innerHTML = `${ICONS.folder}<span>Folder mount screen</span>`;
+      document.getElementById('backNav').innerHTML = `${ICONS.arrowLeft}<span>All 5 proposals</span>`;
+
+      document.getElementById('menuBtn').onclick = () => document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('modeWorkBtn').onclick = () => { viewMode = 'work'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('modeOpenBtn').onclick = () => { viewMode = 'open'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('openFolderBtn').onclick = () => { viewMode = viewMode === 'work' ? 'open' : 'work'; render(); };
+      document.getElementById('resumeHandleBtn').onclick = () => { viewMode = 'work'; render(); notify('Mounted Gill_Costello_Scans.'); };
+      document.getElementById('mountNewBtn').onclick = () => { viewMode = 'work'; render(); notify('Directory handle granted.'); };
+      document.getElementById('cloudMountBtn').onclick = () => notify('Cloud import dialog ready.');
+      document.getElementById('cloudTopBtn').onclick = () => notify('Cloud import dialog ready.');
+      document.getElementById('exportZipBtn').onclick = () => notify('Exported catalog JSON + improved 4K ZIP.');
+      document.getElementById('scanDupesBtn').onclick = () => { tab = 'review'; folder = 'all'; render(); notify('2 items staged in _Duplicates_Review.'); };
+
+      document.getElementById('searchInput').oninput = (e) => { query = e.target.value.trim().toLowerCase(); render(); };
+      document.getElementById('sortSelect').onchange = (e) => { sortBy = e.target.value; render(); };
+
+      document.querySelectorAll('[data-tab]').forEach((b) => {
+        b.onclick = () => {
+          tab = b.dataset.tab;
+          folder = 'all';
+          const list = visibleList();
+          if (list.length && !list.some((x) => x.id === selectedId)) selectedId = list[0].id;
+          render();
+        };
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+        const list = visibleList();
+        const idx = list.findIndex((x) => x.id === selectedId);
+        if (e.key === 'ArrowRight' && idx >= 0 && idx < list.length - 1) {
+          selectedId = list[idx + 1].id;
+          render();
+        } else if (e.key === 'ArrowLeft' && idx > 0) {
+          selectedId = list[idx - 1].id;
+          render();
+        }
+      });
+
+      function visibleList() {
+        const out = photos.filter((p) => {
+          if (tab === 'review') { if (!p.inReview) return false; }
+          else {
+            if (p.inReview) return false;
+            if (tab === 'needs' && p.unnamedFaces === 0 && p.story) return false;
+            if (tab === 'restored' && !p.restored4k) return false;
+            if (tab === 'lowres' && (p.restored4k || (p.width >= 800 && p.height >= 800 && p.kb >= 75))) return false;
+          }
+          if (folder !== 'all' && p.subfolder !== folder) return false;
+          if (query) {
+            const hay = [p.id, p.file, p.title, p.place, p.isoDate, p.fsId, ...p.people.map((x) => x.name)].join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+          }
+          return true;
+        });
+        out.sort((a, b) => {
+          if (sortBy === 'res_asc') return (a.width * a.height) - (b.width * b.height);
+          const da = a.isoDate || '9999';
+          const db = b.isoDate || '9999';
+          return sortBy === 'date_desc' ? db.localeCompare(da) : da.localeCompare(db);
+        });
+        return out;
+      }
+
+      function renderSidebar() {
+        const s = stats(photos);
+        document.getElementById('modeWorkBtn').setAttribute('aria-current', viewMode === 'work' ? 'page' : 'false');
+        document.getElementById('modeOpenBtn').setAttribute('aria-current', viewMode === 'open' ? 'page' : 'false');
+
+        const subfolders = ['all', 'Grandma Album', 'Shoebox Batch 1', 'Shoebox Batch 2', '2003 Gill Reunion'];
+        const fNav = document.getElementById('folderNav');
+        fNav.innerHTML = subfolders.map((f) => `
+          <button type="button" class="nav-item" data-f="${esc(f)}" aria-current="${viewMode === 'work' && folder === f && tab === 'all' ? 'page' : 'false'}">
+            ${ICONS.folder}<span>${f === 'all' ? 'All folders' : esc(f)}</span>
+          </button>
+        `).join('');
+        fNav.querySelectorAll('[data-f]').forEach((b) => {
+          b.onclick = () => { viewMode = 'work'; tab = 'all'; folder = b.dataset.f; document.getElementById('sidebar').classList.remove('open'); render(); };
+        });
+
+        const queues = [
+          { t: 'needs', label: 'Unnamed faces', count: s.unnamedFacesTotal, icon: ICONS.users },
+          { t: 'lowres', label: 'Under 800px', count: s.lowResCount, icon: ICONS.spark },
+          { t: 'review', label: 'Review folder', count: s.reviewCount, icon: ICONS.copy }
+        ];
+        const qNav = document.getElementById('queueNav');
+        qNav.innerHTML = queues.map((q) => `
+          <button type="button" class="nav-item" data-q="${q.t}" aria-current="${viewMode === 'work' && tab === q.t ? 'page' : 'false'}">
+            ${q.icon}<span>${q.label}</span>${q.count > 0 ? `<span class="q-badge">${q.count}</span>` : ''}
+          </button>
+        `).join('');
+        qNav.querySelectorAll('[data-q]').forEach((b) => {
+          b.onclick = () => { viewMode = 'work'; tab = b.dataset.q; folder = 'all'; document.getElementById('sidebar').classList.remove('open'); render(); };
+        });
+      }
+
+      function renderInspector(list) {
+        const p = photos.find((x) => x.id === selectedId) || list[0] || photos[0];
+        const idx = list.findIndex((x) => x.id === p.id);
+        document.getElementById('selectedIndexLabel').textContent = idx >= 0 ? `${idx + 1} / ${list.length}` : p.id;
+        const isLow = !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+
+        const pane = document.getElementById('inspectorPane');
+        pane.innerHTML = `
+          <div class="loupe-frame">
+            <img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+          </div>
+          <div class="spec-well mono">
+            <span>${esc(p.id)}</span>
+            <span>${p.width}×${p.height} px</span>
+            <span>${p.kb} KB</span>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500">People (${p.people.length} named${p.unnamedFaces ? `, ${p.unnamedFaces} unnamed` : ''})</div>
+            <div class="face-tag-list">
+              ${p.people.map((x) => `<span class="pill pos">${esc(x.name)} · ${esc(x.rel)}</span>`).join('')}
+              ${p.unnamedFaces > 0 ? `<span class="pill warn">${p.unnamedFaces} face${p.unnamedFaces > 1 ? 's' : ''} to name</span>` : ''}
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <input id="inspName" class="input" placeholder="Tag relative name + Enter">
+              <button type="button" class="btn" id="inspAddBtn">Tag</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="field">
+              <label for="inspDate">ISO Date</label>
+              <input id="inspDate" class="input mono" value="${esc(p.isoDate)}" placeholder="YYYY-MM-DD">
+            </div>
+            <div class="field">
+              <label for="inspBranch">Branch</label>
+              <input id="inspBranch" class="input" value="${esc(p.branch)}">
+            </div>
+          </div>
+          <div class="field">
+            <label for="inspPlace">Location</label>
+            <input id="inspPlace" class="input" value="${esc(p.place)}" placeholder="City, parish, venue">
+          </div>
+          <div class="field">
+            <label for="inspStory">Archival notes &amp; story</label>
+            <textarea id="inspStory" class="input" placeholder="Context, camera, oral history...">${esc(p.story)}</textarea>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;padding-top:4px;border-top:1px solid var(--rule)">
+            <button type="button" class="btn primary" id="inspSaveBtn" style="flex:1">Save metadata</button>
+            ${isLow ? `<button type="button" class="btn accent" id="insp4kBtn">4K Restore</button>` : ''}
+            <button type="button" class="btn" id="inspFsBtn">${p.fsSynced ? `FS ${p.fsId}` : 'Push FS'}</button>
+          </div>
+        `;
+
+        const tagNow = () => {
+          const v = document.getElementById('inspName').value.trim();
+          if (!v) return;
+          p.people.push({ name: v, rel: 'Relative', branch: p.branch });
+          if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+          notify(`Tagged ${v} on ${p.id}.`);
+          render();
+        };
+        document.getElementById('inspAddBtn').onclick = tagNow;
+        document.getElementById('inspName').onkeydown = (e) => { if (e.key === 'Enter') tagNow(); };
+        document.getElementById('inspSaveBtn').onclick = () => {
+          p.isoDate = document.getElementById('inspDate').value.trim();
+          p.branch = document.getElementById('inspBranch').value.trim() || p.branch;
+          p.place = document.getElementById('inspPlace').value.trim();
+          p.story = document.getElementById('inspStory').value.trim();
+          notify(`Wrote EXIF/IPTC metadata to ${p.file}.`);
+          render();
+        };
+        const b4k = document.getElementById('insp4kBtn');
+        if (b4k) {
+          b4k.onclick = () => {
+            p.restored4k = true;
+            p.width = 3840;
+            p.height = 2880;
+            p.kb = 1890;
+            notify(`Upscaled ${p.id} to 3840×2880 via local ONNX.`);
+            render();
+          };
+        }
+        document.getElementById('inspFsBtn').onclick = () => {
+          p.fsSynced = true;
+          p.fsId = p.fsId || 'MM9R-5L0';
+          notify(`Synced ${p.id} (${p.fsId}) to FamilySearch Memories.`);
+          render();
+        };
+      }
+
+      function render() {
+        const s = stats(photos);
+        renderSidebar();
+        document.getElementById('openerView').hidden = viewMode !== 'open';
+        document.getElementById('workView').hidden = viewMode !== 'work';
+        document.getElementById('openFolderBtn').textContent = viewMode === 'work' ? 'Folder mount view' : 'Back to contact sheet';
+        document.getElementById('pageSub').textContent = `${s.unnamedFacesTotal} unnamed faces and ${s.lowResCount} sub-800px scans queued across ${s.activeCount} active frames`;
+
+        if (viewMode !== 'work') return;
+
+        document.querySelectorAll('[data-tab]').forEach((b) => {
+          b.setAttribute('aria-selected', b.dataset.tab === tab ? 'true' : 'false');
+        });
+
+        document.getElementById('kpiStrip').innerHTML = `
+          <div class="kpi-cell"><div class="kpi-label">Active catalog</div><div class="kpi-val">${s.activeCount}</div><div class="kpi-sub">${s.reviewCount} staged in review</div></div>
+          <div class="kpi-cell"><div class="kpi-label">Unnamed faces</div><div class="kpi-val">${s.unnamedFacesTotal}</div><div class="kpi-sub">Across ${s.unnamedPhotoCount} frames</div></div>
+          <div class="kpi-cell"><div class="kpi-label">4K restored</div><div class="kpi-val">${s.restoredCount}</div><div class="kpi-sub">${s.lowResCount} low-res remaining</div></div>
+          <div class="kpi-cell"><div class="kpi-label">FamilySearch synced</div><div class="kpi-val">${s.fsSyncedCount}</div><div class="kpi-sub">Memories linked</div></div>
+        `;
+
+        const list = visibleList();
+        const grid = document.getElementById('contactGrid');
+        if (!list.length) {
+          grid.innerHTML = `<div style="grid-column:1/-1;padding:28px;border:1px dashed var(--control);border-radius:8px;text-align:center;color:var(--muted)">No frames in this queue.</div>`;
+        } else {
+          grid.innerHTML = list.map((p) => {
+            let dotClass = 'ok', statusTxt = 'Complete';
+            if (p.inReview) { dotClass = 'warn'; statusTxt = 'Review'; }
+            else if (p.unnamedFaces > 0) { dotClass = 'warn'; statusTxt = `${p.unnamedFaces} unnamed`; }
+            else if (p.restored4k) { dotClass = 'accent'; statusTxt = '4K'; }
+            return `
+              <button type="button" class="sheet-cell" data-id="${p.id}" aria-selected="${p.id === selectedId}">
+                <div class="matte">
+                  <img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+                </div>
+                <div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title)}</div>
+                <div class="cell-foot">
+                  <span class="mono" style="color:var(--muted)">${esc(p.isoDate || 'Undated')}</span>
+                  <span style="display:inline-flex;align-items:center;gap:5px;color:var(--muted)"><span class="dot ${dotClass}"></span>${esc(statusTxt)}</span>
+                </div>
+              </button>
+            `;
+          }).join('');
+          grid.querySelectorAll('[data-id]').forEach((el) => {
+            el.onclick = () => { selectedId = el.dataset.id; render(); };
+          });
+        }
+        renderInspector(list);
+      }
+
+      render();
+    })();
+  </script>
+</body>
+</html>

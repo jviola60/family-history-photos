@@ -27,34 +27,31 @@ export function loadImage(src) {
  */
 export function isRedEyePixel(r, g, b) {
   // Preserve white/bright specular flash catchlight sparkle
-  if (r > 215 && g > 210 && b > 200 && Math.abs(r - g) < 25 && Math.abs(g - b) < 25) {
+  if (r > 220 && g > 215 && b > 205 && Math.abs(r - g) < 25 && Math.abs(g - b) < 25) {
     return false;
   }
 
-  // Strict Skin Rejection:
-  // Human skin has high green relative to red (g / r typically 0.68 - 0.88).
-  // In true flash red-eye reflection, green is heavily absorbed by retinal hemoglobin:
-  // r is much larger than g (r / g >= 1.40).
-  // If r / g < 1.40 or green is high, it is facial skin or cheeks, NOT red eye!
-  if (g >= 70 && (r / Math.max(1, g)) < 1.40) {
-    return false;
-  }
-  // If blue is close to red, it's neutral/gray/skin
-  if (b >= 75 && (r / Math.max(1, b)) < 1.35) {
-    return false;
-  }
+  // Quick skin rejection:
+  // If blue is close to red or green is close to red with low contrast, it's skin
+  if (r < 65) return false;
 
   const gbAvg = (g + b) / 2;
   const redRatio = r / Math.max(1, gbAvg);
   const redDiff = r - Math.max(g, b);
 
-  // 1. Classic red-eye (deep saturated red)
-  const isClassicRed = r >= 65 && redRatio >= 1.42 && redDiff >= 20 && gbAvg < 155;
+  // 1. Classic Flash Red-Eye:
+  // Saturated red: red is significantly higher than green and blue
+  const isClassicRed = r >= 65 && redRatio >= 1.25 && redDiff >= 15 && (r / Math.max(1, g)) >= 1.20;
 
-  // 2. Amber / orange / golden pupil flash reflection
-  const isAmberOrange = r >= 80 && (r - b) >= 38 && (r / Math.max(1, b)) >= 1.65 && (r - g) >= 20 && b < 100;
+  // 2. Amber / Orange / Golden pupil flash reflection (typical behind eyeglasses or lighter eyes):
+  // Red & green are bright, but blue is low/absorbed:
+  // e.g. R:180-240, G:100-150, B:20-60 -> r-b is very high, r/b >= 2.0
+  const isAmberOrange = r >= 80 && (r - b) >= 30 && (r / Math.max(1, b)) >= 1.55 && (r - g) >= 12;
 
-  return isClassicRed || isAmberOrange;
+  // Ensure it's not neutral white/gray sclera or washed-out skin:
+  const isNotSkin = (r - b) >= 20 && (redRatio >= 1.20 || (r / Math.max(1, b)) >= 1.55);
+
+  return (isClassicRed || isAmberOrange) && isNotSkin;
 }
 
 export const EYE_COLOR_PALETTES = {

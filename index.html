@@ -9,6 +9,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Direct visitors to the new Genealogist's Ledger & Photo Lab studio (pass ?classic=1 for legacy view)
+      if (!new URLSearchParams(window.location.search).has('classic')) {
+        window.location.replace('./previews/t6-combined-ledger-lab.html' + window.location.search);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

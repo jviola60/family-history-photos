@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal 5 — The Living Family Chronicle (Family History Photos)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ground: #fbf7f8;
+      --surface: #ffffff;
+      --raised: #f4eef0;
+      --active: #fdf2f7;
+      --border: #e6dfe2;
+      --rule: #f0eaec;
+      --control: #cfc6ca;
+      --text: #111827;
+      --ink: #111827;
+      --muted: #585f6d;
+      --faint: #656c7a;
+      --axis-ink: #585f6d;
+      --grid: #ebe4e7;
+      --accent: #9e2a54;
+      --accent-soft: #fdf2f7;
+      --accent-track: #f8dbe8;
+      --accent-ink: #6b1d3e;
+      --primary: #111827;
+      --primary-ink: #ffffff;
+      --chart-1: #9e2a54;
+      --chart-2: #6b7280;
+      --chart-muted: #e5dce0;
+      --positive: #247b50;
+      --negative: #c4242a;
+      --pill-positive-bg: #dcfce7; --pill-positive-ink: #14532d;
+      --pill-accent-bg: #fdf2f7; --pill-accent-ink: #6b1d3e;
+      --pill-neutral-bg: #f3eff1; --pill-neutral-ink: #374151;
+      --radius-card: 8px;
+      --radius-control: 6px;
+      --sidebar-width: 232px;
+      --gap: 20px;
+      --control-height: 34px;
+      --font: "DM Sans", Inter, system-ui, sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font: 14px/20px var(--font);
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, p { margin: 0; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    img, svg { display: block; max-width: 100%; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      min-height: 100svh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100svh;
+      padding: 18px 12px;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px 16px;
+    }
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .group-label {
+      margin: 18px 8px 6px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+    /* Accent ladder move: pale tint on active nav row with dark hue ink, full hue on icon only */
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 34px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+    .nav-item svg { width: 16px; height: 16px; flex: none; }
+    .nav-item:hover { background: var(--raised); color: var(--text); }
+    .nav-item[aria-current="page"] {
+      background: var(--accent-soft);
+      color: var(--accent-ink);
+      font-weight: 500;
+    }
+    .nav-item[aria-current="page"] svg { color: var(--accent); }
+    .nav-count {
+      margin-left: auto;
+      font-size: 12px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: var(--accent-track);
+      color: var(--accent-ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mobile-bar {
+      display: none;
+      height: 48px;
+      padding: 0 16px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .canvas { padding: 28px 28px 52px; min-width: 0; }
+
+    .title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .title-row h1 { font-size: 30px; font-weight: 700; line-height: 1.15; letter-spacing: -0.015em; }
+    .title-sub { margin-top: 4px; color: var(--muted); font-size: 14px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: var(--control-height);
+      padding: 0 12px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: var(--surface);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn svg { width: 15px; height: 15px; flex: none; }
+    .btn:hover { background: var(--raised); }
+    .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+    .btn.berry { background: var(--accent); color: #ffffff; border-color: transparent; }
+
+    /* Overview layout from dealt sheet: 1fr main column + fixed 360px right rail */
+    .chronicle-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 24px;
+      align-items: start;
+    }
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      margin-bottom: 16px;
+    }
+    .kpi { padding: 14px 18px; }
+    .kpi + .kpi { border-left: 1px solid var(--border); }
+    .kpi-label { font-size: 13px; color: var(--muted); }
+    .kpi-val { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .kpi-sub { font-size: 12px; color: var(--faint); margin-top: 2px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+    .panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .panel-head h2 { font-size: 17px; font-weight: 600; }
+
+    /* Decade Chapters */
+    .chapter { margin-bottom: 24px; }
+    .chapter-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chapter-head h2 { font-size: 18px; font-weight: 600; }
+    .chapter-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .story-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .story-card:hover { border-color: var(--control); }
+    .story-card[aria-selected="true"] {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .story-img { aspect-ratio: 16 / 10; border-radius: 4px; overflow: hidden; background: var(--raised); }
+    .story-img img { width: 100%; height: 100%; object-fit: cover; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--pill-neutral-bg);
+      color: var(--pill-neutral-ink);
+    }
+    .pill.berry { background: var(--pill-accent-bg); color: var(--pill-accent-ink); }
+    .pill.pos { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+
+    /* Right Rail: headings outside their cards per dealt sheet */
+    .rail-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+    .rail-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+    .prompt-banner {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-track);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .input, textarea.input {
+      width: 100%;
+      min-height: 36px;
+      padding: 8px 10px;
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+      background: var(--surface);
+      font-size: 13px;
+    }
+    textarea.input { min-height: 78px; resize: vertical; }
+    .queue-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-top: 1px solid var(--rule);
+      width: 100%;
+      background: none;
+      border-left: 0;
+      border-right: 0;
+      border-bottom: 0;
+      text-align: left;
+      cursor: pointer;
+    }
+    .queue-row:first-child { border-top: 0; padding-top: 0; }
+    .queue-thumb { width: 44px; height: 34px; border-radius: 4px; overflow: hidden; flex: none; background: var(--raised); }
+    .queue-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    @media (max-width: 960px) {
+      .app { grid-template-columns: minmax(0, 1fr); }
+      .mobile-bar { display: flex; }
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+      .sidebar.open { transform: none; }
+      .title-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .title-row h1 { font-size: 22px; }
+      .canvas { padding: 18px 16px 36px; }
+      .chronicle-layout { grid-template-columns: minmax(0, 1fr); }
+      .kpi-strip { grid-template-columns: minmax(0, 1fr); }
+      .kpi + .kpi { border-left: 0; border-top: 1px solid var(--border); }
+      .chapter-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+    .fw-700 { font-weight: 700; }
+    .sub-muted { font-size: 12px; color: var(--muted); }
+    .brand-title { font-weight: 700; font-size: 13px; }
+    .brand-sub { font-size: 11px; color: var(--faint); }
+    .sidebar-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .opener-panel { max-width: 740px; padding: 28px; }
+    .opener-title { font-size: 22px; font-weight: 700; }
+    .opener-desc { margin-top: 8px; color: var(--muted); }
+    .opener-banner { margin-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .banner-title { font-weight: 600; color: var(--accent-ink); }
+    .banner-sub { font-size: 12px; color: var(--accent-ink); }
+    .opener-btns { display: flex; gap: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="mobile-bar">
+    <button type="button" class="btn" id="menuBtn">Menu</button>
+    <span class="fw-700">Living Family Chronicle</span>
+    <a href="index.html" class="sub-muted">All previews</a>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Chronicle chapters">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">FC</div>
+        <div>
+          <div class="brand-title">Family History Photos</div>
+          <div class="brand-sub">Living Chronicle</div>
+        </div>
+      </div>
+
+      <div class="group-label">Screen mode</div>
+      <button type="button" class="nav-item" id="navChronicle" aria-current="page">Chronicle</button>
+      <button type="button" class="nav-item" id="navOpener">Open folder</button>
+
+      <div class="group-label">Chapters &amp; people</div>
+      <button type="button" class="nav-item" data-view="all" aria-current="page">Decade chapters</button>
+      <button type="button" class="nav-item" data-view="missing-story">Missing stories</button>
+      <button type="button" class="nav-item" data-view="people">Family directory</button>
+      <button type="button" class="nav-item" data-view="lowres">Needs 4K</button>
+
+      <div class="sidebar-foot">
+        <a href="index.html" class="nav-item" id="backLink">All previews</a>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <div class="title-row">
+        <div>
+          <h1 id="pageTitle">The Gill &amp; Costello Chronicle</h1>
+          <p class="title-sub" id="pageSub"></p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" id="exportBookBtn">Export family book ZIP</button>
+          <button type="button" class="btn primary" id="promptNextBtn">Write next missing story</button>
+        </div>
+      </div>
+
+      <section id="openerView" hidden aria-label="Open family chronicle folder">
+        <div class="panel opener-panel">
+          <h2 class="opener-title">Turn your photo folder into a family chronicle</h2>
+          <p class="opener-desc">Groups loose digital scans into decade chapters automatically, surfaces faces that need naming, and prompts relatives to record the story behind each print.</p>
+          <div class="prompt-banner opener-banner">
+            <div>
+              <div class="banner-title">Resume: Gill &amp; Costello Chronicle</div>
+              <div class="banner-sub">6 stories recorded · 4 prints waiting for memories</div>
+            </div>
+            <button type="button" class="btn berry" id="resumeChronBtn">Continue chronicle</button>
+          </div>
+          <div class="opener-btns">
+            <button type="button" class="btn primary" id="openLocalChronBtn">Open photos folder</button>
+            <button type="button" class="btn" id="cloudChronBtn">Import from Cloud</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="chronicle-layout" id="chronicleView">
+        <div>
+          <div class="kpi-strip" id="kpiStrip"></div>
+
+          <section class="panel" aria-label="Story preservation by family branch">
+            <div class="panel-head">
+              <h2>Story preservation by family branch</h2>
+              <span class="sub-muted">Filled = full story · Pale = named only · Track = total prints</span>
+            </div>
+            <div id="planChart"></div>
+          </section>
+
+          <div id="chaptersContainer"></div>
+        </div>
+
+        <aside aria-label="Oral history prompt rail">
+          <h2 class="rail-title">Record a family memory</h2>
+          <div class="rail-card" id="storyComposer"></div>
+
+          <h2 class="rail-title">Waiting for a story</h2>
+          <div class="rail-card" id="waitingList"></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script src="taste-charts.js"></script>
+  <script src="taste-data.js"></script>
+  <script>
+    (() => {
+      const { cloneItems, stats, ICONS, esc, notify } = window.TasteArchive;
+      const photos = cloneItems();
+      let screen = 'chronicle';
+      let view = 'all';
+      let selectedId = 'FH-004';
+
+      document.getElementById('navChronicle').innerHTML = `${ICONS.book}<span>Decade chronicle</span>`;
+      document.getElementById('navOpener').innerHTML = `${ICONS.folder}<span>Open folder screen</span>`;
+      document.getElementById('backLink').innerHTML = `${ICONS.arrowLeft}<span>All 5 proposals</span>`;
+
+      document.getElementById('menuBtn').onclick = () => document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('navChronicle').onclick = () => { screen = 'chronicle'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('navOpener').onclick = () => { screen = 'opener'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('resumeChronBtn').onclick = () => { screen = 'chronicle'; render(); };
+      document.getElementById('openLocalChronBtn').onclick = () => { screen = 'chronicle'; render(); notify('Opened local chronicle folder.'); };
+      document.getElementById('cloudChronBtn').onclick = () => notify('Cloud import ready.');
+      document.getElementById('exportBookBtn').onclick = () => notify('Exported improved photos & stories ZIP.');
+      document.getElementById('promptNextBtn').onclick = () => {
+        screen = 'chronicle';
+        const next = photos.find((p) => !p.inReview && !p.story);
+        if (next) {
+          selectedId = next.id;
+          render();
+          document.getElementById('composerText')?.focus();
+        } else {
+          notify('Every active print in this chronicle now carries a family story!');
+        }
+      };
+
+      document.querySelectorAll('[data-view]').forEach((b) => {
+        b.onclick = () => {
+          screen = 'chronicle';
+          view = b.dataset.view;
+          document.getElementById('sidebar').classList.remove('open');
+          render();
+        };
+      });
+
+      function renderPlan() {
+        const active = photos.filter((p) => !p.inReview);
+        const rows = ['Costello', 'Gill', 'Russo'].map((br) => {
+          const allBr = active.filter((p) => p.branch === br);
+          const withStory = allBr.filter((p) => p.story && p.story.trim()).length;
+          const namedOnly = allBr.filter((p) => (!p.story || !p.story.trim()) && p.people.length > 0).length;
+          return { label: `${br} branch`, planned: allBr.length, spent: withStory, committed: namedOnly };
+        });
+        Charts.plan(document.getElementById('planChart'), rows, { scale: 'row', format: Charts.fmt.int });
+      }
+
+      function renderChapters() {
+        const active = photos.filter((p) => !p.inReview);
+        const box = document.getElementById('chaptersContainer');
+
+        if (view === 'people') {
+          const map = new Map();
+          active.forEach((p) => {
+            p.people.forEach((person) => {
+              const cur = map.get(person.name) || { ...person, count: 0, sample: p };
+              cur.count += 1;
+              map.set(person.name, cur);
+            });
+          });
+          const peopleArr = [...map.values()];
+          box.innerHTML = `
+            <div class="chapter">
+              <div class="chapter-head"><h2>Family directory (${peopleArr.length} relatives)</h2><span style="font-size:12px;color:var(--muted)">Click a relative to open their print</span></div>
+              <div class="chapter-grid">
+                ${peopleArr.map((pr) => `
+                  <button type="button" class="story-card" data-pick="${pr.sample.id}">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="sample.jpg" alt="${esc(pr.name)}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;object-position:${pr.sample.crop}">
+                      <div>
+                        <div style="font-weight:600">${esc(pr.name)}</div>
+                        <div style="font-size:12px;color:var(--muted)">${esc(pr.rel)} · ${esc(pr.branch)} branch · ${pr.count} print${pr.count > 1 ? 's' : ''}</div>
+                      </div>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `;
+          box.querySelectorAll('[data-pick]').forEach((el) => {
+            el.onclick = () => { selectedId = el.dataset.pick; view = 'all'; render(); };
+          });
+          return;
+        }
+
+        const list = active.filter((p) => {
+          if (view === 'missing-story') return !p.story;
+          if (view === 'lowres') return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+          return true;
+        });
+
+        const groups = new Map();
+        list.forEach((p) => {
+          const key = p.decade || 'Needs a decade';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(p);
+        });
+        const sortedKeys = [...groups.keys()].sort((a, b) => (a === 'Needs a decade' ? 1 : b === 'Needs a decade' ? -1 : b.localeCompare(a)));
+
+        box.innerHTML = sortedKeys.map((dec) => {
+          const items = groups.get(dec);
+          return `
+            <section class="chapter" aria-label="${esc(dec)} chapter">
+              <div class="chapter-head">
+                <h2>${esc(dec)}</h2>
+                <span class="num" style="font-size:12px;color:var(--muted)">${items.length} ${items.length === 1 ? 'print' : 'prints'}</span>
+              </div>
+              <div class="chapter-grid">
+                ${items.map((p) => `
+                  <button type="button" class="story-card" data-id="${p.id}" aria-selected="${p.id === selectedId}">
+                    <div class="story-img"><img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}"></div>
+                    <div style="font-weight:600;font-size:14px">${esc(p.title)}</div>
+                    <div style="font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+                      ${esc(p.story || 'No memory recorded yet — click to write what happened.')}
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                      <span style="font-size:12px;color:var(--faint)">${esc(p.people.map((x) => x.name).join(', ') || `${p.unnamedFaces} unnamed face`)}</span>
+                      ${p.story ? `<span class="pill pos">Story saved</span>` : `<span class="pill berry">Needs story</span>`}
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            </section>
+          `;
+        }).join('');
+
+        box.querySelectorAll('[data-id]').forEach((c) => {
+          c.onclick = () => { selectedId = c.dataset.id; renderRail(); renderChapters(); };
+        });
+      }
+
+      function renderRail() {
+        const p = photos.find((x) => x.id === selectedId) || photos[0];
+        const comp = document.getElementById('storyComposer');
+        comp.innerHTML = `
+          <div style="aspect-ratio:16/10;border-radius:4px;overflow:hidden;margin-bottom:10px;background:var(--raised)">
+            <img src="sample.jpg" alt="${esc(p.title)}" style="width:100%;height:100%;object-fit:cover;object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+          </div>
+          <div class="prompt-banner">
+            <div style="font-weight:600;font-size:13px;color:var(--accent-ink)">${esc(p.title)}</div>
+            <div style="font-size:12px;color:var(--accent-ink);margin-top:2px">${esc(p.place || 'Add location')} · ${esc(p.isoDate || 'Add year')}</div>
+          </div>
+          <div style="display:grid;gap:8px">
+            <input id="composerWho" class="input" value="${esc(p.people.map((x) => x.name).join(', '))}" placeholder="Who is in this photo?" aria-label="Who is in this photo">
+            <input id="composerDecade" class="input num" value="${esc(p.decade)}" placeholder="Decade (e.g. 1960s)" aria-label="Decade">
+            <textarea id="composerText" class="input" placeholder="What do you remember about this day, house, or tradition?" aria-label="Family story">${esc(p.story)}</textarea>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn berry" id="saveStoryBtn" style="flex:1">Save memory</button>
+              <button type="button" class="btn" id="rail4kBtn">4K</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('saveStoryBtn').onclick = () => {
+          const names = document.getElementById('composerWho').value.split(',').map((s) => s.trim()).filter(Boolean);
+          if (names.length) {
+            p.people = names.map((n) => ({ name: n, rel: 'Family', branch: p.branch }));
+            p.unnamedFaces = 0;
+          }
+          p.decade = document.getElementById('composerDecade').value.trim() || p.decade;
+          p.story = document.getElementById('composerText').value.trim();
+          notify(`Saved memory for "${p.title}".`);
+          render();
+        };
+        document.getElementById('rail4kBtn').onclick = () => {
+          p.restored4k = true;
+          p.width = 3840;
+          p.height = 2880;
+          notify('Restored photo to 4K.');
+          render();
+        };
+
+        const waiting = photos.filter((x) => !x.inReview && !x.story).slice(0, 4);
+        const wEl = document.getElementById('waitingList');
+        if (!waiting.length) {
+          wEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">All active prints have a recorded story.</div>`;
+        } else {
+          wEl.innerHTML = waiting.map((w) => `
+            <button type="button" class="queue-row" data-wait="${w.id}">
+              <div class="queue-thumb"><img src="sample.jpg" alt="" style="object-position:${w.crop};filter:${w.filter}"></div>
+              <div style="min-width:0;flex:1">
+                <div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.title)}</div>
+                <div style="font-size:12px;color:var(--muted)">${esc(w.decade || 'Undated')} · ${esc(w.branch)}</div>
+              </div>
+              <span style="font-size:12px;color:var(--accent-ink);font-weight:500">Write</span>
+            </button>
+          `).join('');
+          wEl.querySelectorAll('[data-wait]').forEach((b) => {
+            b.onclick = () => { selectedId = b.dataset.wait; renderRail(); renderChapters(); document.getElementById('composerText')?.focus(); };
+          });
+        }
+      }
+
+      function render() {
+        const s = stats(photos);
+        document.getElementById('openerView').hidden = screen !== 'opener';
+        document.getElementById('chronicleView').style.display = screen === 'chronicle' ? '' : 'none';
+        document.getElementById('navChronicle').setAttribute('aria-current', screen === 'chronicle' ? 'page' : 'false');
+        document.getElementById('navOpener').setAttribute('aria-current', screen === 'opener' ? 'page' : 'false');
+        document.getElementById('pageSub').textContent = `${s.storyCount} of ${s.activeCount} prints carry a written family story · ${s.untaggedCount + s.namedOnlyCount} still waiting for memories`;
+
+        const views = {
+          all: [ICONS.book, 'All decade chapters', 0],
+          'missing-story': [ICONS.spark, 'Missing a story', s.activeCount - s.storyCount],
+          people: [ICONS.users, 'Family directory', 0],
+          lowres: [ICONS.grid, 'Needs 4K restore', s.lowResCount]
+        };
+        document.querySelectorAll('[data-view]').forEach((b) => {
+          const k = b.dataset.view;
+          const [ic, lbl, cnt] = views[k];
+          b.setAttribute('aria-current', screen === 'chronicle' && view === k ? 'page' : 'false');
+          b.innerHTML = `${ic}<span>${lbl}</span>${cnt > 0 ? `<span class="nav-count">${cnt}</span>` : ''}`;
+        });
+
+        if (screen !== 'chronicle') return;
+
+        document.getElementById('kpiStrip').innerHTML = `
+          <div class="kpi"><div class="kpi-label">Stories preserved</div><div class="kpi-val">${s.storyCount} <small style="font-size:13px;font-weight:400;color:var(--muted)">/ ${s.activeCount}</small></div><div class="kpi-sub">Oral history written</div></div>
+          <div class="kpi"><div class="kpi-label">Named without story</div><div class="kpi-val">${s.namedOnlyCount}</div><div class="kpi-sub">Relatives identified</div></div>
+          <div class="kpi"><div class="kpi-label">Unnamed faces left</div><div class="kpi-val">${s.unnamedFacesTotal}</div><div class="kpi-sub">Across ${s.unnamedPhotoCount} prints</div></div>
+        `;
+
+        renderPlan();
+        renderChapters();
+        renderRail();
+      }
+
+      render();
+      window.addEventListener('resize', () => { if (screen === 'chronicle') renderPlan(); });
+    })();
+  </script>
+</body>
+</html>
+

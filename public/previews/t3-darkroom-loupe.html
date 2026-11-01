@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal 3 — The Darkroom &amp; 4K Loupe (Family History Photos)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ground: #000000;
+      --surface: #111111;
+      --raised: #2a2a2a;
+      --border: #1a1a1a;
+      --rule: #1c1c1c;
+      --control: #444444;
+      --text: #ffffff;
+      --muted: #b4b4b4;
+      --faint: #949494;
+      --accent: #f2b33d;
+      --primary: #ffffff;
+      --primary-ink: #000000;
+      --positive: #3fc07a;
+      --negative: #e5566f;
+      --pill-positive-bg: #172a1d;
+      --pill-positive-ink: #3fc07a;
+      --pill-warning-bg: #2b2414;
+      --pill-warning-ink: #f2b33d;
+      --pill-neutral-bg: #222222;
+      --pill-neutral-ink: #ffffff;
+      --radius-card: 20px;
+      --radius-control: 999px;
+      --sidebar-width: 216px;
+      --gap: 14px;
+      --control-height: 36px;
+      --font: "Inter", system-ui, -apple-system, sans-serif;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font: 14px/20px var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+      color: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Ruled T-Frame: 216px sidebar + 64px top bar on #000, divided only by 1px #1a1a1a rules */
+    .t-frame {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      grid-template-rows: 64px minmax(0, 1fr);
+      min-height: 100svh;
+    }
+
+    .sidebar {
+      grid-row: 1 / -1;
+      border-right: 1px solid var(--border);
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: var(--ground);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 2px 8px 18px;
+    }
+
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 1.5px solid var(--accent);
+      color: var(--accent);
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .group-label {
+      margin: 18px 8px 6px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+
+    /* Active item on dark is brightness alone (#b4b4b4 -> #ffffff), zero coloured pills */
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 34px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .nav-item svg {
+      width: 16px;
+      height: 16px;
+      flex: none;
+    }
+
+    .nav-item:hover {
+      color: var(--text);
+      background: var(--surface);
+    }
+
+    .nav-item[aria-current="page"] {
+      color: #ffffff;
+      font-weight: 500;
+      background: var(--surface);
+    }
+
+    .nav-count {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .topbar {
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 24px;
+      background: var(--ground);
+    }
+
+    .top-search {
+      position: relative;
+      width: min(440px, 100%);
+    }
+
+    .top-search svg {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      width: 15px;
+      height: 15px;
+      color: var(--faint);
+    }
+
+    .top-search input {
+      width: 100%;
+      height: 36px;
+      padding: 0 14px 0 36px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: var(--surface);
+      font-size: 13px;
+    }
+
+    .switcher-cell {
+      height: 100%;
+      padding-left: 20px;
+      border-left: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .menu-toggle {
+      display: none;
+    }
+
+    .canvas {
+      padding: 24px 28px 48px;
+      min-width: 0;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .title-row h1 {
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .title-sub {
+      margin-top: 3px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* Buttons: inverted white pill primary, outlined #444444 secondary, never accent fill */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: var(--control-height);
+      padding: 0 16px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: transparent;
+      color: var(--text);
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn svg {
+      width: 15px;
+      height: 15px;
+      flex: none;
+    }
+
+    .btn:hover {
+      background: var(--raised);
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      color: var(--primary-ink);
+      border-color: transparent;
+    }
+
+    .btn.primary:hover {
+      opacity: 0.9;
+    }
+
+    /* Elevation by lightness step alone (#111111 card on #000000 ground, zero border, zero shadow) */
+    .grid-6 {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: var(--gap);
+    }
+
+    .grid-6.top {
+      align-items: start;
+    }
+
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 20px;
+      min-width: 0;
+    }
+
+    .kpi-tile {
+      grid-column: span 2;
+    }
+
+    .kpi-label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .kpi-val {
+      font-size: 24px;
+      font-weight: 500;
+      margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-note {
+      font-size: 12px;
+      color: var(--faint);
+      margin-top: 3px;
+    }
+
+    /* Signature Element: Live 4K Split Curtain & Safelight Face Loupe */
+    .stage-card {
+      grid-column: span 4;
+    }
+
+    .detail-card {
+      grid-column: span 2;
+      display: grid;
+      gap: 12px;
+    }
+
+    .curtain-viewport {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #080808;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .curtain-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .curtain-before {
+      filter: blur(1.6px) sepia(0.42) contrast(0.92);
+    }
+
+    .curtain-after-clip {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .curtain-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--accent);
+      pointer-events: none;
+    }
+
+    .curtain-tag {
+      position: absolute;
+      bottom: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #111111;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    /* Safelight amber face detection box (data mark <=3% chroma) */
+    .face-box {
+      position: absolute;
+      left: 51%;
+      top: 15%;
+      width: 24%;
+      height: 36%;
+      border: 1.5px solid var(--accent);
+      border-radius: 6px;
+    }
+
+    .face-box-label {
+      position: absolute;
+      left: 0;
+      bottom: -24px;
+      background: #111111;
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .slider-row {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: space-between;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      min-width: 160px;
+      accent-color: var(--accent);
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .input,
+    textarea.input {
+      width: 100%;
+      min-height: 36px;
+      padding: 7px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--control);
+      background: var(--raised);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    textarea.input {
+      min-height: 68px;
+      resize: vertical;
+    }
+
+    /* Uncropped Aspect-Ratio Filmstrip / Masonry */
+    .masonry-head {
+      margin: 26px 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .masonry {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--gap);
+      align-items: start;
+    }
+
+    .film-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 10px;
+      border: 1px solid transparent;
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      gap: 8px;
+    }
+
+    .film-card:hover {
+      background: #191919;
+    }
+
+    .film-card[aria-selected="true"] {
+      border-color: var(--accent);
+    }
+
+    .film-media {
+      border-radius: 10px;
+      overflow: hidden;
+      background: #050505;
+    }
+
+    .film-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: var(--pill-neutral-bg);
+      color: var(--pill-neutral-ink);
+    }
+
+    .pill.pos {
+      background: var(--pill-positive-bg);
+      color: var(--pill-positive-ink);
+    }
+
+    .pill.warn {
+      background: var(--pill-warning-bg);
+      color: var(--pill-warning-ink);
+    }
+
+    @media (max-width: 960px) {
+      .t-frame {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+
+      .sidebar.open {
+        transform: none;
+      }
+
+      .menu-toggle {
+        display: inline-flex;
+      }
+
+      .topbar {
+        padding: 0 16px;
+      }
+
+      .switcher-cell {
+        display: none;
+      }
+
+      .canvas {
+        padding: 18px 16px 36px;
+      }
+
+      .kpi-tile,
+      .stage-card,
+      .detail-card {
+        grid-column: 1 / -1;
+      }
+
+      .masonry {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    .brand-title { font-weight: 600; font-size: 13px; }
+    .brand-sub { font-size: 11px; color: var(--faint); }
+    .sidebar-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
+    .topbar-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+    .reel-meta { text-align: right; }
+    .reel-name { font-size: 13px; font-weight: 500; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mount-card { max-width: 760px; padding: 28px; }
+    .mount-title { font-size: 20px; font-weight: 600; }
+    .mount-desc { margin-top: 8px; color: var(--muted); }
+    .mount-strip { margin-top: 18px; padding: 16px; border-radius: 12px; background: var(--raised); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .fw-500 { font-weight: 500; }
+    .sub-muted { font-size: 12px; color: var(--muted); }
+    .mount-btns { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .stage-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+    .sec-h2 { font-size: 16px; font-weight: 600; }
+    .curtain-after-clip { clip-path: inset(0 0 0 52%); }
+    .curtain-line { left: 52%; }
+    .tag-left { left: 12px; }
+    .tag-right { right: 12px; }
+    .faint-note { font-size: 12px; color: var(--faint); }
+  </style>
+</head>
+
+<body>
+  <div class="t-frame">
+    <aside class="sidebar" id="sidebar" aria-label="Darkroom navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">4K</div>
+        <div>
+          <div class="brand-title">Family History Photos</div>
+          <div class="brand-sub">Darkroom Loupe</div>
+        </div>
+      </div>
+
+      <div class="group-label">Screen mode</div>
+      <button type="button" class="nav-item" id="navLoupe" aria-current="page">Darkroom loupe</button>
+      <button type="button" class="nav-item" id="navMount">Mount folder</button>
+
+      <div class="group-label">Inspection reels</div>
+      <button type="button" class="nav-item" data-reel="all" aria-current="page">All frames</button>
+      <button type="button" class="nav-item" data-reel="lowres">Needs 4K</button>
+      <button type="button" class="nav-item" data-reel="unnamed">Unnamed faces</button>
+      <button type="button" class="nav-item" data-reel="restored">4K restored</button>
+
+      <div class="sidebar-foot">
+        <a href="index.html" class="nav-item" id="backLink">All previews</a>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <button type="button" class="btn menu-toggle" id="menuBtn">Menu</button>
+        <div class="top-search">
+          <span id="searchIcon"></span>
+          <input type="search" id="searchInput" placeholder="Search prints, relatives, decades..."
+            aria-label="Search prints">
+        </div>
+      </div>
+      <div class="switcher-cell">
+        <div class="reel-meta">
+          <div class="reel-name">Gill &amp; Costello Reel</div>
+          <div class="brand-sub">Local ONNX · CodeFormer</div>
+        </div>
+      </div>
+    </header>
+
+    <main class="canvas">
+      <div class="title-row">
+        <div>
+          <h1 id="pageTitle">Darkroom Inspection &amp; 4K Restoration</h1>
+          <p class="title-sub" id="pageSub"></p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" id="toggleFacesBtn">Hide face boxes</button>
+          <button type="button" class="btn primary" id="enhancePrimaryBtn">Enhance selected to 4K</button>
+        </div>
+      </div>
+
+      <section id="mountView" hidden aria-label="Open folder darkroom">
+        <div class="card mount-card">
+          <h2 class="mount-title">Open a local negative or print folder</h2>
+          <p class="mount-desc">True-black workspace calibrated so sepia, Kodachrome, and monochrome scans sit without white glare. Local ONNX models restore soft faces to 4K offline.</p>
+          <div class="mount-strip">
+            <div>
+              <div class="fw-500">Last reel: Gill &amp; Costello Shoebox</div>
+              <div class="sub-muted">10 prints · 4 sub-800px scans queued for 4K</div>
+            </div>
+            <button type="button" class="btn primary" id="resumeDarkBtn">Resume darkroom</button>
+          </div>
+          <div class="mount-btns">
+            <button type="button" class="btn" id="pickLocalDarkBtn">Open another folder</button>
+            <button type="button" class="btn" id="cloudDarkBtn">Import from Cloud</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="loupeView">
+        <div class="grid-6 top">
+          <div class="card kpi-tile">
+            <div class="kpi-label">Sub-800px scans to restore</div>
+            <div class="kpi-val num" id="kpiLow">4</div>
+            <div class="kpi-note" id="kpiLowNote">Under 800px or 75 KB</div>
+          </div>
+          <div class="card kpi-tile">
+            <div class="kpi-label">4K restored prints</div>
+            <div class="kpi-val num" id="kpiRestored">3</div>
+            <div class="kpi-note">3840×2880 CodeFormer + ESRGAN</div>
+          </div>
+          <div class="card kpi-tile">
+            <div class="kpi-label">Unnamed detected faces</div>
+            <div class="kpi-val num" id="kpiFaces">5</div>
+            <div class="kpi-note">Safelight boxes active on stage</div>
+          </div>
+
+          <section class="card stage-card" aria-label="Before and after 4K split curtain">
+            <div class="stage-head">
+              <h2 class="sec-h2" id="stageTitle"></h2>
+              <span class="num sub-muted" id="stageDims"></span>
+            </div>
+            <div class="curtain-viewport" id="curtainBox">
+              <img class="curtain-img curtain-before" id="imgBefore" src="sample.jpg" alt="Original vintage scan">
+              <div class="curtain-after-clip" id="afterClip">
+                <img class="curtain-img" id="imgAfter" src="sample.jpg" alt="4K restored output">
+              </div>
+              <div class="curtain-line" id="curtainLine"></div>
+              <div class="face-box" id="faceBox">
+                <span class="face-box-label" id="faceBoxLabel"></span>
+              </div>
+              <span class="curtain-tag tag-left">Original scan</span>
+              <span class="curtain-tag tag-right">4K CodeFormer preview</span>
+            </div>
+            <div class="slider-row">
+              <label for="splitRange" class="sub-muted">4K split curtain</label>
+              <input id="splitRange" type="range" min="5" max="95" value="52">
+              <span class="num sub-muted" id="splitPct">52%</span>
+            </div>
+          </section>
+
+          <aside class="card detail-card" aria-label="Darkroom frame metadata" id="detailCard"></aside>
+        </div>
+
+        <section aria-label="Uncropped aspect-ratio filmstrip">
+          <div class="masonry-head">
+            <h2 class="sec-h2" id="reelHeading">Uncropped proof frames</h2>
+            <span class="faint-note">True 3:4, 4:3, and 16:10 aspect ratios preserved</span>
+          </div>
+          <div class="masonry" id="masonryGrid"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="taste-data.js"></script>
+  <script>
+    (() => {
+      const { cloneItems, stats, ICONS, esc, notify } = window.TasteArchive;
+      const photos = cloneItems();
+      let mode = 'loupe';
+      let reel = 'all';
+      let query = '';
+      let showFaces = true;
+      let split = 52;
+      let selectedId = 'FH-002';
+
+      document.getElementById('searchIcon').innerHTML = ICONS.search;
+      document.getElementById('navLoupe').innerHTML = `${ICONS.spark}<span>Darkroom stage</span>`;
+      document.getElementById('navMount').innerHTML = `${ICONS.folder}<span>Open folder screen</span>`;
+      document.getElementById('backLink').innerHTML = `${ICONS.arrowLeft}<span>All 5 proposals</span>`;
+
+      document.getElementById('menuBtn').onclick = () => document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('navLoupe').onclick = () => { mode = 'loupe'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('navMount').onclick = () => { mode = 'mount'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('resumeDarkBtn').onclick = () => { mode = 'loupe'; render(); notify('Resumed Gill & Costello Reel.'); };
+      document.getElementById('pickLocalDarkBtn').onclick = () => { mode = 'loupe'; render(); notify('Mounted local folder.'); };
+      document.getElementById('cloudDarkBtn').onclick = () => notify('Cloud import ready.');
+
+      document.getElementById('toggleFacesBtn').onclick = () => {
+        showFaces = !showFaces;
+        document.getElementById('toggleFacesBtn').textContent = showFaces ? 'Hide face boxes' : 'Show face boxes';
+        renderStage();
+      };
+      document.getElementById('enhancePrimaryBtn').onclick = () => {
+        const p = photos.find((x) => x.id === selectedId);
+        if (!p) return;
+        p.restored4k = true;
+        p.width = 3840;
+        p.height = 2880;
+        p.kb = 1920;
+        split = 20;
+        document.getElementById('splitRange').value = '20';
+        notify(`Applied 4K restoration + red-eye cleanup to ${p.title}.`);
+        render();
+      };
+
+      document.getElementById('splitRange').oninput = (e) => {
+        split = Number(e.target.value);
+        document.getElementById('afterClip').style.clipPath = `inset(0 0 0 ${split}%)`;
+        document.getElementById('curtainLine').style.left = `${split}%`;
+        document.getElementById('splitPct').textContent = `${split}%`;
+      };
+      document.getElementById('searchInput').oninput = (e) => { query = e.target.value.trim().toLowerCase(); renderMasonry(); };
+
+      document.querySelectorAll('[data-reel]').forEach((b) => {
+        b.onclick = () => {
+          mode = 'loupe';
+          reel = b.dataset.reel;
+          const list = filtered();
+          if (list.length && !list.some((x) => x.id === selectedId)) selectedId = list[0].id;
+          document.getElementById('sidebar').classList.remove('open');
+          render();
+        };
+      });
+
+      function filtered() {
+        return photos.filter((p) => {
+          if (p.inReview) return false;
+          if (reel === 'lowres' && (p.restored4k || (p.width >= 800 && p.height >= 800 && p.kb >= 75))) return false;
+          if (reel === 'unnamed' && p.unnamedFaces === 0) return false;
+          if (reel === 'restored' && !p.restored4k) return false;
+          if (query) {
+            const hay = [p.title, p.place, p.isoDate, ...p.people.map((x) => x.name)].join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+          }
+          return true;
+        });
+      }
+
+      function renderStage() {
+        const p = photos.find((x) => x.id === selectedId) || photos[0];
+        document.getElementById('stageTitle').textContent = p.title;
+        document.getElementById('stageDims').textContent = `${p.width}×${p.height} px · ${p.aspect.replace(/\s/g, '')}`;
+        const before = document.getElementById('imgBefore');
+        const after = document.getElementById('imgAfter');
+        before.style.objectPosition = p.crop;
+        after.style.objectPosition = p.crop;
+        before.style.transform = `scale(${p.scale})`;
+        after.style.transform = `scale(${p.scale})`;
+        after.style.filter = 'contrast(1.08) saturate(1.06)';
+
+        document.getElementById('afterClip').style.clipPath = `inset(0 0 0 ${split}%)`;
+        document.getElementById('curtainLine').style.left = `${split}%`;
+        document.getElementById('splitPct').textContent = `${split}%`;
+
+        const fb = document.getElementById('faceBox');
+        fb.style.display = showFaces ? 'block' : 'none';
+        document.getElementById('faceBoxLabel').textContent = p.people[0]
+          ? p.people[0].name
+          : (p.unnamedFaces > 0 ? 'Unnamed face · tag on right' : 'Detected subject');
+
+        const detail = document.getElementById('detailCard');
+        detail.innerHTML = `
+          <h2 style="font-size:16px;font-weight:600">Frame notes</h2>
+          <div class="field">
+            <label for="dkPerson">Subject name ${p.unnamedFaces ? `(${p.unnamedFaces} unnamed)` : ''}</label>
+            <div style="display:flex;gap:6px">
+              <input id="dkPerson" class="input" value="${esc(p.people[0]?.name || '')}" placeholder="Type relative's name">
+              <button type="button" class="btn" id="dkAssignBtn" style="padding:0 12px">Assign</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="dkDate">Date &amp; place</label>
+            <input id="dkDate" class="input num" value="${esc([p.isoDate, p.place].filter(Boolean).join(' · '))}" placeholder="1968-06-14 · Chicago, IL">
+          </div>
+          <div class="field">
+            <label for="dkStory">Memory note</label>
+            <textarea id="dkStory" class="input" placeholder="Darkroom &amp; family story notes...">${esc(p.story)}</textarea>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn primary" id="dkSaveBtn" style="flex:1">Save note</button>
+            <button type="button" class="btn" id="dkRedEyeBtn">Fix red-eye</button>
+          </div>
+        `;
+        document.getElementById('dkAssignBtn').onclick = () => {
+          const v = document.getElementById('dkPerson').value.trim();
+          if (!v) return;
+          p.people = [{ name: v, rel: 'Relative', branch: p.branch }, ...p.people.slice(1)];
+          if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+          notify(`Assigned face box to ${v}.`);
+          render();
+        };
+        document.getElementById('dkSaveBtn').onclick = () => {
+          p.story = document.getElementById('dkStory').value.trim();
+          notify('Saved darkroom metadata.');
+          renderMasonry();
+        };
+        document.getElementById('dkRedEyeBtn').onclick = () => notify('Removed red-eye highlights locally.');
+      }
+
+      function renderMasonry() {
+        const list = filtered();
+        document.getElementById('reelHeading').textContent = `Uncropped proof frames (${list.length})`;
+        const g = document.getElementById('masonryGrid');
+        g.innerHTML = list.map((p) => {
+          const isLow = !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+          const badge = p.restored4k
+            ? `<span class="pill pos">4K restored</span>`
+            : (isLow ? `<span class="pill warn">${p.width}×${p.height} low-res</span>` : `<span class="pill">${p.width}×${p.height}</span>`);
+          return `
+            <button type="button" class="film-card" data-id="${p.id}" aria-selected="${p.id === selectedId}">
+              <div class="film-media" style="aspect-ratio:${p.aspect}">
+                <img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+              </div>
+              <div style="font-weight:500;font-size:13px">${esc(p.title)}</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <span class="num" style="font-size:12px;color:var(--faint)">${esc(p.isoDate || 'Undated')}</span>
+                ${badge}
+              </div>
+            </button>
+          `;
+        }).join('');
+        g.querySelectorAll('[data-id]').forEach((el) => {
+          el.onclick = () => { selectedId = el.dataset.id; renderStage(); renderMasonry(); };
+        });
+      }
+
+      function render() {
+        const s = stats(photos);
+        document.getElementById('mountView').hidden = mode !== 'mount';
+        document.getElementById('loupeView').hidden = mode !== 'loupe';
+        document.getElementById('navLoupe').setAttribute('aria-current', mode === 'loupe' ? 'page' : 'false');
+        document.getElementById('navMount').setAttribute('aria-current', mode === 'mount' ? 'page' : 'false');
+        document.getElementById('pageSub').textContent = `${s.lowResCount} vintage scans under 800px ready for local 4K CodeFormer restoration`;
+
+        const reels = {
+          all: [ICONS.grid, 'All active frames', s.activeCount],
+          lowres: [ICONS.spark, 'Needs 4K upscale', s.lowResCount],
+          unnamed: [ICONS.users, 'Unnamed faces', s.unnamedPhotoCount],
+          restored: [ICONS.check, '4K completed', s.restoredCount]
+        };
+        document.querySelectorAll('[data-reel]').forEach((b) => {
+          const k = b.dataset.reel;
+          const [ic, lbl, cnt] = reels[k];
+          b.setAttribute('aria-current', mode === 'loupe' && reel === k ? 'page' : 'false');
+          b.innerHTML = `${ic}<span>${lbl}</span>${cnt > 0 ? `<span class="nav-count">${cnt}</span>` : ''}`;
+        });
+
+        if (mode === 'loupe') {
+          document.getElementById('kpiLow').textContent = String(s.lowResCount);
+          document.getElementById('kpiRestored').textContent = String(s.restoredCount);
+          document.getElementById('kpiFaces').textContent = String(s.unnamedFacesTotal);
+          renderStage();
+          renderMasonry();
+        }
+      }
+      render();
+    })();
+  </script>
+</body>
+
+</html>

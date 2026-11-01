@@ -49,3 +49,5 @@ ai_service/*.tiff
 *.sln
 *.sw?
 *.code-workspace
+
+.taste-skill/

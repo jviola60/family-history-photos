@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal 1 — The Kitchen Table Album (Family History Photos)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ground: #ffffff;
+      --surface: #f4f5f3;
+      --raised: #ffffff;
+      --active: #e7eae5;
+      --border: #e4e7e2;
+      --rule: #eceee9;
+      --control: #cfd4cc;
+      --text: #1f201d;
+      --muted: #595b56;
+      --faint: #666863;
+      --accent: #1b6e66;
+      --primary: #1f201d;
+      --primary-ink: #ffffff;
+      --positive: #247b50;
+      --negative: #b42318;
+      --warning: #92400e;
+      --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+      --pill-negative-bg: #fdecea; --pill-negative-ink: #7a1d14;
+      --pill-warning-bg: #fffbeb; --pill-warning-ink: #92400e;
+      --pill-neutral-bg: #e7eae5; --pill-neutral-ink: #2c2e2a;
+      --radius-card: 22px;
+      --radius-control: 999px;
+      --sidebar-width: 228px;
+      --gap: 16px;
+      --pad: 28px;
+      --control-height: 38px;
+      --font: "Instrument Sans", system-ui, -apple-system, sans-serif;
+      --font-serif: "Instrument Serif", Georgia, serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font: 14px/20px var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, p { margin: 0; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    img, svg { display: block; max-width: 100%; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      min-height: 100svh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100svh;
+      padding: 20px 14px;
+      border-right: 1px solid var(--border);
+      background: var(--ground);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow-y: auto;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 10px 16px;
+    }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-family: var(--font-serif);
+      font-size: 18px;
+      line-height: 1;
+      flex: none;
+    }
+    .brand-name { font-weight: 600; font-size: 14px; line-height: 18px; }
+    .brand-scope { font-size: 12px; color: var(--muted); }
+
+    .group-label {
+      margin: 18px 10px 6px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+    .nav-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 36px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+    .nav-btn svg { width: 16px; height: 16px; flex: none; }
+    .nav-btn:hover { background: var(--surface); color: var(--text); }
+    .nav-btn[aria-current="page"] { background: var(--active); color: var(--text); font-weight: 500; }
+    .nav-count {
+      margin-left: auto;
+      font-size: 12px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .sidebar-foot {
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid var(--rule);
+      display: grid;
+      gap: 6px;
+    }
+
+    .mobile-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--ground);
+    }
+
+    .canvas {
+      min-width: 0;
+      padding: 36px var(--pad) 56px;
+    }
+    .column {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .greeting-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    .greeting-row h1 {
+      font-family: var(--font-serif);
+      font-size: 32px;
+      line-height: 1.15;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+    }
+    .greeting-sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: var(--control-height);
+      padding: 0 16px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: var(--ground);
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn svg { width: 16px; height: 16px; flex: none; }
+    .btn:hover { background: var(--surface); }
+    .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+    .btn.primary:hover { opacity: 0.92; }
+    .btn.accent { background: var(--accent); color: #ffffff; border-color: transparent; }
+
+    /* 12-column editorial greeting layout */
+    .grid-12 {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: var(--gap);
+    }
+    .grid-12.top { align-items: start; }
+
+    .tile {
+      grid-column: span 3;
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 18px 20px;
+      border: 1px solid transparent;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 116px;
+    }
+    .tile:hover { border-color: var(--control); }
+    .tile[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: #ebf3f1;
+    }
+    .tile-label { font-size: 13px; color: var(--muted); }
+    .tile-val {
+      font-size: 32px;
+      line-height: 1.1;
+      font-weight: 400;
+      margin: 8px 0 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .tile-note { font-size: 12px; color: var(--faint); }
+
+    /* Signature Element: Active Print + Verso (Back-of-Print) Workbench */
+    .verso-stage {
+      margin-top: var(--gap);
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 20px;
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .print-frame {
+      background: #ffffff;
+      padding: 12px 12px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+    .print-img-wrap {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      border-radius: 8px;
+      background: #e9ece7;
+    }
+    .print-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .print-caption-bar {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .verso-sheet {
+      background: #ffffff;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      padding: 20px;
+    }
+    .verso-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .verso-head h2 { font-size: 16px; font-weight: 600; }
+    .verso-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 16px;
+    }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { font-size: 13px; font-weight: 500; color: var(--text); }
+    .input, textarea.input, select.input {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 12px;
+      border: 1px solid var(--control);
+      border-radius: 12px;
+      background: #ffffff;
+    }
+    textarea.input { min-height: 76px; resize: vertical; line-height: 1.45; }
+    .people-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .person-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .person-chip button {
+      border: 0;
+      background: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 14px;
+    }
+    .verso-actions {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    /* Toolbar + 3-up Album Grid */
+    .album-head {
+      margin-top: 28px;
+      margin-bottom: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .album-head h2 { font-size: 16px; font-weight: 600; }
+    .branch-pills { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .pill-btn {
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--control);
+      background: var(--ground);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .pill-btn[aria-pressed="true"] {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+    .search-box {
+      position: relative;
+      width: 240px;
+    }
+    .search-box svg {
+      position: absolute;
+      left: 12px;
+      top: 9px;
+      width: 15px;
+      height: 15px;
+      color: var(--faint);
+    }
+    .search-box input {
+      width: 100%;
+      height: 32px;
+      padding: 0 12px 0 34px;
+      border-radius: 999px;
+      border: 1px solid var(--control);
+      background: var(--ground);
+      font-size: 13px;
+    }
+
+    .prints-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--gap);
+    }
+    .print-card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 12px 12px 16px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .print-card:hover { border-color: var(--control); }
+    .print-card[aria-selected="true"] {
+      border-color: var(--accent);
+      background: #ebf3f1;
+    }
+    .print-thumb {
+      aspect-ratio: 4 / 3;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #e2e5e0;
+    }
+    .print-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .print-meta { padding: 0 4px; display: grid; gap: 4px; }
+    .print-title { font-weight: 500; font-size: 14px; color: var(--text); }
+    .print-sub { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      width: max-content;
+    }
+    .status-pill.pos { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+    .status-pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+    .status-pill.neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+
+    /* First-run Folder Opener View */
+    .opener-card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 36px;
+      display: grid;
+      grid-template-columns: minmax(0, 6fr) minmax(0, 6fr);
+      gap: 32px;
+      align-items: center;
+    }
+    .opener-copy h2 {
+      font-family: var(--font-serif);
+      font-size: 32px;
+      line-height: 1.15;
+      font-weight: 400;
+    }
+    .opener-copy p {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+      max-width: 48ch;
+    }
+    .resume-strip {
+      margin-top: 20px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .opener-actions {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: minmax(0, 1fr); }
+      .mobile-bar { display: flex; }
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+      .sidebar.open { transform: none; }
+      .canvas { padding: 20px 16px 40px; }
+      .greeting-row h1 { font-size: 24px; }
+      .tile { grid-column: span 6; }
+      .verso-stage, .opener-card { grid-template-columns: minmax(0, 1fr); }
+      .prints-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .greeting-row { flex-direction: column; align-items: flex-start; }
+    }
+    @media (max-width: 520px) {
+      .prints-grid { grid-template-columns: minmax(0, 1fr); }
+      .verso-fields { grid-template-columns: minmax(0, 1fr); }
+    }
+    .menu-btn-compact { height: 34px; padding: 0 12px; }
+    .fw-600 { font-weight: 600; }
+    .sub-link { font-size: 12px; color: var(--muted); }
+    .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .muted-ink { color: var(--muted); }
+    .filter-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  </style>
+</head>
+<body>
+  <div class="mobile-bar">
+    <button type="button" class="btn menu-btn-compact" id="menuBtn">Menu</button>
+    <span class="fw-600">Family History Photos</span>
+    <a href="index.html" class="sub-link">All previews</a>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Album navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">F</div>
+        <div>
+          <div class="brand-name">Family History Photos</div>
+          <div class="brand-scope">Gill &amp; Costello Shoebox</div>
+        </div>
+      </div>
+
+      <div class="group-label">Flow state</div>
+      <button type="button" class="nav-btn" id="navWorking" aria-current="page">Working album</button>
+      <button type="button" class="nav-btn" id="navOpener">Open folder</button>
+
+      <div class="group-label">Album views</div>
+      <button type="button" class="nav-btn" data-filter="all" aria-current="page">All prints</button>
+      <button type="button" class="nav-btn" data-filter="unnamed">Unnamed faces</button>
+      <button type="button" class="nav-btn" data-filter="lowres">Small scans</button>
+      <button type="button" class="nav-btn" data-filter="review">In review</button>
+
+      <div class="sidebar-foot">
+        <button type="button" class="nav-btn" id="cloudBtn">Cloud import</button>
+        <a href="index.html" class="nav-btn" id="backLink">All previews</a>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <div class="column">
+        <div class="greeting-row">
+          <div>
+            <h1 id="mainHeading">Gill &amp; Costello Shoebox</h1>
+            <p class="greeting-sub" id="subHeading"></p>
+          </div>
+          <div class="action-row">
+            <button type="button" class="btn" id="switchScreenBtn">Preview Folder Opener</button>
+            <button type="button" class="btn primary" id="nextUnnamedBtn">Name next face</button>
+          </div>
+        </div>
+
+        <section id="openerSection" hidden aria-label="Open family photo folder">
+          <div class="opener-card">
+            <div class="opener-copy">
+              <h2>Open a shoebox folder right from your computer.</h2>
+              <p>Your photographs stay inside their own folders on this machine. Add names, write the story on the back of each print, clean duplicates safely, and restore small scans to 4K.</p>
+              <div class="resume-strip">
+                <div>
+                  <div class="fw-600">Continue Gill &amp; Costello Shoebox</div>
+                  <div class="sub-link" id="resumeMeta">10 active prints · local folder ready</div>
+                </div>
+                <button type="button" class="btn accent" id="resumeBtn">Resume album</button>
+              </div>
+              <div class="opener-actions">
+                <button type="button" class="btn primary" id="pickFolderBtn">Choose photos folder</button>
+                <button type="button" class="btn" id="importCloudHeroBtn">Import from cloud</button>
+              </div>
+            </div>
+            <div class="print-frame">
+              <div class="print-img-wrap">
+                <img src="sample.jpg" alt="Josephine Helen Costello smiling at the Gill family reunion picnic table">
+              </div>
+              <div class="print-caption-bar">
+                <span>Josephine Helen Costello · July 2003</span>
+                <span class="muted-ink">Swallow Cliff Woods</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div id="workingSection">
+          <section class="grid-12" aria-label="Album counts" id="kpiGrid"></section>
+
+          <section class="verso-stage" aria-label="Selected print and back-of-photo notes" id="versoStage"></section>
+
+          <section aria-label="Album prints">
+            <div class="album-head">
+              <h2 id="gridHeading">Prints in this folder</h2>
+              <div class="filter-toolbar">
+                <div class="branch-pills" id="branchBar"></div>
+                <div class="search-box">
+                  <span id="searchIcon"></span>
+                  <input type="search" id="searchInput" placeholder="Search names, places, years" aria-label="Search names, places, years">
+                </div>
+              </div>
+            </div>
+            <div class="prints-grid" id="printsGrid"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="taste-data.js"></script>
+  <script>
+    (() => {
+      const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
+      const photos = cloneItems();
+      let mode = 'working';
+      let filter = 'all';
+      let branch = 'all';
+      let query = '';
+      let selectedId = 'FH-002';
+
+      document.getElementById('menuBtn').innerHTML = `${ICONS.menu}<span>Menu</span>`;
+      document.getElementById('searchIcon').innerHTML = ICONS.search;
+      document.getElementById('navWorking').innerHTML = `${ICONS.grid}<span>Working album</span>`;
+      document.getElementById('navOpener').innerHTML = `${ICONS.folder}<span>First-run opener</span>`;
+      document.getElementById('cloudBtn').innerHTML = `${ICONS.cloud}<span>Cloud import</span>`;
+      document.getElementById('backLink').innerHTML = `${ICONS.arrowLeft}<span>All 5 proposals</span>`;
+
+      document.getElementById('menuBtn').onclick = () => document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('cloudBtn').onclick = () => notify('Cloud import sheet opens for Google Photos, OneDrive, or iCloud.');
+      document.getElementById('pickFolderBtn').onclick = () => { mode = 'working'; render(); notify('Opened local folder: Gill & Costello Shoebox'); };
+      document.getElementById('resumeBtn').onclick = () => { mode = 'working'; render(); notify('Resumed Gill & Costello Shoebox'); };
+      document.getElementById('importCloudHeroBtn').onclick = () => notify('Cloud picker ready.');
+
+      document.getElementById('navWorking').onclick = () => { mode = 'working'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('navOpener').onclick = () => { mode = 'opener'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('switchScreenBtn').onclick = () => { mode = mode === 'working' ? 'opener' : 'working'; render(); };
+
+      document.getElementById('nextUnnamedBtn').onclick = () => {
+        mode = 'working';
+        const next = photos.find((p) => !p.inReview && p.unnamedFaces > 0);
+        if (next) {
+          selectedId = next.id;
+          filter = 'unnamed';
+          render();
+          const inp = document.getElementById('newPersonInput');
+          if (inp) inp.focus();
+        } else {
+          notify('Every detected face in this album now has a name.');
+        }
+      };
+
+      document.getElementById('searchInput').oninput = (e) => { query = e.target.value.trim().toLowerCase(); renderGrid(); };
+
+      function setFilter(f) {
+        mode = 'working';
+        filter = f;
+        const list = filteredPhotos();
+        if (list.length && !list.some((p) => p.id === selectedId)) selectedId = list[0].id;
+        document.getElementById('sidebar').classList.remove('open');
+        render();
+      }
+
+      document.querySelectorAll('[data-filter]').forEach((btn) => {
+        btn.onclick = () => setFilter(btn.dataset.filter);
+      });
+
+      function filteredPhotos() {
+        return photos.filter((p) => {
+          if (filter === 'review') { if (!p.inReview) return false; }
+          else {
+            if (p.inReview) return false;
+            if (filter === 'unnamed' && p.unnamedFaces === 0) return false;
+            if (filter === 'lowres' && (p.restored4k || (p.width >= 800 && p.height >= 800 && p.kb >= 75))) return false;
+          }
+          if (branch !== 'all' && p.branch !== branch) return false;
+          if (query) {
+            const hay = [p.title, p.place, p.isoDate, p.decade, p.story, ...p.people.map((x) => x.name)].join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+          }
+          return true;
+        });
+      }
+
+      function renderNavAndCounts() {
+        const s = stats(photos);
+        document.getElementById('mainHeading').textContent = mode === 'opener'
+          ? 'Family History Photos'
+          : `Gill & Costello Shoebox — ${s.activeCount} prints`;
+        document.getElementById('subHeading').textContent = mode === 'opener'
+          ? 'First-run folder selection and 1-click session resume'
+          : `${s.unnamedFacesTotal} faces waiting for names · ${s.storyCount} stories written on the back · local folder synced`;
+        document.getElementById('switchScreenBtn').textContent = mode === 'working' ? 'See folder opener' : 'Back to working album';
+        document.getElementById('resumeMeta').textContent = `${s.activeCount} active prints · ${s.unnamedFacesTotal} unnamed faces`;
+
+        document.getElementById('navWorking').setAttribute('aria-current', mode === 'working' ? 'page' : 'false');
+        document.getElementById('navOpener').setAttribute('aria-current', mode === 'opener' ? 'page' : 'false');
+
+        const navMap = {
+          all: [ICONS.grid, 'All album prints', 0],
+          unnamed: [ICONS.users, 'Unnamed faces', s.unnamedPhotoCount],
+          lowres: [ICONS.spark, 'Under 800px for 4K', s.lowResCount],
+          review: [ICONS.copy, 'Duplicates review', s.reviewCount]
+        };
+        document.querySelectorAll('[data-filter]').forEach((btn) => {
+          const k = btn.dataset.filter;
+          const [ic, label, count] = navMap[k];
+          btn.setAttribute('aria-current', mode === 'working' && filter === k ? 'page' : 'false');
+          btn.innerHTML = `${ic}<span>${label}</span>${count > 0 ? `<span class="nav-count">${count}</span>` : ''}`;
+        });
+
+        const tiles = [
+          { key: 'all', label: 'Prints in album', val: s.activeCount, note: `${s.storyCount} with written stories` },
+          { key: 'unnamed', label: 'Photos with unnamed faces', val: s.unnamedPhotoCount, note: `${s.unnamedFacesTotal} faces detected locally` },
+          { key: 'lowres', label: 'Small scans under 800px', val: s.lowResCount, note: `${s.restoredCount} already restored to 4K` },
+          { key: 'review', label: 'Staged in _Duplicates_Review', val: s.reviewCount, note: 'Nothing deleted without review' }
+        ];
+        const kpiGrid = document.getElementById('kpiGrid');
+        kpiGrid.innerHTML = tiles.map((t) => `
+          <button type="button" class="tile" data-tile="${t.key}" aria-pressed="${filter === t.key}">
+            <span class="tile-label">${esc(t.label)}</span>
+            <span class="tile-val num">${t.val}</span>
+            <span class="tile-note">${esc(t.note)}</span>
+          </button>
+        `).join('');
+        kpiGrid.querySelectorAll('[data-tile]').forEach((b) => {
+          b.onclick = () => setFilter(b.dataset.tile);
+        });
+      }
+
+      function renderVerso() {
+        const p = photos.find((x) => x.id === selectedId) || photos[0];
+        const stage = document.getElementById('versoStage');
+        const isLow = !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+        stage.innerHTML = `
+          <div class="print-frame">
+            <div class="print-img-wrap">
+              <img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+            </div>
+            <div class="print-caption-bar">
+              <span class="num">${esc(p.isoDate || 'Date unknown')} · ${p.width}×${p.height} px</span>
+              <span>${p.restored4k ? '4K Restored' : (isLow ? 'Ready for 4K upscale' : 'Original print')}</span>
+            </div>
+          </div>
+          <div class="verso-sheet">
+            <div class="verso-head">
+              <h2>Back of print — ${esc(p.title)}</h2>
+              <span style="font-size:12px;color:var(--muted)" class="num">${esc(p.subfolder)}</span>
+            </div>
+            <div class="verso-fields">
+              <div class="field full">
+                <label for="newPersonInput">Who is in this photo ${p.unnamedFaces > 0 ? `(${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''} detected)` : ''}</label>
+                <div class="people-row" id="activePeopleChips">
+                  ${p.people.map((person, idx) => {
+                    const palette = branches[person.branch] || { bg: '#e7eae5', ink: '#1f201d' };
+                    return `<span class="person-chip" style="background:${palette.bg};color:${palette.ink}">${esc(person.name)} (${esc(person.rel)}) <button type="button" data-rm="${idx}" aria-label="Remove ${esc(person.name)}">×</button></span>`;
+                  }).join('')}
+                </div>
+                <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+                  <input id="newPersonInput" class="input" style="flex:1;min-width:180px" placeholder="Type a relative's name (e.g. Uncle Arthur Gill)">
+                  <select id="newRelSelect" class="input" style="width:150px" aria-label="Relationship">
+                    <option>Grandmother</option><option>Grandfather</option><option>Mother</option><option>Father</option><option>Aunt</option><option>Uncle</option><option>Cousin</option>
+                  </select>
+                  <button type="button" class="btn" id="addPersonBtn">Add name</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="dateInput">Date or decade</label>
+                <input id="dateInput" class="input num" value="${esc(p.isoDate || p.decade)}" placeholder="YYYY-MM-DD or 1960s">
+              </div>
+              <div class="field">
+                <label for="placeInput">Place</label>
+                <input id="placeInput" class="input" value="${esc(p.place)}" placeholder="Town, parish, or house">
+              </div>
+              <div class="field full">
+                <label for="storyInput">Story written on the back</label>
+                <textarea id="storyInput" class="input" placeholder="Write what you remember about this day...">${esc(p.story)}</textarea>
+              </div>
+            </div>
+            <div class="verso-actions">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${isLow ? `<button type="button" class="btn" id="upscaleBtn">${ICONS.spark}<span>Restore to 4K</span></button>` : ''}
+                <button type="button" class="btn" id="fsBtn">${ICONS.tree}<span>${p.fsSynced ? 'Synced to FamilySearch' : 'Send to FamilySearch'}</span></button>
+              </div>
+              <button type="button" class="btn primary" id="saveVersoBtn">${ICONS.check}<span>Save to print</span></button>
+            </div>
+          </div>
+        `;
+
+        stage.querySelectorAll('[data-rm]').forEach((b) => {
+          b.onclick = () => {
+            p.people.splice(Number(b.dataset.rm), 1);
+            render();
+          };
+        });
+        document.getElementById('addPersonBtn').onclick = () => {
+          const val = document.getElementById('newPersonInput').value.trim();
+          const rel = document.getElementById('newRelSelect').value;
+          if (!val) return;
+          p.people.push({ name: val, rel, branch: p.branch });
+          if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+          notify(`Named ${val} on this print.`);
+          render();
+        };
+        const upBtn = document.getElementById('upscaleBtn');
+        if (upBtn) {
+          upBtn.onclick = () => {
+            p.restored4k = true;
+            p.width = 3840;
+            p.height = 2880;
+            p.filter = 'contrast(1.06)';
+            notify('Restored scan to 3840×2880 (4K).');
+            render();
+          };
+        }
+        document.getElementById('fsBtn').onclick = () => {
+          p.fsSynced = true;
+          p.fsId = p.fsId || 'MM9R-7N2';
+          notify('Synced photo & back-of-print story to FamilySearch Memories.');
+          render();
+        };
+        document.getElementById('saveVersoBtn').onclick = () => {
+          const d = document.getElementById('dateInput').value.trim();
+          p.isoDate = d;
+          if (/^\d{4}/.test(d)) p.decade = `${d.slice(0, 3)}0s`;
+          p.place = document.getElementById('placeInput').value.trim();
+          p.story = document.getElementById('storyInput').value.trim();
+          notify('Saved names and story to photo metadata.');
+          render();
+        };
+      }
+
+      function renderBranches() {
+        const bar = document.getElementById('branchBar');
+        const opts = ['all', 'Costello', 'Gill', 'Russo'];
+        bar.innerHTML = opts.map((b) => `
+          <button type="button" class="pill-btn" data-br="${b}" aria-pressed="${branch === b}">
+            ${b === 'all' ? 'All branches' : `${b} branch`}
+          </button>
+        `).join('');
+        bar.querySelectorAll('[data-br]').forEach((btn) => {
+          btn.onclick = () => { branch = btn.dataset.br; renderGrid(); renderBranches(); };
+        });
+      }
+
+      function renderGrid() {
+        const list = filteredPhotos();
+        document.getElementById('gridHeading').textContent = `Showing ${list.length} ${list.length === 1 ? 'print' : 'prints'}`;
+        const grid = document.getElementById('printsGrid');
+        if (!list.length) {
+          grid.innerHTML = `<div style="grid-column:1/-1;padding:28px;border:1px dashed var(--control);border-radius:16px;text-align:center;color:var(--muted)">No prints match this filter.</div>`;
+          return;
+        }
+        grid.innerHTML = list.map((p) => {
+          let pill = `<span class="status-pill pos">Story &amp; names saved</span>`;
+          if (p.inReview) pill = `<span class="status-pill warn">In _Duplicates_Review</span>`;
+          else if (p.unnamedFaces > 0) pill = `<span class="status-pill warn">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>`;
+          else if (!p.story) pill = `<span class="status-pill neutral">Named · needs story</span>`;
+
+          const who = p.people.length ? p.people.map((x) => x.name).join(', ') : 'No names written yet';
+          return `
+            <button type="button" class="print-card" data-id="${p.id}" aria-selected="${p.id === selectedId}">
+              <div class="print-thumb">
+                <img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}">
+              </div>
+              <div class="print-meta">
+                <div class="print-title">${esc(p.title)}</div>
+                <div style="font-size:13px;color:var(--muted)">${esc(who)}</div>
+                <div class="print-sub">
+                  <span class="num">${esc(p.isoDate || 'Undated')}</span>
+                  <span>${esc(p.branch)} branch</span>
+                </div>
+                <div style="margin-top:4px">${pill}</div>
+              </div>
+            </button>
+          `;
+        }).join('');
+        grid.querySelectorAll('[data-id]').forEach((card) => {
+          card.onclick = () => {
+            selectedId = card.dataset.id;
+            renderVerso();
+            renderGrid();
+          };
+        });
+      }
+
+      function render() {
+        document.getElementById('openerSection').hidden = mode !== 'opener';
+        document.getElementById('workingSection').hidden = mode !== 'working';
+        renderNavAndCounts();
+        if (mode === 'working') {
+          renderVerso();
+          renderBranches();
+          renderGrid();
+        }
+      }
+      render();
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal 4 — The Genealogist's Ledger (Family History Photos)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --ground: #f4f3f1;
+      --surface: #ffffff;
+      --raised: #eae9e5;
+      --active: #e2e1dd;
+      --border: #dfdeda;
+      --rule: #ecebe7;
+      --control: #c8c7c2;
+      --text: #0a0a0a;
+      --ink: #0a0a0a;
+      --muted: #595855;
+      --faint: #666561;
+      --axis-ink: #595855;
+      --grid: #e8e7e3;
+      --accent: #1d5fbf;
+      --primary: #141414;
+      --primary-ink: #ffffff;
+      --chart-1: #1d5fbf;
+      --chart-2: #6b6b6b;
+      --chart-muted: #c8c7c2;
+      --positive: #247b50;
+      --negative: #c4242a;
+      --pill-positive-bg: #dcfae5;
+      --pill-positive-ink: #04250e;
+      --pill-warning-bg: #fffbeb;
+      --pill-warning-ink: #92400e;
+      --pill-neutral-bg: #eae9e5;
+      --pill-neutral-ink: #2e2e2c;
+      --radius-card: 8px;
+      --radius-control: 6px;
+      --sidebar-width: 248px;
+      --gap: 14px;
+      --control-height: 34px;
+      --font: "Geist", Inter, system-ui, sans-serif;
+      --mono: "Geist Mono", ui-monospace, monospace;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font: 14px/20px var(--font);
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+      color: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      min-height: 100svh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100svh;
+      padding: 18px 14px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: var(--ground);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px 16px;
+    }
+
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: var(--primary);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .group-label {
+      margin: 16px 8px 4px;
+      font-size: 12px;
+      color: var(--faint);
+    }
+
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 34px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .nav-item svg {
+      width: 16px;
+      height: 16px;
+      flex: none;
+    }
+
+    .nav-item:hover {
+      background: var(--active);
+      color: var(--text);
+    }
+
+    .nav-item[aria-current="page"] {
+      background: var(--active);
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .nav-count {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .mobile-bar {
+      display: none;
+      height: 48px;
+      padding: 0 16px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .canvas {
+      padding: 28px 28px 48px;
+      min-width: 0;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .title-row h1 {
+      font-size: 24px;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+    }
+
+    .title-sub {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* Achromatic chrome: near-black primary, white/grey secondary */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: var(--control-height);
+      padding: 0 12px;
+      border-radius: var(--radius-control);
+      border: 1px solid var(--control);
+      background: var(--surface);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn svg {
+      width: 15px;
+      height: 15px;
+      flex: none;
+    }
+
+    .btn:hover {
+      background: var(--raised);
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      color: var(--primary-ink);
+      border-color: transparent;
+    }
+
+    .segmented {
+      display: inline-flex;
+      padding: 2px;
+      border-radius: 6px;
+      background: var(--raised);
+      border: 1px solid var(--border);
+    }
+
+    .segmented button {
+      height: 28px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--gap);
+    }
+
+    .kpi {
+      padding: 14px 18px;
+    }
+
+    .kpi+.kpi {
+      border-left: 1px solid var(--border);
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .kpi-val {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 400;
+      margin-top: 4px;
+      line-height: 1.15;
+    }
+
+    .kpi-sub {
+      font-size: 12px;
+      color: var(--faint);
+      margin-top: 3px;
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: var(--gap);
+      align-items: start;
+      margin-bottom: var(--gap);
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 18px;
+      min-width: 0;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .panel-head h2 {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    /* Toolbar + Ledger Table / Specimen Plates */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .table-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      height: 38px;
+      padding: 0 14px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    tbody tr {
+      cursor: pointer;
+    }
+
+    tbody tr:hover td {
+      background: #faf9f7;
+    }
+
+    tbody tr[aria-selected="true"] td {
+      background: var(--raised);
+    }
+
+    th.n,
+    td.n {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .thumb-48 {
+      width: 56px;
+      height: 42px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: var(--raised);
+      flex: none;
+    }
+
+    .thumb-48 img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--pill-neutral-bg);
+      color: var(--pill-neutral-ink);
+      white-space: nowrap;
+    }
+
+    .pill.pos {
+      background: var(--pill-positive-bg);
+      color: var(--pill-positive-ink);
+    }
+
+    .pill.warn {
+      background: var(--pill-warning-bg);
+      color: var(--pill-warning-ink);
+    }
+
+    /* Specimen Plates View */
+    .plates-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--gap);
+    }
+
+    .plate {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 12px;
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      gap: 10px;
+    }
+
+    .plate[aria-selected="true"] {
+      border-color: var(--accent);
+    }
+
+    .plate-img {
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      background: var(--raised);
+    }
+
+    .plate-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Inline Record Editor strip below toolbar when row selected */
+    .record-editor {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 16px;
+      margin-bottom: var(--gap);
+      display: grid;
+      grid-template-columns: 140px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .input {
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+      background: var(--surface);
+      font-size: 13px;
+      width: 100%;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .mobile-bar {
+        display: flex;
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+
+      .sidebar.open {
+        transform: none;
+      }
+
+      .title-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .title-row h1 {
+        font-size: 22px;
+      }
+
+      .canvas {
+        padding: 18px 16px 36px;
+      }
+
+      .kpi-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .kpi:nth-child(3) {
+        border-left: 0;
+      }
+
+      .kpi:nth-child(n+3) {
+        border-top: 1px solid var(--border);
+      }
+
+      .charts-row,
+      .plates-grid,
+      .record-editor {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .fw-600 {
+      font-weight: 600;
+    }
+
+    .fw-500 {
+      font-weight: 500;
+    }
+
+    .sub-muted {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .brand-title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    .sidebar-foot {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .opener-panel {
+      max-width: 740px;
+      padding: 24px;
+    }
+
+    .opener-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .opener-desc {
+      margin-top: 8px;
+      color: var(--muted);
+    }
+
+    .opener-strip {
+      margin-top: 16px;
+      padding: 14px;
+      background: var(--ground);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .muted-ink {
+      color: var(--muted);
+    }
+
+    .decade-chart {
+      min-height: 175px;
+    }
+
+    .decade-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .count-line {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .search-ledger {
+      width: 260px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="mobile-bar">
+    <button type="button" class="btn" id="menuBtn">Menu</button>
+    <span class="fw-600">Genealogist's Ledger</span>
+    <a href="index.html" class="sub-muted">All previews</a>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Registrar index navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">GL</div>
+        <div>
+          <div class="brand-title">Family History Photos</div>
+          <div class="brand-sub">Archival Registrar</div>
+        </div>
+      </div>
+
+      <div class="group-label">Screen mode</div>
+      <button type="button" class="nav-item" id="navLedger" aria-current="page">Registrar ledger</button>
+      <button type="button" class="nav-item" id="navOpener">Open folder</button>
+
+      <div class="group-label">Catalog views</div>
+      <button type="button" class="nav-item" data-scope="all" aria-current="page">All records</button>
+      <button type="button" class="nav-item" data-scope="undated">Undated</button>
+      <button type="button" class="nav-item" data-scope="unsynced">Unsynced</button>
+      <button type="button" class="nav-item" data-scope="review">In review</button>
+
+      <div class="sidebar-foot">
+        <a href="index.html" class="nav-item" id="backLink">All previews</a>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <div class="title-row">
+        <div>
+          <h1 id="pageTitle">Archival Photo Ledger</h1>
+          <p class="title-sub" id="pageSub"></p>
+        </div>
+        <div class="btn-row">
+          <div class="segmented" role="group" aria-label="Display layout">
+            <button type="button" id="viewTableBtn" aria-pressed="true">Ledger table</button>
+            <button type="button" id="viewPlatesBtn" aria-pressed="false">Specimen plates</button>
+          </div>
+          <button type="button" class="btn primary" id="syncBatchBtn">Sync ready to FamilySearch</button>
+        </div>
+      </div>
+
+      <section id="openerView" hidden aria-label="Open directory">
+        <div class="panel opener-panel">
+          <h2 class="opener-title">Open local family archive directory</h2>
+          <p class="opener-desc">Indexes local JPEG/TIFF files into a verifiable genealogical ledger with ISO dates,
+            parish locations, branch provenance, and FamilySearch Memory IDs.</p>
+          <div class="opener-strip">
+            <div>
+              <div class="fw-500">Gill &amp; Costello Family Archive</div>
+              <div class="mono muted-ink">10 active records · 5 FamilySearch Memories linked</div>
+            </div>
+            <button type="button" class="btn primary" id="resumeLedgerBtn">Open ledger</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="ledgerView">
+        <div class="kpi-strip" id="kpiStrip"></div>
+
+        <div class="charts-row">
+          <section class="panel" aria-label="Records by decade">
+            <div class="panel-head">
+              <h2>Cataloged prints by decade</h2>
+              <span class="sub-muted" id="decadeFilterLabel">Click a decade pill below to filter</span>
+            </div>
+            <div id="decadeChart" class="decade-chart"></div>
+            <div class="decade-pills" id="decadePills"></div>
+          </section>
+
+          <section class="panel" aria-label="Records by family branch">
+            <div class="panel-head">
+              <h2>Family branch provenance</h2>
+              <span class="sub-muted">Active prints</span>
+            </div>
+            <div id="branchChart"></div>
+          </section>
+        </div>
+
+        <section class="record-editor" id="recordEditor" aria-label="Selected record editor"></section>
+
+        <div class="toolbar">
+          <div class="count-line" id="countLine"></div>
+          <input type="search" id="searchInput" class="input search-ledger"
+            placeholder="Filter ledger by name, place, ID" aria-label="Filter ledger">
+        </div>
+
+        <div id="recordsContainer"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="taste-charts.js"></script>
+  <script src="taste-data.js"></script>
+  <script>
+    (() => {
+      const { cloneItems, stats, ICONS, esc, notify } = window.TasteArchive;
+      const photos = cloneItems();
+      let screen = 'ledger';
+      let display = 'table';
+      let scope = 'all';
+      let decadeFilter = 'all';
+      let query = '';
+      let selectedId = 'FH-001';
+
+      document.getElementById('navLedger').innerHTML = `${ICONS.book}<span>Registrar ledger</span>`;
+      document.getElementById('navOpener').innerHTML = `${ICONS.folder}<span>Open folder screen</span>`;
+      document.getElementById('backLink').innerHTML = `${ICONS.arrowLeft}<span>All 5 proposals</span>`;
+
+      document.getElementById('menuBtn').onclick = () => document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('navLedger').onclick = () => { screen = 'ledger'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('navOpener').onclick = () => { screen = 'opener'; document.getElementById('sidebar').classList.remove('open'); render(); };
+      document.getElementById('resumeLedgerBtn').onclick = () => { screen = 'ledger'; render(); };
+
+      document.getElementById('viewTableBtn').onclick = () => { display = 'table'; render(); };
+      document.getElementById('viewPlatesBtn').onclick = () => { display = 'plates'; render(); };
+      document.getElementById('syncBatchBtn').onclick = () => {
+        let count = 0;
+        photos.forEach((p) => {
+          if (!p.inReview && !p.fsSynced && p.people.length > 0 && p.isoDate) {
+            p.fsSynced = true;
+            p.fsId = `MM9R-${count + 2}X`;
+            count++;
+          }
+        });
+        notify(count ? `Synced ${count} verified record(s) to FamilySearch.` : 'All dated & named records are already synced.');
+        render();
+      };
+      document.getElementById('searchInput').oninput = (e) => { query = e.target.value.trim().toLowerCase(); renderRecords(); };
+
+      document.querySelectorAll('[data-scope]').forEach((b) => {
+        b.onclick = () => {
+          screen = 'ledger';
+          scope = b.dataset.scope;
+          decadeFilter = 'all';
+          document.getElementById('sidebar').classList.remove('open');
+          render();
+        };
+      });
+
+      function filtered() {
+        return photos.filter((p) => {
+          if (scope === 'review') { if (!p.inReview) return false; }
+          else {
+            if (p.inReview) return false;
+            if (scope === 'undated' && p.isoDate) return false;
+            if (scope === 'unsynced' && p.fsSynced) return false;
+          }
+          if (decadeFilter !== 'all' && (p.decade || 'Undated') !== decadeFilter) return false;
+          if (query) {
+            const hay = [p.id, p.title, p.place, p.isoDate, p.branch, p.fsId, ...p.people.map((x) => x.name)].join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+          }
+          return true;
+        });
+      }
+
+      function renderCharts() {
+        const active = photos.filter((p) => !p.inReview);
+        const decades = ['1950s', '1960s', '1970s', '1980s', '1990s', '2000s'];
+        const counts = decades.map((d) => active.filter((p) => p.decade === d).length);
+        const hi = decadeFilter !== 'all' ? decades.indexOf(decadeFilter) : 1;
+        Charts.bars(document.getElementById('decadeChart'), {
+          labels: decades,
+          values: counts,
+          highlight: hi >= 0 ? hi : 1,
+          yTicks: [0, 1, 2, 3],
+          height: 150
+        });
+
+        const pillsEl = document.getElementById('decadePills');
+        pillsEl.innerHTML = ['all', ...decades, 'Undated'].map((d) => `
+          <button type="button" class="btn" style="height:26px;padding:0 9px;font-size:12px;${decadeFilter === d ? 'background:var(--primary);color:#fff;border-color:transparent' : ''}" data-dec="${d}">
+            ${d === 'all' ? 'All decades' : d}
+          </button>
+        `).join('');
+        pillsEl.querySelectorAll('[data-dec]').forEach((b) => {
+          b.onclick = () => { decadeFilter = b.dataset.dec; render(); };
+        });
+
+        const brCounts = ['Gill', 'Costello', 'Russo'].map((b) => ({
+          label: `${b} branch`,
+          value: active.filter((p) => p.branch === b).length
+        })).sort((a, b) => b.value - a.value);
+        Charts.barList(document.getElementById('branchChart'), brCounts, { thin: true });
+      }
+
+      function renderEditor() {
+        const p = photos.find((x) => x.id === selectedId) || photos[0];
+        const ed = document.getElementById('recordEditor');
+        ed.innerHTML = `
+          <div>
+            <img src="sample.jpg" alt="${esc(p.title)}" style="width:140px;height:105px;object-fit:cover;border-radius:4px;object-position:${p.crop};filter:${p.filter}">
+            <div class="mono" style="margin-top:6px;color:var(--muted)">${esc(p.id)} · ${p.width}×${p.height}</div>
+          </div>
+          <div style="display:grid;gap:10px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <strong style="font-size:14px">${esc(p.title)}</strong>
+              <span class="mono" style="color:var(--muted)">${p.fsSynced ? `FamilySearch ID: ${esc(p.fsId)}` : 'Not yet synced to FamilySearch'}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+              <input id="edWho" class="input" value="${esc(p.people.map((x) => x.name).join(', '))}" placeholder="Identified relatives" aria-label="Identified relatives">
+              <input id="edDate" class="input mono" value="${esc(p.isoDate)}" placeholder="YYYY-MM-DD" aria-label="ISO date">
+              <input id="edPlace" class="input" value="${esc(p.place)}" placeholder="Parish / municipality" aria-label="Location">
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="edStory" class="input" style="flex:1;min-width:200px" value="${esc(p.story)}" placeholder="Provenance or oral history citation" aria-label="Provenance note">
+              <button type="button" class="btn primary" id="edSaveBtn">Update record</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('edSaveBtn').onclick = () => {
+          const names = document.getElementById('edWho').value.split(',').map((s) => s.trim()).filter(Boolean);
+          p.people = names.map((n) => ({ name: n, rel: 'Recorded', branch: p.branch }));
+          if (names.length) p.unnamedFaces = 0;
+          const dt = document.getElementById('edDate').value.trim();
+          p.isoDate = dt;
+          if (/^\d{4}/.test(dt)) p.decade = `${dt.slice(0, 3)}0s`;
+          p.place = document.getElementById('edPlace').value.trim();
+          p.story = document.getElementById('edStory').value.trim();
+          notify(`Updated registrar entry ${p.id}.`);
+          render();
+        };
+      }
+
+      function renderRecords() {
+        const list = filtered();
+        document.getElementById('countLine').textContent = `Showing ${list.length} of ${photos.filter((x) => !x.inReview).length} active catalog records`;
+        const box = document.getElementById('recordsContainer');
+
+        if (!list.length) {
+          box.innerHTML = `<div class="panel" style="text-align:center;color:var(--muted)">No records match the selected scope.</div>`;
+          return;
+        }
+
+        if (display === 'plates') {
+          box.innerHTML = `<div class="plates-grid">${list.map((p) => `
+            <button type="button" class="plate" data-row="${p.id}" aria-selected="${p.id === selectedId}">
+              <div class="plate-img"><img src="sample.jpg" alt="${esc(p.title)}" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}"></div>
+              <div style="display:flex;justify-content:space-between;gap:8px"><strong style="font-size:13px">${esc(p.title)}</strong><span class="mono" style="color:var(--muted)">${esc(p.id)}</span></div>
+              <div style="font-size:12px;color:var(--muted)">${esc(p.people.map((x) => x.name).join(', ') || 'Unidentified')}</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
+                <span class="mono">${esc(p.isoDate || '—')}</span>
+                ${p.fsSynced ? `<span class="pill pos">${esc(p.fsId)}</span>` : `<span class="pill warn">Unsynced</span>`}
+              </div>
+            </button>
+          `).join('')}</div>`;
+        } else {
+          box.innerHTML = `
+            <div class="table-panel">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Record &amp; subject</th>
+                    <th>Branch</th>
+                    <th>Location</th>
+                    <th class="n">ISO Date</th>
+                    <th class="n">Dimensions</th>
+                    <th>FamilySearch</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${list.map((p) => `
+                    <tr data-row="${p.id}" aria-selected="${p.id === selectedId}">
+                      <td>
+                        <div style="display:flex;align-items:center;gap:12px">
+                          <div class="thumb-48"><img src="sample.jpg" alt="" style="object-position:${p.crop};transform-origin:${p.crop};transform:scale(${p.scale});filter:${p.filter}"></div>
+                          <div>
+                            <div style="font-weight:500">${esc(p.title)}</div>
+                            <div style="font-size:12px;color:var(--muted)">${esc(p.people.map((x) => `${x.name} (${x.rel})`).join(', ') || `${p.unnamedFaces} unnamed face`)}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>${esc(p.branch)}</td>
+                      <td style="color:var(--muted)">${esc(p.place || '—')}</td>
+                      <td class="n mono">${esc(p.isoDate || '—')}</td>
+                      <td class="n mono">${p.width}×${p.height}</td>
+                      <td>${p.fsSynced ? `<span class="pill pos mono">${esc(p.fsId)}</span>` : `<span class="pill">Pending</span>`}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        box.querySelectorAll('[data-row]').forEach((r) => {
+          r.onclick = () => { selectedId = r.dataset.row; renderEditor(); renderRecords(); };
+        });
+      }
+
+      function render() {
+        const s = stats(photos);
+        document.getElementById('openerView').hidden = screen !== 'opener';
+        document.getElementById('ledgerView').hidden = screen !== 'ledger';
+        document.getElementById('navLedger').setAttribute('aria-current', screen === 'ledger' ? 'page' : 'false');
+        document.getElementById('navOpener').setAttribute('aria-current', screen === 'opener' ? 'page' : 'false');
+        document.getElementById('viewTableBtn').setAttribute('aria-pressed', display === 'table' ? 'true' : 'false');
+        document.getElementById('viewPlatesBtn').setAttribute('aria-pressed', display === 'plates' ? 'true' : 'false');
+        document.getElementById('pageSub').textContent = `${s.fsSyncedCount} of ${s.activeCount} active prints linked to FamilySearch Memories · ${s.undatedCount} missing an ISO date`;
+
+        const scopes = {
+          all: [ICONS.book, 'All active records', 0],
+          undated: [ICONS.spark, 'Missing date', s.undatedCount],
+          unsynced: [ICONS.tree, 'Unsynced to FS', s.activeCount - s.fsSyncedCount],
+          review: [ICONS.copy, 'In _Duplicates_Review', s.reviewCount]
+        };
+        document.querySelectorAll('[data-scope]').forEach((b) => {
+          const k = b.dataset.scope;
+          const [ic, lbl, cnt] = scopes[k];
+          b.setAttribute('aria-current', screen === 'ledger' && scope === k ? 'page' : 'false');
+          b.innerHTML = `${ic}<span>${lbl}</span>${cnt > 0 ? `<span class="nav-count">${cnt}</span>` : ''}`;
+        });
+
+        if (screen !== 'ledger') return;
+
+        document.getElementById('kpiStrip').innerHTML = `
+          <div class="kpi"><div class="kpi-label">Verified records</div><div class="kpi-val">${s.activeCount}</div><div class="kpi-sub">${s.reviewCount} staged in review</div></div>
+          <div class="kpi"><div class="kpi-label">FamilySearch linked</div><div class="kpi-val">${s.fsSyncedCount}</div><div class="kpi-sub">${s.activeCount - s.fsSyncedCount} awaiting upload</div></div>
+          <div class="kpi"><div class="kpi-label">With oral history</div><div class="kpi-val">${s.storyCount}</div><div class="kpi-sub">Written provenance</div></div>
+          <div class="kpi"><div class="kpi-label">Undated prints</div><div class="kpi-val">${s.undatedCount}</div><div class="kpi-sub">Needs decade / year</div></div>
+        `;
+
+        renderCharts();
+        renderEditor();
+        renderRecords();
+      }
+
+      render();
+      window.addEventListener('resize', () => { if (screen === 'ledger') renderCharts(); });
+    })();
+  </script>
+</body>
+
+</html>

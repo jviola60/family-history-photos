@@ -29,6 +29,7 @@ MODELS_DIR = os.path.join(BASE_DIR, "models")
 REAL_ESRGAN_PATH = os.path.join(MODELS_DIR, "real_esrgan_x4.onnx")
 GFPGAN_PATH = os.path.join(MODELS_DIR, "gfpgan_1.4.onnx")
 CODEFORMER_PATH = os.path.join(MODELS_DIR, "codeformer.onnx")
+LAMA_PATH = os.path.join(MODELS_DIR, "lama.onnx")
 
 print("Initializing Local AI Restoration Engine (100% Offline)...")
 print(f"Loading models from: {MODELS_DIR}")
@@ -36,6 +37,13 @@ print(f"Loading models from: {MODELS_DIR}")
 # Load ONNX sessions with CPU Execution Provider
 opts = ort.SessionOptions()
 opts.intra_op_num_threads = max(2, os.cpu_count() // 2)
+
+try:
+    lama_session = ort.InferenceSession(LAMA_PATH, sess_options=opts, providers=['CPUExecutionProvider'])
+    print("[OK] LaMa Deep Learning Inpainter loaded.")
+except Exception as e:
+    print(f"Warning: Could not load LaMa: {e}")
+    lama_session = None
 
 try:
     esrgan_session = ort.InferenceSession(REAL_ESRGAN_PATH, sess_options=opts, providers=['CPUExecutionProvider'])
@@ -362,6 +370,7 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             data = {
                 "status": "ready",
                 "version": "2.0",
+                "lama": lama_session is not None,
                 "esrgan": esrgan_session is not None,
                 "gfpgan": gfpgan_session is not None,
                 "codeformer": codeformer_session is not None,
@@ -399,7 +408,7 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _handle_inpaint(self, post_data):
-        """Dedicated inpainting endpoint for manual brush repair."""
+        """Dedicated inpainting endpoint for manual brush repair with LaMa Deep Learning."""
         try:
             req = json.loads(post_data.decode("utf-8"))
             data_url = req.get("image", "")
@@ -412,20 +421,51 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
 
             orig_img = Image.open(io.BytesIO(base64.b64decode(data_url))).convert("RGB")
             mask_img = Image.open(io.BytesIO(base64.b64decode(mask_url))).convert("L")
+            w, h = orig_img.size
 
-            cv_img = cv2.cvtColor(np.array(orig_img), cv2.COLOR_RGB2BGR)
-            cv_mask = np.array(mask_img.resize(orig_img.size, Image.Resampling.NEAREST))
-            mask_bin = (cv_mask > 20).astype(np.uint8) * 255
-            mask_bin = cv2.dilate(mask_bin, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+            if lama_session is not None:
+                # 1. State-of-the-Art LaMa Neural Inpainting
+                img_512 = orig_img.resize((512, 512), Image.Resampling.BILINEAR)
+                mask_512 = mask_img.resize((512, 512), Image.Resampling.NEAREST)
 
-            inpainted = cv2.inpaint(cv_img, mask_bin, inpaintRadius=4, flags=cv2.INPAINT_TELEA)
-            res_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
+                arr_img = np.array(img_512).astype(np.float32) / 255.0
+                tensor_img = np.transpose(arr_img, (2, 0, 1))[np.newaxis, ...]
+
+                arr_mask = (np.array(mask_512).astype(np.float32) > 20).astype(np.float32)
+                # Gentle dilation of mask in 512 space to cleanly cover edges
+                cv_m512 = (arr_mask * 255).astype(np.uint8)
+                cv_m512 = cv2.dilate(cv_m512, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+                tensor_mask = (cv_m512.astype(np.float32) / 255.0)[np.newaxis, np.newaxis, ...]
+
+                out = lama_session.run(None, {'image': tensor_img, 'mask': tensor_mask})[0][0]
+                out_pixels = np.clip(out, 0.0, 255.0).astype(np.uint8) if out.max() > 1.5 else np.clip(out * 255.0, 0.0, 255.0).astype(np.uint8)
+                res_512 = Image.fromarray(np.transpose(out_pixels, (1, 2, 0)))
+                res_full = res_512.resize((w, h), Image.Resampling.LANCZOS)
+
+                # Composite only the masked area back onto original image with smooth feathered mask
+                mask_full = mask_img.resize((w, h), Image.Resampling.BILINEAR)
+                mask_bin = (np.array(mask_full) > 20).astype(np.uint8) * 255
+                mask_feathered = cv2.GaussianBlur(mask_bin, (5, 5), 0)
+                mask_alpha = mask_feathered.astype(np.float32) / 255.0
+
+                orig_np = np.array(orig_img).astype(np.float32)
+                res_np = np.array(res_full).astype(np.float32)
+                comp = orig_np * (1.0 - mask_alpha[..., np.newaxis]) + res_np * mask_alpha[..., np.newaxis]
+                res_img = Image.fromarray(np.clip(comp, 0, 255).astype(np.uint8))
+            else:
+                # Fallback to OpenCV Telea
+                cv_img = cv2.cvtColor(np.array(orig_img), cv2.COLOR_RGB2BGR)
+                cv_mask = np.array(mask_img.resize(orig_img.size, Image.Resampling.NEAREST))
+                mask_bin = (cv_mask > 20).astype(np.uint8) * 255
+                mask_bin = cv2.dilate(mask_bin, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+                inpainted = cv2.inpaint(cv_img, mask_bin, inpaintRadius=4, flags=cv2.INPAINT_TELEA)
+                res_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
 
             out_buf = io.BytesIO()
             res_img.save(out_buf, format="JPEG", quality=95)
             out_b64 = base64.b64encode(out_buf.getvalue()).decode("utf-8")
 
-            resp = {"success": True, "image": f"data:image/jpeg;base64,{out_b64}"}
+            resp = {"success": True, "engine": "lama" if lama_session is not None else "telea", "image": f"data:image/jpeg;base64,{out_b64}"}
             self.send_response(200)
             self._send_cors_headers()
             self.send_header("Content-Type", "application/json")
