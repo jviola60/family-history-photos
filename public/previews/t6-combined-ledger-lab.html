@@ -10,6 +10,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap"
     rel="stylesheet">
+  <link rel="stylesheet" href="leaflet/leaflet.css">
   <style>
     [hidden] {
       display: none !important;
@@ -1497,6 +1498,98 @@
       gap: 6px;
       margin-top: 8px;
     }
+
+    /* Map and People Tagging Styles */
+    #family-global-map {
+      background: #e4e2de;
+      z-index: 1;
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 8px;
+      padding: 0;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+      border: 1px solid var(--border);
+    }
+    .leaflet-popup-content {
+      margin: 10px;
+      line-height: 1.4;
+    }
+    .photo-map-pin {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #141413;
+      border: 2px solid #ffffff;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+      cursor: pointer;
+      transition: transform 140ms ease, box-shadow 140ms ease;
+    }
+    .photo-map-pin:hover {
+      transform: scale(1.22);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+      z-index: 1000 !important;
+    }
+    .photo-map-pin.branch-Gill {
+      background: #1e3a6d;
+      border-color: #eef1f8;
+    }
+    .photo-map-pin.branch-Costello {
+      background: #144943;
+      border-color: #e8f3f1;
+    }
+    .photo-map-pin.branch-Russo {
+      background: #61213b;
+      border-color: #f6ecf0;
+    }
+    .map-filter-btn {
+      font-size: 11px;
+      padding: 4px 9px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 120ms ease;
+    }
+    .map-filter-btn.active {
+      background: var(--primary);
+      color: var(--primary-ink);
+      border-color: var(--primary);
+    }
+    .person-tag-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .person-tag-row:hover {
+      border-color: var(--control);
+    }
+    .btn-del-person {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    .btn-del-person:hover {
+      color: var(--negative);
+      background: #fee2e2;
+    }
+  
   </style>
 </head>
 
@@ -1610,8 +1703,15 @@
 
           <!-- View Switch inside Catalog: #4 Ledger vs #2 Contact Sheet -->
           <div class="segmented" id="catalog-view-switch" role="group" aria-label="Catalog layout">
-            <button type="button" data-layout="ledger" aria-pressed="true">Ledger</button>
-            <button type="button" data-layout="sheet" aria-pressed="false">Contact sheet</button>
+            <button type="button" data-layout="ledger" aria-pressed="true">
+              <span data-icon="table"></span><span>Ledger</span>
+            </button>
+            <button type="button" data-layout="sheet" aria-pressed="false">
+              <span data-icon="grid"></span><span>Contact sheet</span>
+            </button>
+            <button type="button" data-layout="map" aria-pressed="false">
+              <span data-icon="map"></span><span>Global Map</span>
+            </button>
           </div>
 
           <button class="btn sm" type="button" id="btn-toggle-charts" aria-pressed="false">Charts</button>
@@ -1774,6 +1874,7 @@
     </main>
   </div>
 
+  <script src="leaflet/leaflet.js"></script>
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
   <script>
@@ -1789,7 +1890,52 @@
         eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
         rotateL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
         rotateR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>',
-        clean: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>'
+        clean: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>',
+        map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>',
+        pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
+        table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>'
+      };
+
+      const COMMON_RELATIONSHIPS = [
+        'Self / Me',
+        'Spouse / Partner',
+        'Mother',
+        'Father',
+        'Grandmother',
+        'Grandfather',
+        'Great-Grandmother',
+        'Great-Grandfather',
+        'Sister',
+        'Brother',
+        'Daughter',
+        'Son',
+        'Granddaughter',
+        'Grandson',
+        'Great-Granddaughter',
+        'Great-Grandson',
+        'Aunt',
+        'Uncle',
+        'Great-Aunt',
+        'Great-Uncle',
+        'Cousin',
+        'Niece / Nephew',
+        'Son-in-Law / Daughter-in-Law',
+        'In-Law (Brother / Sister)',
+        'In-Law (Parent)',
+        'Close Family Friend',
+        'Relative'
+      ];
+
+      const GEO_PLACES = {
+        'Swallow Cliff Woods, Palos Park, IL': [41.6706, -87.8631],
+        'South Oakley Ave, Chicago, IL': [41.8544, -87.6836],
+        'St. Rita Parish, Chicago, IL': [41.7786, -87.6908],
+        'Williams Bay, Lake Geneva, WI': [42.5761, -88.5445],
+        'Marquette Park, Chicago, IL': [41.7678, -87.7011],
+        'Elmwood Park, IL': [41.9214, -87.8170],
+        'Martinique Banquet Hall, Evergreen Park, IL': [41.7206, -87.6978],
+        'Kennedy Park, Chicago, IL': [41.6870, -87.6775],
+        'West Hubbard St, Chicago, IL': [41.8899, -87.6534]
       };
       const ALL_ICONS = { ...ICONS, ...EXTRA_ICONS };
 
@@ -1811,6 +1957,8 @@
           origRestored4k: Boolean(p.restored4k),
           src: 'sample.jpg',
           workingSrc: null,
+          lat: (typeof p.lat === 'number') ? p.lat : (GEO_PLACES[p.place] ? GEO_PLACES[p.place][0] : null),
+          lng: (typeof p.lng === 'number') ? p.lng : (GEO_PLACES[p.place] ? GEO_PLACES[p.place][1] : null),
           edits: p.restored4k ? ['4K CodeFormer'] : [],
           rotation: 0,
           straighten: 0,
@@ -1876,6 +2024,10 @@
       let duplicateResolved = false;
       let currentMaskCanvas = null;
       let hasPaintedMask = false;
+      let leafletMap = null;
+      let mapMarkersLayer = null;
+      let mapBranchFilter = 'all';
+      let mapDecadeFilter = 'all';
 
       function afterSrc(p) {
         return p.workingSrc || p.src || 'sample.jpg';
@@ -1894,6 +2046,10 @@
           crop: p.crop,
           scale: p.scale,
           edits: [...p.edits],
+          people: p.people.map(x => ({ ...x })),
+          place: p.place,
+          lat: p.lat,
+          lng: p.lng,
           rotation: p.rotation,
           straighten: p.straighten,
           flipH: p.flipH,
@@ -2279,7 +2435,7 @@
                   ? `<span class="pill info" style="margin-left:4px;">+${p.edits.length - (p.restored4k ? 1 : 0)} fix</span>`
                   : '';
                 const peopleLine = p.people.length
-                  ? p.people.map((x) => esc(x.name)).join(', ')
+                  ? p.people.map((x) => `${esc(x.name)}${x.rel ? ` <span class="pill neu" style="font-size:11px;padding:1px 5px;font-weight:600;background:var(--raised);border:1px solid var(--border);border-radius:4px;">${esc(x.rel)}</span>` : ''}`).join(', ')
                   : `<span class="muted">Unidentified</span>`;
                 const faceNote = p.unnamedFaces > 0
                   ? ` <span class="pill warn" style="margin-left:4px;">${p.unnamedFaces} unnamed</span>`
@@ -2315,8 +2471,48 @@
               </table>
             </div>`;
             } else {
-              /* #2 CONTACT SHEET SPECIMEN GRID */
+              /* #3 GLOBAL MAP VIEW */
+            if (layout === 'map') {
+              const active = items.filter((p) => !p.inReview);
               host.innerHTML = `
+                <div class="map-view-shell" style="display:flex;flex-direction:column;gap:10px;">
+                  <div class="map-filter-bar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:var(--surface);padding:8px 12px;border-radius:8px;border:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Filter Map:</span>
+                      <div class="segmented" id="map-branch-filter" role="group" aria-label="Branch filter">
+                        <button type="button" data-map-branch="all" class="map-filter-btn ${mapBranchFilter === 'all' ? 'active' : ''}">All (${active.length})</button>
+                        <button type="button" data-map-branch="Costello" class="map-filter-btn ${mapBranchFilter === 'Costello' ? 'active' : ''}">Costello</button>
+                        <button type="button" data-map-branch="Gill" class="map-filter-btn ${mapBranchFilter === 'Gill' ? 'active' : ''}">Gill</button>
+                        <button type="button" data-map-branch="Russo" class="map-filter-btn ${mapBranchFilter === 'Russo' ? 'active' : ''}">Russo</button>
+                      </div>
+                      <select id="map-decade-filter" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--ground);color:var(--text);">
+                        <option value="all" ${mapDecadeFilter === 'all' ? 'selected' : ''}>All Decades</option>
+                        <option value="1950s" ${mapDecadeFilter === '1950s' ? 'selected' : ''}>1950s</option>
+                        <option value="1960s" ${mapDecadeFilter === '1960s' ? 'selected' : ''}>1960s</option>
+                        <option value="1970s" ${mapDecadeFilter === '1970s' ? 'selected' : ''}>1970s</option>
+                        <option value="1980s" ${mapDecadeFilter === '1980s' ? 'selected' : ''}>1980s</option>
+                        <option value="1990s" ${mapDecadeFilter === '1990s' ? 'selected' : ''}>1990s</option>
+                        <option value="2000s" ${mapDecadeFilter === '2000s' ? 'selected' : ''}>2000s</option>
+                      </select>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <button class="btn sm" type="button" id="btn-fit-map" title="Fit map to all photo pins">
+                        <span data-icon="map"></span> Fit All Pins
+                      </button>
+                      <span class="mono muted" style="font-size:12px;" id="map-pins-count"></span>
+                    </div>
+                  </div>
+                  <div id="family-global-map" style="height:620px;border-radius:10px;border:1px solid var(--border);overflow:hidden;position:relative;"></div>
+                </div>
+              `;
+              mountIcons(host);
+              renderGlobalMap();
+              setupMapFilterListeners();
+              return;
+            }
+
+            /* #2 CONTACT SHEET SPECIMEN GRID */
+            host.innerHTML = `
             <div class="contact-grid">
               ${list.map((p) => {
                 const low = isLowRes(p);
@@ -2366,7 +2562,196 @@
             });
           }
 
-          function renderInspector() {
+          
+      function setupMapFilterListeners() {
+        document.querySelectorAll('[data-map-branch]').forEach((btn) => {
+          btn.onclick = () => {
+            mapBranchFilter = btn.getAttribute('data-map-branch');
+            document.querySelectorAll('[data-map-branch]').forEach((b) => b.classList.toggle('active', b === btn));
+            renderGlobalMap();
+          };
+        });
+
+        const decadeEl = document.getElementById('map-decade-filter');
+        if (decadeEl) {
+          decadeEl.onchange = () => {
+            mapDecadeFilter = decadeEl.value;
+            renderGlobalMap();
+          };
+        }
+
+        const fitBtn = document.getElementById('btn-fit-map');
+        if (fitBtn) {
+          fitBtn.onclick = () => {
+            if (!leafletMap) return;
+            const active = items.filter((p) => !p.inReview && typeof p.lat === 'number' && typeof p.lng === 'number');
+            const latLngs = active.map((p) => [p.lat, p.lng]);
+            if (latLngs.length > 0) {
+              leafletMap.fitBounds(L.latLngBounds(latLngs), { padding: [50, 50], maxZoom: 13 });
+            }
+          };
+        }
+      }
+
+      function renderGlobalMap() {
+        const container = document.getElementById('family-global-map');
+        if (!container) return;
+
+        if (typeof L === 'undefined') {
+          container.innerHTML = `
+            <div style="padding:48px 24px;text-align:center;color:var(--muted);">
+              <p style="font-weight:600;font-size:15px;margin-bottom:6px;">Leaflet Global Map Engine is ready</p>
+              <p style="font-size:13px;">Loading interactive map tiles...</p>
+            </div>`;
+          return;
+        }
+
+        // Initialize Leaflet map instance
+        if (!leafletMap || !container._leaflet_id) {
+          container._leaflet_id = null;
+          leafletMap = L.map('family-global-map', {
+            center: [41.80, -87.75],
+            zoom: 10,
+            zoomControl: true
+          });
+
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+          }).addTo(leafletMap);
+
+          mapMarkersLayer = L.layerGroup().addTo(leafletMap);
+
+          // Allow clicking on map to place pin for currently unlocated photo
+          leafletMap.on('click', (e) => {
+            const cur = currentPhoto();
+            if (cur && (typeof cur.lat !== 'number' || typeof cur.lng !== 'number')) {
+              cur.lat = Number(e.latlng.lat.toFixed(5));
+              cur.lng = Number(e.latlng.lng.toFixed(5));
+              if (!cur.place || !cur.place.trim()) {
+                cur.place = `GPS ${cur.lat}°, ${cur.lng}°`;
+              }
+              notify(`Pinned "${cur.title}" at [${cur.lat}, ${cur.lng}].`);
+              renderSidebarCounts();
+              renderGlobalMap();
+              renderInspector();
+            }
+          });
+        }
+
+        if (mapMarkersLayer) {
+          mapMarkersLayer.clearLayers();
+        }
+
+        const active = items.filter((p) => !p.inReview);
+        const filtered = active.filter((p) => {
+          if (mapBranchFilter !== 'all' && p.branch !== mapBranchFilter) return false;
+          if (mapDecadeFilter !== 'all' && p.decade !== mapDecadeFilter) return false;
+          return true;
+        });
+
+        const withCoords = filtered.filter((p) => typeof p.lat === 'number' && typeof p.lng === 'number');
+        const unlocated = active.filter((p) => typeof p.lat !== 'number' || typeof p.lng !== 'number');
+
+        const countEl = document.getElementById('map-pins-count');
+        if (countEl) {
+          countEl.textContent = `${withCoords.length} pinned photo${withCoords.length === 1 ? '' : 's'}${unlocated.length ? ` · ${unlocated.length} unpinned` : ''}`;
+        }
+
+        const latLngs = [];
+
+        withCoords.forEach((p) => {
+          const latLng = [p.lat, p.lng];
+          latLngs.push(latLng);
+
+          const branchClass = p.branch ? `branch-${p.branch}` : 'branch-Gill';
+          const isSelected = p.id === selectedId;
+
+          const icon = L.divIcon({
+            className: 'custom-div-icon',
+            html: `
+              <div class="photo-map-pin ${branchClass}" style="${isSelected ? 'transform:scale(1.3);border-color:#ffd700;box-shadow:0 0 12px rgba(255,215,0,0.8);' : ''}" title="${esc(p.title)} (${esc(p.place)})">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;" aria-hidden="true">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>`,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+            popupAnchor: [0, -18]
+          });
+
+          const marker = L.marker(latLng, { icon }).addTo(mapMarkersLayer);
+
+          const popupContent = document.createElement('div');
+          popupContent.className = 'map-popup-card';
+          popupContent.style.cssText = 'width:260px;font-family:inherit;';
+          popupContent.innerHTML = `
+            <div style="position:relative;height:130px;background:#111;border-radius:6px;overflow:hidden;margin-bottom:8px;">
+              <img src="${esc(afterSrc(p))}" style="width:100%;height:100%;object-fit:cover;${afterStyle(p)}" alt="">
+              <span style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;font-family:monospace;">${p.isoDate || p.decade || 'Undated'}</span>
+            </div>
+            <div style="font-weight:600;font-size:13px;line-height:1.3;margin-bottom:3px;color:#111;">${esc(p.title)}</div>
+            <div style="font-size:12px;color:#575653;margin-bottom:6px;">📍 ${esc(p.place || 'Location')}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+              ${p.people.map(person => `<span class="pill neu" style="font-size:10px;padding:1px 5px;background:#f0efec;color:#111;border-radius:3px;">${esc(person.name)}${person.rel ? ` <b>(${esc(person.rel)})</b>` : ''}</span>`).join('') || '<span class="muted" style="font-size:11px;">Unidentified</span>'}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <button class="btn sm primary" type="button" id="popup-lab-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;">Open Lab</button>
+              <button class="btn sm" type="button" id="popup-insp-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;">Inspect</button>
+            </div>
+          `;
+
+          marker.bindPopup(popupContent);
+
+          marker.on('click', () => {
+            selectedId = p.id;
+            renderInspector();
+          });
+
+          marker.on('popupopen', () => {
+            selectedId = p.id;
+            renderInspector();
+            const labBtn = document.getElementById(`popup-lab-${p.id}`);
+            if (labBtn) {
+              labBtn.onclick = () => {
+                openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
+              };
+            }
+            const inspBtn = document.getElementById(`popup-insp-${p.id}`);
+            if (inspBtn) {
+              inspBtn.onclick = () => {
+                selectedId = p.id;
+                renderInspector();
+              };
+            }
+          });
+
+          if (isSelected) {
+            setTimeout(() => {
+              if (leafletMap && marker) {
+                marker.openPopup();
+              }
+            }, 100);
+          }
+        });
+
+        if (latLngs.length > 0) {
+          const selectedPhoto = currentPhoto();
+          if (selectedPhoto && typeof selectedPhoto.lat === 'number' && typeof selectedPhoto.lng === 'number') {
+            leafletMap.setView([selectedPhoto.lat, selectedPhoto.lng], 13);
+          } else {
+            const bounds = L.latLngBounds(latLngs);
+            leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+          }
+        }
+
+        setTimeout(() => {
+          if (leafletMap) leafletMap.invalidateSize();
+        }, 120);
+      }
+
+      function renderInspector() {
             const p = currentPhoto();
             const box = document.getElementById('catalog-inspector');
 
@@ -2426,19 +2811,69 @@
             </div>
           </div>
 
+          <!-- LOCATION & GLOBAL MAP PIN -->
           <div class="field">
-            <label for="f-place">Location</label>
-            <input id="f-place" type="text" placeholder="Neighborhood, City, State" value="${esc(p.place)}">
-          </div>
-
-          <div class="field">
-            <label>Relatives in print (${p.unnamedFaces} unnamed)</label>
-            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;">
-              ${p.people.map((person) => `<span class="pill neu">${esc(person.name)}</span>`).join('') || '<span class="muted" style="font-size:12px;">No relatives named yet</span>'}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <label for="f-place" style="margin:0;font-weight:600;">Location &amp; Map Pin</label>
+              ${(typeof p.lat === 'number' && typeof p.lng === 'number')
+                ? `<span class="pill pos" style="font-size:10px;padding:2px 6px;">📍 Pinned (${p.lat.toFixed(2)}°, ${p.lng.toFixed(2)}°)</span>`
+                : `<span class="pill warn" style="font-size:10px;padding:2px 6px;">Unpinned</span>`}
             </div>
             <div style="display:flex;gap:6px;">
-              <input id="f-person" type="text" placeholder="Tag relative name...">
-              <button class="btn sm" type="button" id="btn-tag-person">Tag</button>
+              <input id="f-place" type="text" placeholder="e.g. Swallow Cliff Woods, Palos Park, IL" value="${esc(p.place)}" style="flex:1;">
+              <button class="btn sm" type="button" id="btn-show-map" title="View or drop pin on the Global Map">
+                <span data-icon="pin"></span><span>${(typeof p.lat === 'number') ? 'View Pin' : 'Drop Pin'}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- RELATIVES & FAMILY RELATIONSHIPS -->
+          <div class="field">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <label style="margin:0;font-weight:600;">Relatives in print (${p.people.length})</label>
+              ${p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : ''}
+            </div>
+
+            <div class="tagged-people-list" id="tagged-people-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
+              ${p.people.length === 0 ? `<div class="muted" style="font-size:12px;padding:6px;background:var(--raised);border-radius:6px;text-align:center;">No relatives tagged yet. Tag family members below!</div>` : ''}
+              ${p.people.map((person, idx) => `
+                <div class="person-tag-row">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(person.name)}</div>
+                    <div style="display:flex;gap:4px;align-items:center;margin-top:2px;">
+                      <select class="person-rel-select" data-idx="${idx}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--ground);color:var(--text);" title="Change relationship to me">
+                        ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}" ${person.rel === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}
+                      </select>
+                      ${person.branch ? `<span class="pill" style="font-size:10px;padding:1px 5px;background:${(branches[person.branch]||branches.Gill).bg};color:${(branches[person.branch]||branches.Gill).ink};">${esc(person.branch)}</span>` : ''}
+                    </div>
+                  </div>
+                  <button type="button" class="btn-del-person" data-idx="${idx}" title="Remove tag for ${esc(person.name)}">✕</button>
+                </div>
+              `).join('')}
+            </div>
+
+            <!-- Add / Tag New Relative Form with Name Autocomplete, Relationship, and Branch -->
+            <div class="add-person-box" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Tag an Individual</div>
+              <input id="f-person-name" type="text" list="family-members-datalist" placeholder="Relative name (e.g. Josephine Costello)..." style="font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);">
+              <datalist id="family-members-datalist">
+                ${Array.from(new Set(items.flatMap(x => x.people ? x.people.map(pr => pr.name) : []))).filter(Boolean).sort().map(name => `<option value="${esc(name)}">`).join('')}
+              </datalist>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <select id="f-person-rel" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                  <option value="">Relationship to me...</option>
+                  ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+                </select>
+                <select id="f-person-branch" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                  <option value="Gill" ${p.branch === 'Gill' ? 'selected' : ''}>Gill branch</option>
+                  <option value="Costello" ${p.branch === 'Costello' ? 'selected' : ''}>Costello branch</option>
+                  <option value="Russo" ${p.branch === 'Russo' ? 'selected' : ''}>Russo branch</option>
+                  <option value="">No branch</option>
+                </select>
+              </div>
+              <button class="btn sm primary" type="button" id="btn-tag-person" style="width:100%;margin-top:2px;">
+                + Tag Relative &amp; Relationship
+              </button>
             </div>
           </div>
 
@@ -2480,21 +2915,86 @@
             box.querySelector('#insp-open-lab').onclick = () => {
               openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
             };
+            // Wire Map Pin button
+            const showMapBtn = box.querySelector('#btn-show-map');
+            if (showMapBtn) {
+              showMapBtn.onclick = () => {
+                layout = 'map';
+                document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === 'map' ? 'true' : 'false'));
+                render();
+              };
+            }
+
+            // Relationship change listener
+            box.querySelectorAll('.person-rel-select').forEach((sel) => {
+              sel.addEventListener('change', (e) => {
+                const idx = parseInt(sel.getAttribute('data-idx'), 10);
+                if (p.people[idx]) {
+                  p.people[idx].rel = sel.value;
+                  notify(`Updated ${p.people[idx].name}'s relationship to "${sel.value}".`);
+                  renderSidebarCounts();
+                  renderCatalogCenter();
+                }
+              });
+            });
+
+            // Delete person listener
+            box.querySelectorAll('.btn-del-person').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.getAttribute('data-idx'), 10);
+                if (p.people[idx]) {
+                  const removed = p.people.splice(idx, 1)[0];
+                  p.unnamedFaces = (p.unnamedFaces || 0) + 1;
+                  notify(`Removed tag for ${removed.name}.`);
+                  render();
+                }
+              });
+            });
+
+            // Autocomplete pre-fill relationship & branch
+            const nameInput = box.querySelector('#f-person-name');
+            const relInput = box.querySelector('#f-person-rel');
+            const branchInput = box.querySelector('#f-person-branch');
+            if (nameInput) {
+              nameInput.addEventListener('input', () => {
+                const val = nameInput.value.trim().toLowerCase();
+                for (const item of items) {
+                  const match = item.people && item.people.find((pr) => pr.name.toLowerCase() === val);
+                  if (match) {
+                    if (match.rel && relInput && !relInput.value) relInput.value = match.rel;
+                    if (match.branch && branchInput && !branchInput.value) branchInput.value = match.branch;
+                    break;
+                  }
+                }
+              });
+            }
+
+            // Tag person button
             box.querySelector('#btn-tag-person').onclick = () => {
-              const val = box.querySelector('#f-person').value.trim();
-              if (!val) return;
-              p.people.push({ name: val, rel: 'Relative', branch: p.branch });
+              const name = nameInput ? nameInput.value.trim() : '';
+              if (!name) return;
+              const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
+              const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
+              p.people.push({ name, rel, branch });
               if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
-              notify(`Tagged ${val} on ${p.id}.`);
+              notify(`Tagged ${name} (${rel}) on ${p.id}.`);
               render();
             };
+
             box.querySelector('#btn-save-meta').onclick = () => {
               p.title = box.querySelector('#f-title').value.trim() || p.title;
               p.isoDate = box.querySelector('#f-date').value.trim();
               p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
               p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
               p.fsSynced = Boolean(p.fsId);
-              p.place = box.querySelector('#f-place').value.trim();
+              const newPlace = box.querySelector('#f-place').value.trim();
+              if (newPlace !== p.place) {
+                p.place = newPlace;
+                if (GEO_PLACES[newPlace]) {
+                  p.lat = GEO_PLACES[newPlace][0];
+                  p.lng = GEO_PLACES[newPlace][1];
+                }
+              }
               p.story = box.querySelector('#f-story').value.trim();
               notify(`Saved EXIF & catalog metadata for ${p.id}.`);
               render();
@@ -4521,8 +5021,11 @@
         if (isCatalog) {
           document.getElementById('page-heading').textContent = layout === 'ledger'
             ? "Genealogist's Ledger & Light Table"
-            : "Archivist's Contact Sheet & Light Table";
-          document.getElementById('page-sub').textContent = 'Single-click to catalog metadata on the right · Click Open Lab (or double-click) for all 6 photo restoration engines.';
+            : (layout === 'map' ? "Global Family History Map & Light Table" : "Archivist's Contact Sheet & Light Table");
+          document.getElementById('page-sub').textContent = layout === 'map'
+            ? "Interactive world map with pins where each family photo was taken · Click any pin to open Photo Lab or view relatives."
+            : 'Single-click to catalog metadata on the right · Click Open Lab (or double-click) for all 6 photo restoration engines.';
+          document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === layout ? 'true' : 'false'));
           renderCharts();
           renderCatalogCenter();
           renderInspector();
@@ -4885,6 +5388,7 @@
       if (params.get('mode') === 'lab') mode = 'lab';
       if (params.get('mode') === 'sync') mode = 'sync';
       if (params.get('layout') === 'sheet') layout = 'sheet';
+      if (params.get('layout') === 'map') layout = 'map';
       if (params.get('tool')) {
         activeTool = params.get('tool');
         if ((activeTool === 'erase' || activeTool === 'crop') && compareMode === 'split') {
