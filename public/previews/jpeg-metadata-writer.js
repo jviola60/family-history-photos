@@ -208,3 +208,4 @@
     downloadJpegWithMetadata: downloadJpegWithMetadata
   };
 })(typeof window !== 'undefined' ? window : this);
+

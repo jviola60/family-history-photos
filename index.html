@@ -3076,9 +3076,8 @@
             <textarea id="f-story" placeholder="Write who is here, what happened, or transcribe pencil notes from the back...">${esc(p.story)}</textarea>
           </div>
 
-          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
-            <button class="btn primary" type="button" id="btn-save-meta" style="flex:1;">Save record</button>
-            <button class="btn sm" type="button" id="btn-download-meta" title="Download JPEG with XMP, IPTC & EXIF metadata embedded">
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn primary" type="button" id="btn-save-file" style="flex:1;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;" title="Saves catalog record &amp; bakes metadata into JPEG file">
               💾 Save to File
             </button>
             ${p.inReview ? `<button class="btn" type="button" id="btn-restore-review">Restore</button>` : ''}
@@ -3318,51 +3317,62 @@
               };
             }
 
-            box.querySelector('#btn-save-meta').onclick = async () => {
-              p.title = box.querySelector('#f-title').value.trim() || p.title;
-              p.isoDate = box.querySelector('#f-date').value.trim();
-              p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
-              const oldFsId = p.fsId;
-              p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
-              if (p.fsId !== oldFsId || !p.fsMemoryId) {
-                p.fsSynced = Boolean(p.fsMemoryId);
-              }
-              const newPlace = box.querySelector('#f-place').value.trim();
-              p.place = newPlace;
-              if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
-                // Background geocode address so saving with an address immediately pins it
-                geocodeAddress(newPlace).then((geo) => {
-                  if (geo) {
-                    p.lat = geo.lat;
-                    p.lng = geo.lng;
-                    saveItemMetadata(p);
-                    renderSidebarCounts();
-                    renderInspector();
-                    if (layout === 'map') renderGlobalMap();
-                  }
-                });
-              }
-              p.story = box.querySelector('#f-story').value.trim();
-              saveItemMetadata(p);
-              if (p._handle && window.JpegMetadataWriter) {
-                window.JpegMetadataWriter.writeMetadataToHandle(p._handle, p).catch(() => {});
-              }
-              notify(`Saved metadata for ${p.id} (persisted in browser storage & ready to bake).`);
-              render();
-            };
-
-            const dlMetaBtn = box.querySelector('#btn-download-meta');
-            if (dlMetaBtn) {
-              dlMetaBtn.onclick = async () => {
-                notify(`Embedding metadata into JPEG file for ${p.id}...`);
-                if (window.JpegMetadataWriter) {
-                  const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(p, p);
-                  if (ok) {
-                    notify(`✓ Downloaded ${p.title || p.file} with embedded metadata!`);
-                  } else {
-                    notify('Could not generate metadata JPEG file.');
-                  }
+            const saveFileBtn = box.querySelector('#btn-save-file');
+            if (saveFileBtn) {
+              saveFileBtn.onclick = async () => {
+                p.title = box.querySelector('#f-title').value.trim() || p.title;
+                p.isoDate = box.querySelector('#f-date').value.trim();
+                p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
+                const oldFsId = p.fsId;
+                p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
+                if (p.fsId !== oldFsId || !p.fsMemoryId) {
+                  p.fsSynced = Boolean(p.fsMemoryId);
                 }
+                const newPlace = box.querySelector('#f-place').value.trim();
+                p.place = newPlace;
+                if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                  // Background geocode address so saving with an address immediately pins it
+                  geocodeAddress(newPlace).then((geo) => {
+                    if (geo) {
+                      p.lat = geo.lat;
+                      p.lng = geo.lng;
+                      saveItemMetadata(p);
+                      renderSidebarCounts();
+                      renderInspector();
+                      if (layout === 'map') renderGlobalMap();
+                    }
+                  });
+                }
+                p.story = box.querySelector('#f-story').value.trim();
+                saveItemMetadata(p);
+
+                // If opened via local File System handle, write directly to file
+                if (p._handle && window.JpegMetadataWriter) {
+                  try {
+                    await window.JpegMetadataWriter.writeMetadataToHandle(p._handle, p);
+                  } catch (e) {}
+                }
+
+                // Bake metadata into JPEG and download/save file
+                if (window.JpegMetadataWriter) {
+                  saveFileBtn.disabled = true;
+                  saveFileBtn.textContent = 'Saving & baking file...';
+                  try {
+                    const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(p, p);
+                    if (ok) {
+                      notify(`✓ Saved record & baked metadata into ${p.title || p.file}!`);
+                    } else {
+                      notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                    }
+                  } catch (err) {
+                    notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                  } finally {
+                    saveFileBtn.disabled = false;
+                  }
+                } else {
+                  notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                }
+                render();
               };
             }
             box.querySelector('#btn-insp-fs').onclick = async () => {
