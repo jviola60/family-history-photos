@@ -1,11 +1,12 @@
 import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 // Content-Security-Policy applied to production builds only
 // (the dev server needs inline scripts for React Fast Refresh).
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com https://*.gstatic.com https://js.live.net",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com https://*.gstatic.com https://js.live.net",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https:",
@@ -33,6 +34,14 @@ const securityHeadersPlugin = () => ({
 export default defineConfig({
   base: './',
   plugins: [react(), securityHeadersPlugin()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, 'index.html'),
+        classic: resolve(import.meta.dirname, 'classic.html')
+      }
+    }
+  },
   server: {
     proxy: {
       '/api/fal': {
