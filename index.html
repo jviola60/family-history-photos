@@ -2698,9 +2698,24 @@
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <button class="btn sm primary" type="button" id="popup-lab-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;">Open Lab</button>
-              <button class="btn sm" type="button" id="popup-insp-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;">Inspect</button>
+              <button class="btn sm" type="button" id="popup-insp-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;" title="Inspect this record in the Genealogist's Ledger">Inspect in Ledger</button>
             </div>
           `;
+
+          const labBtnDirect = popupContent.querySelector(`#popup-lab-${p.id}`);
+          if (labBtnDirect) {
+            labBtnDirect.onclick = (e) => {
+              e.stopPropagation();
+              openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
+            };
+          }
+          const inspBtnDirect = popupContent.querySelector(`#popup-insp-${p.id}`);
+          if (inspBtnDirect) {
+            inspBtnDirect.onclick = (e) => {
+              e.stopPropagation();
+              inspectPhotoInLedger(p.id);
+            };
+          }
 
           marker.bindPopup(popupContent);
 
@@ -2714,15 +2729,16 @@
             renderInspector();
             const labBtn = document.getElementById(`popup-lab-${p.id}`);
             if (labBtn) {
-              labBtn.onclick = () => {
+              labBtn.onclick = (e) => {
+                e.stopPropagation();
                 openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
               };
             }
             const inspBtn = document.getElementById(`popup-insp-${p.id}`);
             if (inspBtn) {
-              inspBtn.onclick = () => {
-                selectedId = p.id;
-                renderInspector();
+              inspBtn.onclick = (e) => {
+                e.stopPropagation();
+                inspectPhotoInLedger(p.id);
               };
             }
           });
