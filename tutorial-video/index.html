@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Family History Photos - Video Tutorial</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --ground: #0b0f17;
+        --ink: #f8fafc;
+        --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ground);
+        font-family: var(--font-display);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      .scene-host {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-nh7l"
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="36"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Scene 1: Private In-Browser Catalog & EXIF Parsing (0s - 7s) -->
+      <div data-hf-id="hf-esoa"
+        id="scene-1-import"
+        class="scene-host"
+        data-composition-id="scene-1-import"
+        data-composition-src="compositions/scene-1-import.html"
+        data-start="0"
+        data-duration="7"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <!-- Scene 2: Interactive Global Map & Geocoding (7s - 14s) -->
+      <div data-hf-id="hf-0oct"
+        id="scene-2-map"
+        class="scene-host"
+        data-composition-id="scene-2-map"
+        data-composition-src="compositions/scene-2-map.html"
+        data-start="7"
+        data-duration="7"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <!-- Scene 3: Tag Relatives & Live FamilySearch Tree PID Sync (14s - 21s) -->
+      <div data-hf-id="hf-e0da"
+        id="scene-3-tree"
+        class="scene-host"
+        data-composition-id="scene-3-tree"
+        data-composition-src="compositions/scene-3-tree.html"
+        data-start="14"
+        data-duration="7"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <!-- Scene 4: AI Photo Lab Studio & 4K Face Restore (21s - 28s) -->
+      <div data-hf-id="hf-tj1g"
+        id="scene-4-lab"
+        class="scene-host"
+        data-composition-id="scene-4-lab"
+        data-composition-src="compositions/scene-4-lab.html"
+        data-start="21"
+        data-duration="7"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <!-- Scene 5: Unified Save to File & FamilySearch Cloud Sync (28s - 36s) -->
+      <div data-hf-id="hf-ifod"
+        id="scene-5-save"
+        class="scene-host"
+        data-composition-id="scene-5-save"
+        data-composition-src="compositions/scene-5-save.html"
+        data-start="28"
+        data-duration="8"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+    </div>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

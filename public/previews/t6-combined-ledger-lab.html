@@ -1645,6 +1645,9 @@
       <div id="folder-nav"></div>
 
       <div class="sidebar-foot">
+        <button class="nav-item sidebar-help-btn" type="button" id="btn-sidebar-help" style="color:var(--accent);font-weight:600;width:100%;text-align:left;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;margin-bottom:6px;">
+          <span data-icon="book"></span><span>📖 Help &amp; Workflow Guide</span>
+        </button>
         <a href="./classic.html" class="nav-item sidebar-back" title="Switch to previous classic version">
           <span data-icon="folder"></span><span>Previous Classic View</span>
         </a>
@@ -1665,6 +1668,9 @@
         </div>
       </div>
       <div class="top-right">
+        <button class="btn sm" type="button" id="btn-top-help" title="Open Interactive Tutorial & Workflow Guide" style="background:#1d5fbf;color:#ffffff;border-color:#164388;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+          <span data-icon="book"></span><span>Help &amp; Tutorial</span>
+        </button>
         <button class="btn sm" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
           <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
         </button>
@@ -1880,6 +1886,7 @@
   <script src="taste-data.js"></script>
   <script src="familysearch-client.js"></script>
   <script src="jpeg-metadata-writer.js"></script>
+  <script src="help-tutorial.js"></script>
   <script>
     (() => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
@@ -6031,6 +6038,25 @@
       render();
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth();
+      }
+
+      if (window.FamilyHistoryTutorial) {
+        window.FamilyHistoryTutorial.init({
+          setMode: (m) => { mode = m; render(); },
+          setLayout: (l) => { layout = l; render(); },
+          selectPhoto: (id) => { selectedId = id; render(); },
+          currentPhoto: () => currentPhoto(),
+          items: items
+        });
+
+        const topHelpBtn = document.getElementById('btn-top-help');
+        if (topHelpBtn) topHelpBtn.onclick = () => window.FamilyHistoryTutorial.open('tour');
+        const sideHelpBtn = document.getElementById('btn-sidebar-help');
+        if (sideHelpBtn) sideHelpBtn.onclick = () => window.FamilyHistoryTutorial.open('tour');
+
+        if (params.get('help') === '1' || params.get('tutorial') === '1') {
+          window.FamilyHistoryTutorial.open('tour');
+        }
       }
     })();
   </script>

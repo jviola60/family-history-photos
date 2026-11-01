@@ -1,0 +1,254 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 20%, #151d2d 0%, #0b0f17 100%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #f8fafc;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 60px 80px;
+    }
+
+    .grain-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    .header-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 9999px;
+      color: #38bdf8;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    .main-title {
+      font-size: 60px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      text-align: center;
+      margin: 0 0 12px 0;
+      line-height: 1.15;
+      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .main-subtitle {
+      font-size: 28px;
+      font-weight: 400;
+      color: #94a3b8;
+      text-align: center;
+      margin: 0 0 44px 0;
+      max-width: 1080px;
+      line-height: 1.45;
+    }
+
+    .workspace-stage {
+      display: flex;
+      gap: 36px;
+      width: 100%;
+      max-width: 1360px;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .folder-panel {
+      flex: 1;
+      max-width: 380px;
+      background: #111827;
+      border: 1px solid #1f293d;
+      border-radius: 20px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+
+    .folder-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      background: #1a2234;
+      border: 1px solid #2d3b55;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      color: #e2e8f0;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .folder-item.active {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+      color: #38bdf8;
+    }
+
+    .drop-canvas {
+      flex: 2;
+      background: #111827;
+      border: 2px dashed #2d3b55;
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+      min-height: 480px;
+    }
+
+    .photo-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.6);
+      display: flex;
+      gap: 24px;
+      max-width: 720px;
+      width: 100%;
+    }
+
+    .photo-preview {
+      width: 240px;
+      height: 280px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .meta-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .meta-tag {
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #38bdf8;
+      margin-bottom: 6px;
+    }
+
+    .meta-name {
+      font-size: 32px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 14px;
+    }
+
+    .meta-pill-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .meta-pill {
+      font-size: 14px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      color: #cbd5e1;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .privacy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      font-size: 14px;
+      font-weight: 600;
+    }
+  </style>
+
+  <div data-hf-id="hf-uvq3" id="root" data-composition-id="scene-1-import" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-k01a" class="grain-overlay"></div>
+
+    <div data-hf-id="hf-38oz" id="s1-content" class="clip" data-start="0" data-duration="7" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+      <div data-hf-id="hf-643a" id="s1-pill" class="header-pill" data-layout-ignore="true">
+        <span data-hf-id="hf-ksjy">01 • Private Import & Indexing</span>
+      </div>
+
+      <h1 data-hf-id="hf-s86s" id="s1-title" class="main-title">Family History Photos</h1>
+      <p data-hf-id="hf-1dj0" id="s1-subtitle" class="main-subtitle">100% Private in-browser cataloging. Drop any folder of old scans — zero images leave your computer.</p>
+
+      <div data-hf-id="hf-z3uv" class="workspace-stage" data-layout-ignore="true">
+        <div data-hf-id="hf-aoe7" id="s1-folders" class="folder-panel">
+          <div data-hf-id="hf-b1pb" style="font-size: 14px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; letter-spacing: 0.05em;">Your Photo Folders</div>
+          <div data-hf-id="hf-if17" id="s1-f1" class="folder-item active">📁 2003 Gill Family Reunion</div>
+          <div data-hf-id="hf-ja99" id="s1-f2" class="folder-item">📁 1968 Porch Portraits</div>
+          <div data-hf-id="hf-ntmw" id="s1-f3" class="folder-item">📁 Shoebox Batch #1</div>
+          <div data-hf-id="hf-orlv" id="s1-f4" class="folder-item">📁 Scanned Negatives</div>
+        </div>
+
+        <div data-hf-id="hf-yku4" class="drop-canvas">
+          <div data-hf-id="hf-0nkg" id="s1-card" class="photo-card">
+            <img data-hf-id="hf-1v43" class="photo-preview" src="assets/vintage-photo.jpg" alt="Vintage Family Scan" />
+            <div data-hf-id="hf-85c6" class="meta-col">
+              <span data-hf-id="hf-lg1m" class="meta-tag">Automatic EXIF Read</span>
+              <h2 data-hf-id="hf-qht0" class="meta-name">Grandma at the picnic</h2>
+              <div data-hf-id="hf-aa6f" class="meta-pill-group">
+                <span data-hf-id="hf-1g16" id="s1-p1" class="meta-pill">📅 2003-07-19</span>
+                <span data-hf-id="hf-rb3m" id="s1-p2" class="meta-pill">📐 2400 × 1800</span>
+                <span data-hf-id="hf-cgb4" id="s1-p3" class="meta-pill">💾 918 KB</span>
+              </div>
+              <div data-hf-id="hf-rk9m" id="s1-badge" class="privacy-badge">
+                <span data-hf-id="hf-xygg">🛡️ Indexed locally via Web File System API</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    // Present from frame 0 for an instant, engaging video thumbnail
+    tl.fromTo("#s1-title", { filter: "blur(4px)" }, { filter: "blur(0px)", duration: 0.5, ease: "power2.out" }, 0);
+    tl.fromTo("#s1-folders", { x: -20 }, { x: 0, duration: 0.6, ease: "power2.out" }, 0);
+    tl.fromTo("#s1-card", { scale: 0.95 }, { scale: 1, duration: 0.6, ease: "power2.out" }, 0);
+
+    // Staggered metadata read pulses
+    tl.fromTo("#s1-p1", { scale: 0.95 }, { scale: 1.08, duration: 0.4, yoyo: true, repeat: 1, ease: "power1.inOut" }, 1.5);
+    tl.fromTo("#s1-p2", { scale: 0.95 }, { scale: 1.08, duration: 0.4, yoyo: true, repeat: 1, ease: "power1.inOut" }, 2.8);
+    tl.fromTo("#s1-p3", { scale: 0.95 }, { scale: 1.08, duration: 0.4, yoyo: true, repeat: 1, ease: "power1.inOut" }, 4.0);
+    tl.fromTo("#s1-badge", { scale: 0.98 }, { scale: 1.05, duration: 0.4, yoyo: true, repeat: 1, ease: "power1.inOut" }, 5.2);
+
+    tl.fromTo("#s1-content", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.in" }, 6.6);
+
+    window.__timelines["scene-1-import"] = tl;
+  </script>
+</template>

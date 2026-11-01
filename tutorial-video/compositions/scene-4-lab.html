@@ -1,0 +1,282 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 20%, #151d2d 0%, #0b0f17 100%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #f8fafc;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 50px 80px;
+    }
+
+    .grain-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    .header-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px;
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      border-radius: 9999px;
+      color: #c084fc;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .main-title {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      text-align: center;
+      margin: 0 0 10px 0;
+      line-height: 1.15;
+      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .main-subtitle {
+      font-size: 28px;
+      font-weight: 400;
+      color: #94a3b8;
+      text-align: center;
+      margin: 0 0 36px 0;
+      max-width: 1080px;
+      line-height: 1.4;
+    }
+
+    .lab-stage-container {
+      display: flex;
+      gap: 36px;
+      width: 100%;
+      max-width: 1360px;
+      height: 560px;
+      align-items: stretch;
+    }
+
+    .tools-sidebar {
+      width: 360px;
+      background: #111827;
+      border: 1px solid #1f293d;
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+    }
+
+    .tool-btn {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      border-radius: 12px;
+      background: #1a2234;
+      border: 1px solid #2d3b55;
+      color: #e2e8f0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .tool-btn.active {
+      background: rgba(192, 132, 252, 0.12);
+      border-color: #a855f7;
+      color: #c084fc;
+    }
+
+    .curtain-canvas-wrapper {
+      flex: 1;
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 32px 64px rgba(0,0,0,0.7);
+      background: #000;
+      border: 1px solid #334155;
+    }
+
+    .curtain-layer {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .curtain-img {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: 60% 30%;
+    }
+
+    .img-faded {
+      filter: blur(3px) sepia(0.6) contrast(0.9);
+    }
+
+    .img-restored {
+      filter: blur(0px) contrast(1.1) brightness(1.03) saturate(1.1);
+    }
+
+    .curtain-divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 4px;
+      background: #ffffff;
+      box-shadow: 0 0 16px rgba(255,255,255,0.8);
+      z-index: 10;
+      transform: translateX(-50%);
+    }
+
+    .divider-handle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid #a855f7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #a855f7;
+      font-weight: 800;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+
+    .curtain-label {
+      position: absolute;
+      bottom: 24px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      z-index: 5;
+    }
+
+    .label-before {
+      left: 24px;
+      background: rgba(0,0,0,0.7);
+      color: #94a3b8;
+    }
+
+    .label-after {
+      right: 24px;
+      background: rgba(168, 85, 247, 0.8);
+      color: #ffffff;
+    }
+  </style>
+
+  <div data-hf-id="hf-xfg6" id="root" data-composition-id="scene-4-lab" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-k01a" class="grain-overlay"></div>
+
+    <div data-hf-id="hf-vbyc" id="s4-content" class="clip" data-start="0" data-duration="7" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+      <div data-hf-id="hf-xgv1" id="s4-pill" class="header-pill" data-layout-ignore="true">
+        <span data-hf-id="hf-9vxi">04 • AI Photo Lab Studio</span>
+      </div>
+
+      <h1 data-hf-id="hf-zhb2" id="s4-title" class="main-title">4K Face Restoration & Color Repair</h1>
+      <p data-hf-id="hf-86zy" id="s4-subtitle" class="main-subtitle">Repair aged or blurred portraits using 6 local & neural engines: 4K Face Restore, Colorize, Tone Balance, Magic Eraser, and Red-Eye fix.</p>
+
+      <div data-hf-id="hf-sn5a" class="lab-stage-container">
+        <div data-hf-id="hf-4ura" id="s4-tools" class="tools-sidebar" data-layout-ignore="true">
+          <div data-hf-id="hf-ha3k" style="font-size:13px; color:#64748b; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Restoration Tools</div>
+          <div data-hf-id="hf-vdaa" id="s4-t1" class="tool-btn active">✨ 4K Face Restore</div>
+          <div data-hf-id="hf-buer" id="s4-t2" class="tool-btn">🎨 Auto Colorize</div>
+          <div data-hf-id="hf-rtel" id="s4-t3" class="tool-btn">🪄 Magic Eraser (LaMa)</div>
+          <div data-hf-id="hf-ygiw" id="s4-t4" class="tool-btn">⚖️ Tone & Contrast</div>
+          <div data-hf-id="hf-71s2" id="s4-t5" class="tool-btn">👁️ Red-Eye Removal</div>
+          <div data-hf-id="hf-6b98" id="s4-t6" class="tool-btn">✂️ Smart Frame Crop</div>
+        </div>
+
+        <div data-hf-id="hf-cwla" id="s4-curtain-box" class="curtain-canvas-wrapper" data-layout-ignore="true">
+          <!-- Background: Restored image -->
+          <div data-hf-id="hf-nhk2" class="curtain-layer">
+            <img data-hf-id="hf-zhk2" id="s4-img-restored" class="curtain-img img-restored" src="assets/vintage-photo.jpg" alt="Restored Face" />
+          </div>
+
+          <!-- Foreground: Faded image, clipped dynamically -->
+          <div data-hf-id="hf-1y7e" id="s4-faded-layer" class="curtain-layer" style="clip-path: polygon(0 0, 50% 0, 50% 100%, 0 100%);">
+            <img data-hf-id="hf-zg5s" id="s4-img-faded" class="curtain-img img-faded" src="assets/vintage-photo.jpg" alt="Faded Face" />
+          </div>
+
+          <!-- Vertical Curtain Divider Line -->
+          <div data-hf-id="hf-1wfl" id="s4-divider" class="curtain-divider">
+            <div data-hf-id="hf-koye" class="divider-handle">↔</div>
+          </div>
+
+          <div data-hf-id="hf-c9uc" class="curtain-label label-before">Original Scan (1968)</div>
+          <div data-hf-id="hf-jm5y" class="curtain-label label-after">4K Restored Result</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#s4-pill", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.2);
+    tl.fromTo("#s4-title", { opacity: 0, y: -20, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "power3.out" }, 0.4);
+    tl.fromTo("#s4-subtitle", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.7);
+
+    tl.fromTo("#s4-tools", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" }, 0.9);
+    tl.fromTo("#s4-curtain-box", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.7, ease: "power3.out" }, 1.1);
+
+    // Dynamic curtain wipe animation
+    const wipeObj = { pct: 50 };
+    tl.to(wipeObj, {
+      pct: 85,
+      duration: 2.2,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        const val = wipeObj.pct;
+        const layer = document.getElementById("s4-faded-layer");
+        const divider = document.getElementById("s4-divider");
+        if (layer) layer.style.clipPath = `polygon(0 0, ${val}% 0, ${val}% 100%, 0 100%)`;
+        if (divider) divider.style.left = `${val}%`;
+      }
+    }, 1.6);
+
+    tl.to(wipeObj, {
+      pct: 20,
+      duration: 2.2,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        const val = wipeObj.pct;
+        const layer = document.getElementById("s4-faded-layer");
+        const divider = document.getElementById("s4-divider");
+        if (layer) layer.style.clipPath = `polygon(0 0, ${val}% 0, ${val}% 100%, 0 100%)`;
+        if (divider) divider.style.left = `${val}%`;
+      }
+    }, 3.8);
+
+    // Tool highlight pulse during back half
+    tl.fromTo("#s4-t2", { scale: 1 }, { scale: 1.06, duration: 0.35, yoyo: true, repeat: 1, ease: "power1.inOut" }, 4.8);
+    tl.fromTo("#s4-t3", { scale: 1 }, { scale: 1.06, duration: 0.35, yoyo: true, repeat: 1, ease: "power1.inOut" }, 5.6);
+
+    tl.fromTo("#s4-content", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.in" }, 6.6);
+
+    window.__timelines["scene-4-lab"] = tl;
+  </script>
+</template>

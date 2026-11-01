@@ -1,0 +1,248 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 20%, #151d2d 0%, #0b0f17 100%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #f8fafc;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 50px 80px;
+    }
+
+    .grain-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    .header-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 9999px;
+      color: #10b981;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .main-title {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      text-align: center;
+      margin: 0 0 10px 0;
+      line-height: 1.15;
+      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .main-subtitle {
+      font-size: 28px;
+      font-weight: 400;
+      color: #94a3b8;
+      text-align: center;
+      margin: 0 0 36px 0;
+      max-width: 1080px;
+      line-height: 1.4;
+    }
+
+    .split-tree-stage {
+      display: flex;
+      gap: 36px;
+      width: 100%;
+      max-width: 1360px;
+      height: 560px;
+      align-items: stretch;
+    }
+
+    .tag-editor-card {
+      flex: 1;
+      background: #111827;
+      border: 1px solid #1f293d;
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+    }
+
+    .fs-preview-card {
+      flex: 1.2;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .tree-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .input-field {
+      margin-bottom: 18px;
+    }
+
+    .field-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .styled-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #0b0f17;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 14px 18px;
+      color: #f8fafc;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .candidate-dropdown {
+      background: #1e293b;
+      border: 1px solid #38bdf8;
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+      margin-top: 8px;
+    }
+
+    .candidate-item {
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: #0f172a;
+      border: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .candidate-item.selected {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: #38bdf8;
+    }
+
+    .pid-tag {
+      font-family: monospace;
+      font-size: 15px;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+    .sync-confirm-badge {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid #10b981;
+      color: #34d399;
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: auto;
+    }
+  </style>
+
+  <div data-hf-id="hf-0yow" id="root" data-composition-id="scene-3-tree" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-k01a" class="grain-overlay"></div>
+
+    <div data-hf-id="hf-bvut" id="s3-content" class="clip" data-start="0" data-duration="7" data-hold="true"
+      style="display:flex; flex-direction:column; align-items:center; width:100%;">
+      <div data-hf-id="hf-lj5c" id="s3-pill" class="header-pill" data-layout-ignore="true">
+        <span data-hf-id="hf-k6e6">03 • Live FamilySearch Integration</span>
+      </div>
+
+      <h1 data-hf-id="hf-m9dz" id="s3-title" class="main-title">Tag Relatives & Auto-Sync Tree PIDs</h1>
+      <p data-hf-id="hf-vopr" id="s3-subtitle" class="main-subtitle">Add a relative's name and relationship. The app live-queries
+        FamilySearch Beta to automatically find and link their person ID.</p>
+
+      <div data-hf-id="hf-sll5" class="split-tree-stage" data-layout-ignore="true">
+        <div data-hf-id="hf-ju1l" id="s3-editor" class="tag-editor-card">
+          <div data-hf-id="hf-sfe7" class="input-field">
+            <div data-hf-id="hf-7itc" class="field-label">Relative Name</div>
+            <div data-hf-id="hf-onch" id="s3-input-name" class="styled-input">Patricia Josephine Gill</div>
+          </div>
+
+          <div data-hf-id="hf-lxxr" class="input-field">
+            <div data-hf-id="hf-ksb6" class="field-label">Relationship to Me</div>
+            <div data-hf-id="hf-zd1i" id="s3-input-rel" class="styled-input" style="color: #38bdf8;">Mother</div>
+          </div>
+
+          <div data-hf-id="hf-knvv" class="field-label">Live FamilySearch Tree Query</div>
+          <div data-hf-id="hf-bpkr" id="s3-dropdown" class="candidate-dropdown">
+            <div data-hf-id="hf-6yp5" id="s3-cand-item" class="candidate-item selected">
+              <div data-hf-id="hf-yeow">
+                <div data-hf-id="hf-hc62" style="font-weight: 700; color: #ffffff;">Patricia Josephine Gill</div>
+                <div data-hf-id="hf-a7ic" style="font-size: 13px; color: #94a3b8;">Living • Bowling Green, OH</div>
+              </div>
+              <span data-hf-id="hf-0sxm" id="s3-pid" class="pid-tag">BM6T-WQ5</span>
+            </div>
+          </div>
+
+          <div data-hf-id="hf-grvm" id="s3-badge" class="sync-confirm-badge">
+            <span data-hf-id="hf-i2bj" style="font-size: 20px;">✓</span>
+            <span data-hf-id="hf-pr0z">FamilySearch Tree Linked: BM6T-WQ5</span>
+          </div>
+        </div>
+
+        <div data-hf-id="hf-pthi" id="s3-fs-card" class="fs-preview-card">
+          <img data-hf-id="hf-hln8" id="s3-fs-img" class="tree-img" src="assets/familysearch-beta-tree.png"
+            alt="FamilySearch Beta Persona" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#s3-pill", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.2);
+    tl.fromTo("#s3-title", { opacity: 0, y: -20, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "power3.out" }, 0.4);
+    tl.fromTo("#s3-subtitle", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.7);
+
+    tl.fromTo("#s3-editor", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.7, ease: "power3.out" }, 1.0);
+    tl.fromTo("#s3-fs-card", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.7, ease: "power3.out" }, 1.2);
+
+    tl.fromTo("#s3-dropdown", { opacity: 0, y: -15, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power2.out" }, 1.8);
+    tl.fromTo("#s3-badge", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(2)" }, 2.7);
+
+    tl.to("#s3-fs-img", { scale: 1.1, duration: 3.5, ease: "power1.inOut" }, 3.0);
+    tl.fromTo("#s3-pid", { scale: 1 }, { scale: 1.15, duration: 0.35, yoyo: true, repeat: 1, ease: "power1.inOut" }, 3.8);
+    tl.to("#s3-badge", { scale: 1.05, duration: 0.35, yoyo: true, repeat: 1, ease: "power1.inOut" }, 4.9);
+
+    tl.fromTo("#s3-content", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.in" }, 6.6);
+
+    window.__timelines["scene-3-tree"] = tl;
+  </script>
+</template>
