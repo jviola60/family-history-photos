@@ -749,6 +749,38 @@
     };
   }
 
+  /**
+   * Delete an existing memory from FamilySearch Beta
+   */
+  async function deleteMemory(memoryId) {
+    var token = getStoredToken();
+    if (!token) {
+      throw new Error('Not signed in to FamilySearch.');
+    }
+    if (!memoryId) return false;
+
+    try {
+      var res = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+        method: 'DELETE',
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken
+        }
+      });
+      if (res.status === 204 || res.ok) {
+        return true;
+      }
+      if (res.status === 404) {
+        return true;
+      }
+      var errText = await res.text();
+      console.warn('FamilySearch deleteMemory notice (' + res.status + '):', errText);
+      return false;
+    } catch (e) {
+      console.warn('FamilySearch deleteMemory error:', e);
+      return false;
+    }
+  }
+
   var KNOWN_FAMILY = [
     { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'gill', 'mom', 'patricia gill', 'patricia josephine gill'] },
     { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'viola', 'jeff viola', 'jeffrey alan viola'] },
@@ -875,6 +907,7 @@
     handleCallbackCode: handleCallbackCode,
     getCurrentUser: getCurrentUser,
     uploadMemory: uploadMemory,
+    deleteMemory: deleteMemory,
     searchPersons: searchPersons,
     AUTH_URL: AUTH_URL,
     API_BASE: API_BASE,

@@ -649,9 +649,12 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-card);
       background: var(--surface);
-      padding: 15px;
+      padding: 15px 15px 36px;
       position: sticky;
       top: 12px;
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .insp-top {
@@ -2089,6 +2092,15 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+    }
+    .insp-sync-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-fill {
+      flex: 1;
     }
   </style>
 </head>
@@ -3786,8 +3798,8 @@
             ${p.inReview ? `<button class="btn" type="button" id="btn-restore-review">Restore</button>` : ''}
           </div>
 
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-            <button class="btn sm ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs" style="flex:1;">
+          <div class="insp-sync-actions">
+            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs">
               ${p.fsSynced
                 ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
                 : (p.fsId ? `Upload to FamilySearch (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
@@ -4168,14 +4180,20 @@
 
             box.querySelector('#btn-insp-fs').onclick = async () => {
               commitInspectorInputs(p, false);
+              let replaceOld = false;
               if (p.fsSynced && p.fsMemoryId) {
-                const choice = confirm(`Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick OK to open this memory in FamilySearch Beta.\nClick Cancel if you want to re-upload.`);
-                if (choice) {
+                const choice = confirm(
+                  `Photo ${p.id} was already uploaded to FamilySearch (Memory #${p.fsMemoryId}).\n\n` +
+                  `• Click OK to REPLACE the older photo on FamilySearch (uploads this updated version and deletes the old copy).\n` +
+                  `• Click Cancel to open the existing memory on FamilySearch Beta.`
+                );
+                if (!choice) {
                   window.open(`https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`, '_blank');
                   return;
                 }
+                replaceOld = true;
               }
-              await uploadPrintToFamilySearch(p);
+              await uploadPrintToFamilySearch(p, { replaceMemoryId: replaceOld ? p.fsMemoryId : null });
               render();
             };
             box.querySelector('#btn-insp-cite').onclick = () => {
@@ -5954,7 +5972,7 @@
                                   }
                                 }
 
-                                async function uploadPrintToFamilySearch(p) {
+                                async function uploadPrintToFamilySearch(p, options = {}) {
                                   if (!window.FamilySearchClient) {
                                     notify('FamilySearch client library not loaded.');
                                     return;
@@ -5986,6 +6004,7 @@
 
                                   try {
                                     const targetPid = p.fsId ? p.fsId.trim().toUpperCase() : null;
+                                    const oldMemoryId = options && options.replaceMemoryId;
                                     notify(`Uploading "${p.title}" to FamilySearch Beta Memories${targetPid ? ` (Person ${targetPid})` : ''}...`);
                                     const result = await window.FamilySearchClient.uploadMemory({
                                       photo: p,
@@ -6007,7 +6026,18 @@
                                       p.fsSynced = true;
                                       p.fsMemoryId = result.memoryId;
                                       saveItemMetadata(p);
-                                      notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
+
+                                      if (oldMemoryId && oldMemoryId !== result.memoryId && window.FamilySearchClient.deleteMemory) {
+                                        notify(`Deleting older photo (Memory #${oldMemoryId}) from FamilySearch...`);
+                                        try {
+                                          await window.FamilySearchClient.deleteMemory(oldMemoryId);
+                                          notify(`✓ Replaced older photo! New Memory #${result.memoryId} is active on FamilySearch.`);
+                                        } catch (delErr) {
+                                          console.warn('Could not delete older memory:', delErr);
+                                        }
+                                      } else {
+                                        notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
+                                      }
                                       
                                       setTimeout(() => {
                                         if (result.personMemoriesUrl) {
