@@ -384,11 +384,25 @@
       ? API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories'
       : API_BASE + '/platform/memories/memories';
 
+    var qParams = [];
+    if (title) qParams.push('title=' + encodeURIComponent(title));
+    if (isoDate) qParams.push('date=' + encodeURIComponent(isoDate));
+    if (place) qParams.push('place=' + encodeURIComponent(place));
+    if (qParams.length > 0) {
+      uploadUrl += (uploadUrl.includes('?') ? '&' : '?') + qParams.join('&');
+    }
+
     var formData = new FormData();
     formData.append('artifact', imageBlob, filename);
     formData.append('title', title);
     if (fullDescription) {
       formData.append('description', fullDescription);
+    }
+    if (isoDate) {
+      formData.append('date', isoDate);
+    }
+    if (place) {
+      formData.append('place', place);
     }
 
     onProgress({ step: 'uploading', message: 'Uploading to FamilySearch Beta Memories (' + (targetPersonId || 'Gallery') + ')...' });
@@ -413,7 +427,11 @@
       } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
         // Person endpoint not accepted, fallback to universal memories endpoint
         onProgress({ step: 'fallback', message: 'Posting to universal Memories artifact endpoint...' });
-        var fallbackRes = await fetch(API_BASE + '/platform/memories/memories', {
+        var fallbackUrl = API_BASE + '/platform/memories/memories';
+        if (qParams.length > 0) {
+          fallbackUrl += '?' + qParams.join('&');
+        }
+        var fallbackRes = await fetch(fallbackUrl, {
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + token.accessToken,
@@ -440,6 +458,85 @@
 
     if (!memoryId && photo.id) {
       memoryId = 'mem_' + Date.now();
+    }
+
+    // 1b. Update Memory Date & Place Coverage metadata
+    if (memoryId && (isoDate || place)) {
+      onProgress({ step: 'coverage', message: 'Saving memory Date (' + (isoDate || 'N/A') + ') and Place (' + (place || 'N/A') + ') to FamilySearch...' });
+      try {
+        var coverageEntry = {};
+        if (isoDate) {
+          coverageEntry.temporal = {
+            original: isoDate,
+            formal: (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate)
+          };
+        }
+        if (place) {
+          coverageEntry.spatial = {
+            original: place
+          };
+          if (photo && typeof photo.lat === 'number' && typeof photo.lng === 'number') {
+            coverageEntry.spatial.latitude = photo.lat;
+            coverageEntry.spatial.longitude = photo.lng;
+          }
+        }
+
+        // First attempt: read existing source description structure
+        var existingSd = null;
+        try {
+          var getMemRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+            }
+          });
+          if (getMemRes.ok) {
+            var getMemJson = await getMemRes.json();
+            if (getMemJson && getMemJson.sourceDescriptions && getMemJson.sourceDescriptions[0]) {
+              existingSd = getMemJson.sourceDescriptions[0];
+            }
+          }
+        } catch (e) {
+          // fallback to manual structure
+        }
+
+        var sdToUpdate = existingSd || {
+          id: memoryId,
+          about: API_BASE + '/platform/memories/memories/' + memoryId,
+          titles: [{ value: title }],
+          descriptions: fullDescription ? [{ value: fullDescription }] : []
+        };
+        sdToUpdate.coverage = [coverageEntry];
+
+        var updatePayload = {
+          sourceDescriptions: [sdToUpdate]
+        };
+
+        var postCovRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Content-Type': 'application/x-fs-v1+json',
+            'Accept': 'application/x-fs-v1+json, application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+
+        if (!postCovRes.ok) {
+          // Retry with standard GEDCOM X content type
+          await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Content-Type': 'application/x-gedcomx-v1+json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(updatePayload)
+          });
+        }
+      } catch (covErr) {
+        console.warn('Memory coverage date/place update notice:', covErr);
+      }
     }
 
     // 2. Attach memory reference to Family Tree person if specified
