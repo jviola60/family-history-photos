@@ -75,7 +75,7 @@
 
     var modal = document.createElement('div');
     modal.id = 'fs-connection-modal';
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(17,17,16,0.75);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit;';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(17,17,16,0.75);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit;';
     modal.innerHTML = `
       <div style="background:var(--surface,#ffffff);border:1px solid var(--border,#dfdeda);border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.4);max-width:580px;width:100%;overflow:hidden;color:var(--text,#111110);">
         <div style="padding:16px 20px;border-bottom:1px solid var(--border,#dfdeda);background:var(--raised,#f0efec);display:flex;align-items:center;justify-content:space-between;">

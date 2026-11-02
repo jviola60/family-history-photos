@@ -1291,7 +1291,6 @@
         gap: 6px;
         overflow-x: auto;
         padding-bottom: 2px;
-        scrollbar-width: none;
       }
       .topbar .top-right::-webkit-scrollbar { display: none; }
 
@@ -1315,8 +1314,6 @@
         border: none !important;
         background: transparent !important;
         border-radius: 0 !important;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
       }
       .kpi-strip::-webkit-scrollbar { display: none; }
 
@@ -1393,7 +1390,6 @@
       /* Scrollable table on phone */
       .table-wrap {
         overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
         border-radius: 8px;
         margin: 0 -4px;
       }
@@ -1482,7 +1478,6 @@
         border-radius: 16px 16px 0 0 !important;
         box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.3) !important;
         overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
         background: var(--surface) !important;
         border-top: 1px solid var(--border) !important;
         border-left: 0 !important;
@@ -1521,6 +1516,7 @@
         position: fixed;
         inset: 0;
         background: rgba(0, 0, 0, 0.45);
+        -webkit-backdrop-filter: blur(2px);
         backdrop-filter: blur(2px);
         z-index: 90;
         opacity: 0;
@@ -1572,8 +1568,8 @@
       .lab-seg {
         display: flex !important;
         overflow-x: auto !important;
-        scrollbar-width: none;
       }
+      .lab-seg::-webkit-scrollbar { display: none; }
       .lab-seg button {
         padding: 0 7px !important;
         font-size: 11px !important;
@@ -2363,7 +2359,7 @@
 
   <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   <div class="inspector-backdrop" id="inspector-backdrop"></div>
-  <input type="file" id="mobile-camera-input" accept="image/*" multiple capture="environment" hidden />
+  <input type="file" id="mobile-camera-input" accept="image/*" multiple hidden />
 
   <script src="/exifr.js"></script>
   <script src="/leaflet/leaflet.js"></script>
