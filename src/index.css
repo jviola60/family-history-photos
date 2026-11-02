@@ -888,8 +888,6 @@
   white-space: nowrap;
   width: 100%;
   padding-bottom: 2px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
 
 .chips-container::-webkit-scrollbar {
