@@ -46,10 +46,23 @@
       text-align: center;
       margin: 0 0 12px 0;
       line-height: 1.15;
-      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: #ffffff;
+    }
+
+    #s1-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .folders-section-header {
+      font-size: 14px;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      letter-spacing: 0.05em;
     }
 
     .main-subtitle {
@@ -196,7 +209,7 @@
   <div data-hf-id="hf-uvq3" id="root" data-composition-id="scene-1-import" data-width="1920" data-height="1080">
     <div data-hf-id="hf-k01a" class="grain-overlay"></div>
 
-    <div data-hf-id="hf-38oz" id="s1-content" class="clip" data-start="0" data-duration="7" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+    <div data-hf-id="hf-38oz" id="s1-content" class="clip" data-start="0" data-duration="7" data-hold="true">
       <div data-hf-id="hf-643a" id="s1-pill" class="header-pill" data-layout-ignore="true">
         <span data-hf-id="hf-ksjy">01 • Private Import & Indexing</span>
       </div>
@@ -206,7 +219,7 @@
 
       <div data-hf-id="hf-z3uv" class="workspace-stage" data-layout-ignore="true">
         <div data-hf-id="hf-aoe7" id="s1-folders" class="folder-panel">
-          <div data-hf-id="hf-b1pb" style="font-size: 14px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; letter-spacing: 0.05em;">Your Photo Folders</div>
+          <div data-hf-id="hf-b1pb" class="folders-section-header">Your Photo Folders</div>
           <div data-hf-id="hf-if17" id="s1-f1" class="folder-item active">📁 2003 Gill Family Reunion</div>
           <div data-hf-id="hf-ja99" id="s1-f2" class="folder-item">📁 1968 Porch Portraits</div>
           <div data-hf-id="hf-ntmw" id="s1-f3" class="folder-item">📁 Shoebox Batch #1</div>

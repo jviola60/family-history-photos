@@ -46,10 +46,30 @@
       text-align: center;
       margin: 0 0 10px 0;
       line-height: 1.15;
-      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: #ffffff;
+    }
+
+    #s2-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .rel-badge-mother {
+      color: #38bdf8;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .map-story-card {
+      background: #0b0f17;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px;
+      color: #94a3b8;
+      font-size: 13px;
+      line-height: 1.45;
     }
 
     .main-subtitle {
@@ -93,7 +113,6 @@
     .map-sidebar-overlay {
       width: 440px;
       background: rgba(15, 23, 42, 0.94);
-      backdrop-filter: blur(16px);
       border-left: 1px solid #334155;
       padding: 28px;
       display: flex;
@@ -243,7 +262,7 @@
   <div data-hf-id="hf-b3vt" id="root" data-composition-id="scene-2-map" data-width="1920" data-height="1080">
     <div data-hf-id="hf-k01a" class="grain-overlay"></div>
 
-    <div data-hf-id="hf-yw1u" id="s2-content" class="clip" data-start="0" data-duration="7" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+    <div data-hf-id="hf-yw1u" id="s2-content" class="clip" data-start="0" data-duration="7" data-hold="true">
       <div data-hf-id="hf-2u2j" id="s2-pill" class="header-pill" data-layout-ignore="true">
         <span data-hf-id="hf-he6q">02 • Interactive Global Map</span>
       </div>
@@ -281,11 +300,11 @@
           <div data-hf-id="hf-btf5" class="sidebar-field-label">Relatives in Print</div>
           <div data-hf-id="hf-hqur" class="sidebar-input">
             <span data-hf-id="hf-lxyj">Patricia Josephine Gill</span>
-            <span data-hf-id="hf-3zu6" style="color:#38bdf8; font-size:13px; font-weight:600;">Mother</span>
+            <span data-hf-id="hf-3zu6" class="rel-badge-mother">Mother</span>
           </div>
 
           <div data-hf-id="hf-pfjs" class="sidebar-field-label">Catalog Back-of-Print Note</div>
-          <div data-hf-id="hf-zp6j" style="background:#0b0f17; border:1px solid #334155; border-radius:10px; padding:12px; color:#94a3b8; font-size:13px; line-height:1.45;">
+          <div data-hf-id="hf-zp6j" class="map-story-card">
             "This is my mom in her mobile home that she purchased. She was still working at Blakely Nursing home in billing."
           </div>
         </div>

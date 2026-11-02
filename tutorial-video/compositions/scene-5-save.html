@@ -46,10 +46,37 @@
       text-align: center;
       margin: 0 0 10px 0;
       line-height: 1.15;
-      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: #ffffff;
+    }
+
+    #s5-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .verify-title-bold {
+      font-weight: 700;
+      font-size: 17px;
+      color: #f8fafc;
+    }
+
+    .verify-sub-muted {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    .cta-text-bold {
+      font-weight: 700;
+      color: #f8fafc;
+      font-size: 16px;
+    }
+
+    .cta-text-muted {
+      color: #94a3b8;
+      margin-left: 8px;
+      font-size: 16px;
     }
 
     .main-subtitle {
@@ -151,7 +178,7 @@
   <div data-hf-id="hf-03lj" id="root" data-composition-id="scene-5-save" data-width="1920" data-height="1080">
     <div data-hf-id="hf-k01a" class="grain-overlay"></div>
 
-    <div data-hf-id="hf-qmly" id="s5-content" class="clip" data-start="0" data-duration="8" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+    <div data-hf-id="hf-qmly" id="s5-content" class="clip" data-start="0" data-duration="8" data-hold="true">
       <div data-hf-id="hf-ks1u" id="s5-pill" class="header-pill" data-layout-ignore="true">
         <span data-hf-id="hf-zygj">05 • Complete Preservation</span>
       </div>
@@ -168,24 +195,24 @@
           <div data-hf-id="hf-k8aa" id="s5-box-meta" class="verify-box success">
             <div data-hf-id="hf-hk7b" id="s5-chk-1" class="check-circle">✓</div>
             <div data-hf-id="hf-yeow">
-              <div data-hf-id="hf-4grd" style="font-weight: 700; font-size: 17px; color: #f8fafc;">Embedded in JPEG</div>
-              <div data-hf-id="hf-96ge" style="font-size: 13px; color: #94a3b8;">XMP DublinCore + IPTC + EXIF tags</div>
+              <div data-hf-id="hf-4grd" class="verify-title-bold">Embedded in JPEG</div>
+              <div data-hf-id="hf-96ge" class="verify-sub-muted">XMP DublinCore + IPTC + EXIF tags</div>
             </div>
           </div>
 
           <div data-hf-id="hf-5y84" id="s5-box-fs" class="verify-box success">
             <div data-hf-id="hf-2a22" id="s5-chk-2" class="check-circle">✓</div>
             <div data-hf-id="hf-y7yw">
-              <div data-hf-id="hf-tfaw" style="font-weight: 700; font-size: 17px; color: #f8fafc;">FamilySearch Beta Synced</div>
-              <div data-hf-id="hf-aj4a" style="font-size: 13px; color: #94a3b8;">Memories Artifact linked to PID: BM6T-WQ5</div>
+              <div data-hf-id="hf-tfaw" class="verify-title-bold">FamilySearch Beta Synced</div>
+              <div data-hf-id="hf-aj4a" class="verify-sub-muted">Memories Artifact linked to PID: BM6T-WQ5</div>
             </div>
           </div>
         </div>
 
         <div data-hf-id="hf-i6hq" id="s5-cta" class="cta-banner">
           <div data-hf-id="hf-x11t">
-            <span data-hf-id="hf-z4wv" style="font-weight: 700; color: #f8fafc; font-size: 16px;">Start Preserving Your Family Photos:</span>
-            <span data-hf-id="hf-qm5q" style="color: #94a3b8; margin-left: 8px; font-size: 16px;">Free • Private • Open Source</span>
+            <span data-hf-id="hf-z4wv" class="cta-text-bold">Start Preserving Your Family Photos:</span>
+            <span data-hf-id="hf-qm5q" class="cta-text-muted">Free • Private • Open Source</span>
           </div>
           <span data-hf-id="hf-ra69" id="s5-url" class="cta-url">jviola60.github.io/family-history-photos</span>
         </div>

@@ -46,10 +46,27 @@
       text-align: center;
       margin: 0 0 10px 0;
       line-height: 1.15;
-      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: #ffffff;
+    }
+
+    #s4-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .tools-section-title {
+      font-size: 13px;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .faded-curtain-half {
+      clip-path: polygon(0 0, 50% 0, 50% 100%, 0 100%);
     }
 
     .main-subtitle {
@@ -192,7 +209,7 @@
   <div data-hf-id="hf-xfg6" id="root" data-composition-id="scene-4-lab" data-width="1920" data-height="1080">
     <div data-hf-id="hf-k01a" class="grain-overlay"></div>
 
-    <div data-hf-id="hf-vbyc" id="s4-content" class="clip" data-start="0" data-duration="7" data-hold="true" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+    <div data-hf-id="hf-vbyc" id="s4-content" class="clip" data-start="0" data-duration="7" data-hold="true">
       <div data-hf-id="hf-xgv1" id="s4-pill" class="header-pill" data-layout-ignore="true">
         <span data-hf-id="hf-9vxi">04 • AI Photo Lab Studio</span>
       </div>
@@ -202,7 +219,7 @@
 
       <div data-hf-id="hf-sn5a" class="lab-stage-container">
         <div data-hf-id="hf-4ura" id="s4-tools" class="tools-sidebar" data-layout-ignore="true">
-          <div data-hf-id="hf-ha3k" style="font-size:13px; color:#64748b; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Restoration Tools</div>
+          <div data-hf-id="hf-ha3k" class="tools-section-title">Restoration Tools</div>
           <div data-hf-id="hf-vdaa" id="s4-t1" class="tool-btn active">✨ 4K Face Restore</div>
           <div data-hf-id="hf-buer" id="s4-t2" class="tool-btn">🎨 Auto Colorize</div>
           <div data-hf-id="hf-rtel" id="s4-t3" class="tool-btn">🪄 Magic Eraser (LaMa)</div>
@@ -218,7 +235,7 @@
           </div>
 
           <!-- Foreground: Faded image, clipped dynamically -->
-          <div data-hf-id="hf-1y7e" id="s4-faded-layer" class="curtain-layer" style="clip-path: polygon(0 0, 50% 0, 50% 100%, 0 100%);">
+          <div data-hf-id="hf-1y7e" id="s4-faded-layer" class="curtain-layer faded-curtain-half">
             <img data-hf-id="hf-zg5s" id="s4-img-faded" class="curtain-img img-faded" src="assets/vintage-photo.jpg" alt="Faded Face" />
           </div>
 

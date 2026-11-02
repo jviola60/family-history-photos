@@ -293,9 +293,6 @@
       sessionStorage.removeItem(FS_REDIRECT_KEY);
       localStorage.removeItem(FS_REDIRECT_KEY);
     } catch (e) { }
-      sessionStorage.removeItem(FS_STATE_KEY);
-      sessionStorage.removeItem(FS_REDIRECT_KEY);
-    } catch (e) { }
 
     if (!codeVerifier) {
       throw new Error('Missing PKCE code verifier in session. Please sign in again.');

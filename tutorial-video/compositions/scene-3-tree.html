@@ -46,10 +46,32 @@
       text-align: center;
       margin: 0 0 10px 0;
       line-height: 1.15;
-      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: #ffffff;
+    }
+
+    #s3-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .text-sky {
+      color: #38bdf8;
+    }
+
+    .cand-name-bold {
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .cand-meta-muted {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    .check-mark-lg {
+      font-size: 20px;
     }
 
     .main-subtitle {
@@ -178,8 +200,7 @@
   <div data-hf-id="hf-0yow" id="root" data-composition-id="scene-3-tree" data-width="1920" data-height="1080">
     <div data-hf-id="hf-k01a" class="grain-overlay"></div>
 
-    <div data-hf-id="hf-bvut" id="s3-content" class="clip" data-start="0" data-duration="7" data-hold="true"
-      style="display:flex; flex-direction:column; align-items:center; width:100%;">
+    <div data-hf-id="hf-bvut" id="s3-content" class="clip" data-start="0" data-duration="7" data-hold="true">
       <div data-hf-id="hf-lj5c" id="s3-pill" class="header-pill" data-layout-ignore="true">
         <span data-hf-id="hf-k6e6">03 • Live FamilySearch Integration</span>
       </div>
@@ -195,24 +216,24 @@
             <div data-hf-id="hf-onch" id="s3-input-name" class="styled-input">Patricia Josephine Gill</div>
           </div>
 
-          <div data-hf-id="hf-lxxr" class="input-field">
+          <div data-hf-lxxr" class="input-field">
             <div data-hf-id="hf-ksb6" class="field-label">Relationship to Me</div>
-            <div data-hf-id="hf-zd1i" id="s3-input-rel" class="styled-input" style="color: #38bdf8;">Mother</div>
+            <div data-hf-id="hf-zd1i" id="s3-input-rel" class="styled-input text-sky">Mother</div>
           </div>
 
           <div data-hf-id="hf-knvv" class="field-label">Live FamilySearch Tree Query</div>
           <div data-hf-id="hf-bpkr" id="s3-dropdown" class="candidate-dropdown">
             <div data-hf-id="hf-6yp5" id="s3-cand-item" class="candidate-item selected">
               <div data-hf-id="hf-yeow">
-                <div data-hf-id="hf-hc62" style="font-weight: 700; color: #ffffff;">Patricia Josephine Gill</div>
-                <div data-hf-id="hf-a7ic" style="font-size: 13px; color: #94a3b8;">Living • Bowling Green, OH</div>
+                <div data-hf-id="hf-hc62" class="cand-name-bold">Patricia Josephine Gill</div>
+                <div data-hf-id="hf-a7ic" class="cand-meta-muted">Living • Bowling Green, OH</div>
               </div>
               <span data-hf-id="hf-0sxm" id="s3-pid" class="pid-tag">BM6T-WQ5</span>
             </div>
           </div>
 
           <div data-hf-id="hf-grvm" id="s3-badge" class="sync-confirm-badge">
-            <span data-hf-id="hf-i2bj" style="font-size: 20px;">✓</span>
+            <span data-hf-id="hf-i2bj" class="check-mark-lg">✓</span>
             <span data-hf-id="hf-pr0z">FamilySearch Tree Linked: BM6T-WQ5</span>
           </div>
         </div>
