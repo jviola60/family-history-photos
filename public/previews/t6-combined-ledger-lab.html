@@ -2062,6 +2062,34 @@
     .mob-search-full {
       width: 100%;
     }
+    .insp-autosave-badge {
+      font-size: 11px;
+      color: var(--positive);
+      font-weight: 500;
+    }
+    .insp-btn-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .insp-btn-update {
+      flex: 1;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .insp-btn-export {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .title-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
   </style>
 </head>
 
@@ -2608,6 +2636,90 @@
           localStorage.setItem('fhp_saved_metadata_catalog', JSON.stringify(catalog));
         } catch (e) {
           console.warn('Could not save metadata to localStorage:', e);
+        }
+      }
+
+      function commitInspectorInputs(p, isManualSave = false) {
+        if (!p) return;
+        const box = document.getElementById('catalog-inspector');
+        if (!box) return;
+
+        const titleEl = box.querySelector('#f-title');
+        if (titleEl && titleEl.value.trim()) {
+          p.title = titleEl.value.trim();
+        }
+
+        const dateEl = box.querySelector('#f-date');
+        if (dateEl) {
+          p.isoDate = dateEl.value.trim();
+          if (p.isoDate.length >= 4) {
+            p.decade = `${p.isoDate.slice(0, 3)}0s`;
+          }
+        }
+
+        const fsEl = box.querySelector('#f-fs');
+        if (fsEl) {
+          const val = fsEl.value.trim().toUpperCase();
+          if (val !== p.fsId) {
+            p.fsId = val;
+            if (!p.fsMemoryId) p.fsSynced = false;
+          }
+        }
+
+        const placeEl = box.querySelector('#f-place');
+        if (placeEl) {
+          const val = placeEl.value.trim();
+          p.place = val;
+          if (val && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+            geocodeAddress(val).then((geo) => {
+              if (geo) {
+                p.lat = geo.lat;
+                p.lng = geo.lng;
+                saveItemMetadata(p);
+                renderSidebarCounts();
+                if (layout === 'map') renderGlobalMap();
+              }
+            });
+          }
+        }
+
+        const storyEl = box.querySelector('#f-story');
+        if (storyEl) {
+          p.story = storyEl.value.trim();
+        }
+
+        // Auto-commit any pending relative entry so user input is never lost
+        const nameEl = box.querySelector('#f-person-name');
+        const relEl = box.querySelector('#f-person-rel');
+        const branchEl = box.querySelector('#f-person-branch');
+        if (nameEl && nameEl.value.trim()) {
+          const name = nameEl.value.trim();
+          const rel = (relEl && relEl.value) ? relEl.value : 'Relative';
+          const branch = (branchEl && branchEl.value) ? branchEl.value : (p.branch || 'Gill');
+          if (!p.people) p.people = [];
+          if (!p.people.some(pr => pr.name.toLowerCase() === name.toLowerCase())) {
+            p.people.push({ name, rel, branch });
+            if (p.faces && p.faces.length > 0) {
+              const unassigned = p.faces.find(f => !f.name);
+              if (unassigned) unassigned.name = name;
+            }
+            if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+            notify(`Added tagged relative ${name} (${rel}) to ${p.id}.`);
+          }
+          nameEl.value = '';
+          if (relEl) relEl.value = '';
+        }
+
+        saveItemMetadata(p);
+
+        if (p._handle && window.JpegMetadataWriter) {
+          try {
+            window.JpegMetadataWriter.writeMetadataToHandle(p._handle, p).catch(() => {});
+          } catch (e) {}
+        }
+
+        if (isManualSave) {
+          notify(`✓ Saved record for ${p.title || p.id} in app!`);
         }
       }
 
@@ -3199,6 +3311,7 @@
             host.querySelectorAll('[data-row]').forEach((el) => {
               el.addEventListener('click', (e) => {
                 if (e.target.closest('[data-open-lab]')) return;
+                commitInspectorInputs(currentPhoto(), false);
                 selectedId = el.getAttribute('data-row');
                 renderCatalogCenter();
                 renderInspector();
@@ -3522,7 +3635,7 @@
             <div class="mob-sheet-top">
               <button type="button" class="btn sm" id="btn-close-mob-insp">← Back to Photos</button>
               <span class="mono" style="font-weight:600;font-size:13px;color:var(--text);">${esc(p.id)}</span>
-              <button type="button" class="btn sm primary" id="btn-mob-save-top">Save to File</button>
+              <button type="button" class="btn sm primary" id="btn-mob-save-top">✓ Update Record</button>
             </div>
           </div>
 
@@ -3559,7 +3672,10 @@
           ${p.edits.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">${p.edits.map((e) => `<span class="pill info">${esc(e)}</span>`).join('')}</div>` : ''}
 
           <div class="field">
-            <label for="f-title">Catalog title</label>
+            <div class="title-label-row">
+              <label for="f-title" style="margin:0;">Catalog title</label>
+              <span id="insp-autosave-badge" class="insp-autosave-badge">✓ Autosaved</span>
+            </div>
             <input id="f-title" type="text" value="${esc(p.title)}">
           </div>
 
@@ -3660,9 +3776,12 @@
             <textarea id="f-story" placeholder="Write who is here, what happened, or transcribe pencil notes from the back...">${esc(p.story)}</textarea>
           </div>
 
-          <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn primary" type="button" id="btn-save-file" style="flex:1;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;" title="Saves catalog record &amp; bakes metadata into JPEG file">
-              💾 Save to File
+          <div class="insp-btn-actions">
+            <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves all updates in the app immediately without downloading a new file">
+              ✓ Update Record
+            </button>
+            <button class="btn insp-btn-export" type="button" id="btn-download-file" title="Export and download a standalone JPEG copy with embedded EXIF &amp; IPTC tags to your computer">
+              <span data-icon="download"></span><span>Export JPEG</span>
             </button>
             ${p.inReview ? `<button class="btn" type="button" id="btn-restore-review">Restore</button>` : ''}
           </div>
@@ -3704,8 +3823,8 @@
             const btnMobSaveTop = box.querySelector('#btn-mob-save-top');
             if (btnMobSaveTop) {
               btnMobSaveTop.onclick = () => {
-                const saveBtn = box.querySelector('#btn-save-file');
-                if (saveBtn) saveBtn.click();
+                commitInspectorInputs(p, true);
+                render();
               };
             }
 
@@ -3886,6 +4005,13 @@
             const relInput = box.querySelector('#f-person-rel');
             const branchInput = box.querySelector('#f-person-branch');
             if (nameInput) {
+              nameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const tagBtn = box.querySelector('#btn-tag-person');
+                  if (tagBtn) tagBtn.click();
+                }
+              });
               nameInput.addEventListener('input', () => {
                 const val = nameInput.value.trim().toLowerCase();
                 for (const item of items) {
@@ -3971,65 +4097,77 @@
               };
             }
 
-            const saveFileBtn = box.querySelector('#btn-save-file');
-            if (saveFileBtn) {
-              saveFileBtn.onclick = async () => {
-                p.title = box.querySelector('#f-title').value.trim() || p.title;
-                p.isoDate = box.querySelector('#f-date').value.trim();
-                p.decade = p.isoDate.length >= 4 ? `${p.isoDate.slice(0, 3)}0s` : p.decade;
-                const oldFsId = p.fsId;
-                p.fsId = box.querySelector('#f-fs').value.trim().toUpperCase();
-                if (p.fsId !== oldFsId || !p.fsMemoryId) {
-                  p.fsSynced = Boolean(p.fsMemoryId);
+            // Autosave listener on inputs
+            let autosaveTimer = null;
+            const autosaveBadge = box.querySelector('#insp-autosave-badge');
+            function scheduleAutosave() {
+              if (autosaveBadge) {
+                autosaveBadge.textContent = 'Saving...';
+                autosaveBadge.style.color = 'var(--accent)';
+              }
+              clearTimeout(autosaveTimer);
+              autosaveTimer = setTimeout(() => {
+                commitInspectorInputs(p, false);
+                if (autosaveBadge) {
+                  autosaveBadge.textContent = '✓ Autosaved';
+                  autosaveBadge.style.color = 'var(--positive)';
                 }
-                const newPlace = box.querySelector('#f-place').value.trim();
-                p.place = newPlace;
-                if (newPlace && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
-                  // Background geocode address so saving with an address immediately pins it
-                  geocodeAddress(newPlace).then((geo) => {
-                    if (geo) {
-                      p.lat = geo.lat;
-                      p.lng = geo.lng;
-                      saveItemMetadata(p);
-                      renderSidebarCounts();
-                      renderInspector();
-                      if (layout === 'map') renderGlobalMap();
-                    }
-                  });
-                }
-                p.story = box.querySelector('#f-story').value.trim();
-                saveItemMetadata(p);
+                renderSidebarCounts();
+              }, 400);
+            }
 
-                // If opened via local File System handle, write directly to file
-                if (p._handle && window.JpegMetadataWriter) {
-                  try {
-                    await window.JpegMetadataWriter.writeMetadataToHandle(p._handle, p);
-                  } catch (e) {}
-                }
+            ['#f-title', '#f-date', '#f-place', '#f-fs', '#f-story'].forEach((sel) => {
+              const inputEl = box.querySelector(sel);
+              if (inputEl) {
+                inputEl.addEventListener('input', scheduleAutosave);
+                inputEl.addEventListener('change', () => {
+                  commitInspectorInputs(p, false);
+                  if (autosaveBadge) {
+                    autosaveBadge.textContent = '✓ Autosaved';
+                    autosaveBadge.style.color = 'var(--positive)';
+                  }
+                  renderSidebarCounts();
+                });
+              }
+            });
 
-                // Bake metadata into JPEG and download/save file
+            const updateRecordBtn = box.querySelector('#btn-update-record');
+            if (updateRecordBtn) {
+              updateRecordBtn.onclick = () => {
+                commitInspectorInputs(p, true);
+                render();
+              };
+            }
+
+            const downloadFileBtn = box.querySelector('#btn-download-file');
+            if (downloadFileBtn) {
+              downloadFileBtn.onclick = async () => {
+                commitInspectorInputs(p, false);
                 if (window.JpegMetadataWriter) {
-                  saveFileBtn.disabled = true;
-                  saveFileBtn.textContent = 'Saving & baking file...';
+                  downloadFileBtn.disabled = true;
+                  downloadFileBtn.textContent = 'Exporting JPEG...';
                   try {
                     const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(p, p);
                     if (ok) {
-                      notify(`✓ Saved record & baked metadata into ${p.title || p.file}!`);
+                      notify(`✓ Exported ${p.title || p.file} with baked EXIF/IPTC metadata to Downloads!`);
                     } else {
-                      notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                      notify(`Exported JPEG for ${p.id}.`);
                     }
                   } catch (err) {
-                    notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                    notify(`Export failed: ${err.message}`);
                   } finally {
-                    saveFileBtn.disabled = false;
+                    downloadFileBtn.disabled = false;
+                    downloadFileBtn.innerHTML = '<span data-icon="download"></span><span>Export JPEG</span>';
+                    mountIcons(downloadFileBtn);
                   }
                 } else {
                   notify(`Saved record for ${p.id} (persisted in browser storage).`);
                 }
-                render();
               };
             }
+
             box.querySelector('#btn-insp-fs').onclick = async () => {
+              commitInspectorInputs(p, false);
               if (p.fsSynced && p.fsMemoryId) {
                 const choice = confirm(`Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick OK to open this memory in FamilySearch Beta.\nClick Cancel if you want to re-upload.`);
                 if (choice) {
@@ -6255,9 +6393,9 @@
         });
       });
 
-      document.getElementById('mode-catalog').onclick = () => { mode = 'catalog'; render(); };
-      document.getElementById('mode-lab').onclick = () => { mode = 'lab'; render(); };
-      document.getElementById('mode-sync').onclick = () => { mode = 'sync'; render(); };
+      document.getElementById('mode-catalog').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'catalog'; render(); };
+      document.getElementById('mode-lab').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'lab'; render(); };
+      document.getElementById('mode-sync').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'sync'; render(); };
       document.getElementById('btn-fs-auth').onclick = () => {
         if (!fsUser) {
           signInFamilySearch();
