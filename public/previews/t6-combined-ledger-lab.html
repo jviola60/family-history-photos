@@ -2102,6 +2102,70 @@
     .btn-fill {
       flex: 1;
     }
+    .import-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .import-modal-backdrop[hidden] {
+      display: none !important;
+    }
+    .import-modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 28px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+    }
+    .import-modal-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+    .import-modal-title {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 0 0 6px;
+      color: var(--text);
+    }
+    .import-modal-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0 0 16px;
+      line-height: 1.4;
+    }
+    .import-progress-track {
+      width: 100%;
+      height: 8px;
+      background: var(--raised);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+      border: 1px solid var(--border);
+    }
+    .import-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width 0.2s ease;
+    }
+    .import-modal-stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
   </style>
 </head>
 
@@ -2171,7 +2235,7 @@
         <a href="./classic.html" class="nav-item sidebar-back" title="Switch to previous classic version">
           <span data-icon="folder"></span><span>Previous Classic View</span>
         </a>
-        <a href="./index.html" class="nav-item sidebar-back">
+        <a href="./previews/index.html" class="nav-item sidebar-back">
           <span data-icon="arrowLeft"></span><span>All design previews</span>
         </a>
       </div>
@@ -2450,6 +2514,22 @@
   <div class="inspector-backdrop" id="inspector-backdrop"></div>
   <input type="file" id="mobile-camera-input" accept="image/*" multiple hidden />
 
+  <!-- IMPORT PROGRESS MODAL -->
+  <div id="import-progress-modal" class="import-modal-backdrop" hidden>
+    <div class="import-modal-card">
+      <div class="import-modal-icon">📁</div>
+      <h3 id="import-progress-title" class="import-modal-title">Importing Photo Archive</h3>
+      <p id="import-progress-sub" class="import-modal-sub">Scanning folder for family prints...</p>
+      <div class="import-progress-track">
+        <div id="import-progress-bar" class="import-progress-bar"></div>
+      </div>
+      <div class="import-modal-stats">
+        <span id="import-progress-count">Reading files...</span>
+        <span id="import-progress-pct">0%</span>
+      </div>
+    </div>
+  </div>
+
   <script src="exifr.js"></script>
   <script src="leaflet/leaflet.js"></script>
   <script src="taste-charts.js"></script>
@@ -2459,7 +2539,7 @@
   <script src="jpeg-metadata-writer.js"></script>
   <script src="help-tutorial.js"></script>
   <script>
-    (() => {
+    (async () => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
 
       /* Extra clean 1.5px outline icons for the 6 Photo Lab repair tools */
@@ -2588,6 +2668,7 @@
       let showCharts = false;
       let selectedId = 'FH-002';   // Start on a vintage 640x480 scan ready for repairs
       let fsUser = null;           // null when signed out, { name, pid } when signed in via FamilySearch OAuth2
+      let pendingFsUploadPhoto = null;
 
       /* Photo Lab interactive states */
       let activeTool = 'restore';  // 'restore' | 'color' | 'tone' | 'crop' | 'erase' | 'redeye'
@@ -2764,6 +2845,150 @@
           });
         } catch (e) {
           console.warn('Could not restore metadata from localStorage:', e);
+        }
+      }
+
+      /* Progress Modal controls for large folder imports */
+      function showImportProgress(title, sub, pct = 0, countText = '') {
+        const modal = document.getElementById('import-progress-modal');
+        if (!modal) return;
+        modal.hidden = false;
+        const titleEl = document.getElementById('import-progress-title');
+        const subEl = document.getElementById('import-progress-sub');
+        const barEl = document.getElementById('import-progress-bar');
+        const pctEl = document.getElementById('import-progress-pct');
+        const countEl = document.getElementById('import-progress-count');
+        if (titleEl) titleEl.textContent = title || 'Importing Photo Archive';
+        if (subEl) subEl.textContent = sub || 'Scanning files...';
+        if (barEl) barEl.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+        if (countEl) countEl.textContent = countText || '';
+      }
+
+      function updateImportProgress(sub, pct, countText) {
+        const modal = document.getElementById('import-progress-modal');
+        if (!modal || modal.hidden) return;
+        const subEl = document.getElementById('import-progress-sub');
+        const barEl = document.getElementById('import-progress-bar');
+        const pctEl = document.getElementById('import-progress-pct');
+        const countEl = document.getElementById('import-progress-count');
+        if (sub && subEl) subEl.textContent = sub;
+        if (typeof pct === 'number') {
+          if (barEl) barEl.style.width = `${pct}%`;
+          if (pctEl) pctEl.textContent = `${pct}%`;
+        }
+        if (countText && countEl) countEl.textContent = countText;
+      }
+
+      function hideImportProgress() {
+        const modal = document.getElementById('import-progress-modal');
+        if (modal) modal.hidden = true;
+      }
+
+      /* IndexedDB Archive Persistence (Preserves loaded folder across reloads and OAuth logins) */
+      const DB_NAME = 'FamilyHistoryPhotos_ArchiveDB';
+      const DB_STORE = 'photos';
+      const DB_META = 'metadata';
+
+      function openArchiveDb() {
+        return new Promise((resolve) => {
+          if (typeof indexedDB === 'undefined') return resolve(null);
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(DB_STORE)) {
+              db.createObjectStore(DB_STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(DB_META)) {
+              db.createObjectStore(DB_META, { keyPath: 'key' });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+      }
+
+      async function saveArchiveToDb(itemsList, folderName) {
+        try {
+          const db = await openArchiveDb();
+          if (!db) return false;
+          const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
+          const store = tx.objectStore(DB_STORE);
+          const metaStore = tx.objectStore(DB_META);
+
+          store.clear();
+          itemsList.forEach((item) => {
+            const entry = { ...item };
+            delete entry.src;
+            delete entry.workingSrc;
+            store.put(entry);
+          });
+
+          metaStore.put({ key: 'folder', value: folderName });
+          metaStore.put({ key: 'isCustom', value: true });
+
+          return new Promise((resolve) => {
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          });
+        } catch (e) {
+          console.warn('Could not save archive to IndexedDB:', e);
+          return false;
+        }
+      }
+
+      async function loadArchiveFromDb() {
+        try {
+          const db = await openArchiveDb();
+          if (!db) return null;
+          const tx = db.transaction([DB_STORE, DB_META], 'readonly');
+          const store = tx.objectStore(DB_STORE);
+          const metaStore = tx.objectStore(DB_META);
+
+          const getMeta = (k) => new Promise((resolve) => {
+            const req = metaStore.get(k);
+            req.onsuccess = () => resolve(req.result ? req.result.value : null);
+            req.onerror = () => resolve(null);
+          });
+
+          const isCustom = await getMeta('isCustom');
+          if (!isCustom) return null;
+
+          const folder = await getMeta('folder');
+
+          const getPhotos = new Promise((resolve) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+          });
+
+          const photos = await getPhotos;
+          if (!photos || !photos.length) return null;
+
+          photos.forEach((p) => {
+            if (p._file) {
+              p.src = URL.createObjectURL(p._file);
+            } else {
+              p.src = 'sample.jpg';
+            }
+          });
+
+          return { items: photos, folderName: folder || 'Imported_Archive' };
+        } catch (e) {
+          console.warn('Could not load archive from IndexedDB:', e);
+          return null;
+        }
+      }
+
+      async function clearArchiveFromDb() {
+        try {
+          const db = await openArchiveDb();
+          if (!db) return;
+          const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
+          tx.objectStore(DB_STORE).clear();
+          tx.objectStore(DB_META).clear();
+        } catch (e) {
+          console.warn('Could not clear IndexedDB archive:', e);
         }
       }
 
@@ -5979,9 +6204,12 @@
                                   }
                                   const token = window.FamilySearchClient.getStoredToken();
                                   if (!token) {
+                                    pendingFsUploadPhoto = p;
                                     const doAuth = confirm('You are not signed in to FamilySearch.\n\nClick OK to sign in securely with your FamilySearch account via OAuth2.');
                                     if (doAuth) {
                                       window.FamilySearchClient.startLogin();
+                                    } else {
+                                      pendingFsUploadPhoto = null;
                                     }
                                     return;
                                   }
@@ -6059,9 +6287,12 @@
                                       window.FamilySearchClient.clearToken();
                                       fsUser = null;
                                       render();
+                                      pendingFsUploadPhoto = p;
                                       const retry = confirm('Your FamilySearch login session has expired.\n\nClick OK to re-authenticate with FamilySearch Beta.');
                                       if (retry) {
                                         window.FamilySearchClient.startLogin();
+                                      } else {
+                                        pendingFsUploadPhoto = null;
                                       }
                                     } else {
                                       notify(`FamilySearch upload failed: ${err.message || err}`);
@@ -6076,17 +6307,47 @@
                                   const params = new URLSearchParams(window.location.search);
                                   const code = params.get('code');
                                   const error = params.get('error');
+
+                                  const isPopup = Boolean(window.opener && window.opener !== window);
+
                                   if (error) {
+                                    if (isPopup) {
+                                      try {
+                                        if (window.opener && window.opener.TasteArchive && window.opener.TasteArchive.notify) {
+                                          window.opener.TasteArchive.notify(`FamilySearch sign in cancelled or error: ${error}`);
+                                        }
+                                      } catch (e) {}
+                                      window.close();
+                                      return;
+                                    }
                                     notify(`FamilySearch sign in cancelled or error: ${error}`);
                                     cleanUrlOAuthParams();
                                   } else if (code) {
                                     try {
-                                      notify('Exchanging FamilySearch authorization code...');
+                                      if (!isPopup) notify('Exchanging FamilySearch authorization code...');
                                       await window.FamilySearchClient.handleCallbackCode(code);
+                                      if (isPopup) {
+                                        try {
+                                          if (window.opener && typeof window.opener.onFamilySearchLoginSuccess === 'function') {
+                                            window.opener.onFamilySearchLoginSuccess();
+                                          }
+                                        } catch (e) {}
+                                        window.close();
+                                        return;
+                                      }
                                       cleanUrlOAuthParams();
                                       notify('✓ Connected to FamilySearch Beta!');
                                     } catch (e) {
                                       console.error('FamilySearch callback error:', e);
+                                      if (isPopup) {
+                                        try {
+                                          if (window.opener && window.opener.TasteArchive && window.opener.TasteArchive.notify) {
+                                            window.opener.TasteArchive.notify(`FamilySearch sign in error: ${e.message}`);
+                                          }
+                                        } catch (err) {}
+                                        window.close();
+                                        return;
+                                      }
                                       cleanUrlOAuthParams();
                                       notify(`FamilySearch sign in error: ${e.message}`);
                                     }
@@ -6105,6 +6366,29 @@
                                     console.warn('FamilySearch user load error:', e);
                                   }
                                 }
+
+                                window.onFamilySearchLoginSuccess = async function() {
+                                  try {
+                                    const user = await window.FamilySearchClient.getCurrentUser();
+                                    if (user) {
+                                      fsUser = {
+                                        name: user.contactName || 'Jeff Viola',
+                                        pid: user.treePersonId || ''
+                                      };
+                                    }
+                                    notify('✓ Connected to FamilySearch Beta!');
+                                    render();
+                                    if (pendingFsUploadPhoto) {
+                                      const p = pendingFsUploadPhoto;
+                                      pendingFsUploadPhoto = null;
+                                      notify(`Resuming upload for "${p.title}"...`);
+                                      uploadPrintToFamilySearch(p);
+                                    }
+                                  } catch (err) {
+                                    console.warn('Error handling popup login success:', err);
+                                    render();
+                                  }
+                                };
 
                                 function cleanUrlOAuthParams() {
                                   try {
@@ -6582,112 +6866,18 @@
         renderPhotoLab();
       };
 
-      /* Native local folder chooser (loads user's own pictures locally in browser memory) */
-      function pickPhotoFolder() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = 'image/*';
-        input.setAttribute('webkitdirectory', '');
-        input.setAttribute('directory', '');
-        input.onchange = () => {
-          const allFiles = Array.from(input.files || []);
-          const imgFiles = allFiles.filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
-          if (!imgFiles.length) {
-            notify('No supported image files found in the selected folder.');
-            return;
-          }
-          const firstRel = imgFiles[0].webkitRelativePath || '';
-          const parts = firstRel.split('/').filter(Boolean);
-          rootFolderName = parts.length > 1 ? parts[0] : 'Local_Photos';
-          isCustomFolder = true;
-          activeFolder = null;
-          activeQueue = 'all';
-          search = '';
-          document.getElementById('search-input').value = '';
+      /* Lazy background dimension and EXIF extraction for imported archive items */
+      function scheduleMetadataExtraction(list) {
+        const batchSize = 10;
+        let index = 0;
 
-          const branchCycle = ['Gill', 'Costello', 'Russo'];
-          items = imgFiles.slice(0, 200).map((file, i) => {
-            const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
-            const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
-            // Support dates formatted with hyphens, underscores, or spaces (e.g. '2003 03 02')
-            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
-            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-            const isoDate = dateMatch
-              ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
-              : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
-            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-            const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
-            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
-            const url = URL.createObjectURL(file);
+        function processNextBatch() {
+          if (index >= list.length) return;
+          const currentBatch = list.slice(index, index + batchSize);
+          index += batchSize;
 
-            const rec = {
-              id: `FH-${String(i + 1).padStart(3, '0')}`,
-              file: file.name,
-              subfolder,
-              title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
-              isoDate,
-              decade,
-              place: '',
-              branch: branchCycle[i % branchCycle.length],
-              people: [],
-              unnamedFaces: 0,
-              width: 1200,
-              height: 900,
-              origWidth: 1200,
-              origHeight: 900,
-              origCrop: '50% 50%',
-              origScale: 1,
-              origRestored4k: false,
-              kb: Math.max(1, Math.round(file.size / 1024)),
-              restored4k: false,
-              fsId: '',
-              fsSynced: false,
-              fsMemoryId: '',
-              inReview: false,
-              screenshot: /screen|capture|snap/i.test(file.name),
-              crop: '50% 50%',
-              scale: 1,
-              filter: 'none',
-              story: '',
-              src: url,
-              workingSrc: null,
-              _file: file,
-              edits: [],
-              rotation: 0,
-              straighten: 0,
-              flipH: false,
-              cropRatio: 'Original',
-              cropBox: { x: 8, y: 8, w: 84, h: 84 },
-              tone: {
-                brightness: 100,
-                contrast: 100,
-                shadows: 0,
-                highlights: 0,
-                sharpen: 0,
-                smooth: 0,
-                vignette: 0,
-                defade: false
-              },
-              color: {
-                warmth: 0,
-                tint: 0,
-                saturation: 100,
-                sepia: 0,
-                bw: false,
-                colorizeStrength: 82
-              },
-              model: 'codeformer',
-              fidelity: 75,
-              scratchesFixed: true,
-              descreen: false,
-              deglare: false,
-              blemishesErased: 0,
-              redEyesFixed: 0,
-              eyePins: [],
-              history: []
-            };
+          currentBatch.forEach((rec) => {
+            if (!rec.src || !rec._file) return;
 
             const probe = new Image();
             probe.onload = () => {
@@ -6695,17 +6885,15 @@
               rec.height = probe.naturalHeight || rec.height;
               rec.origWidth = rec.width;
               rec.origHeight = rec.height;
-              renderSidebarCounts();
-              if (mode === 'catalog') {
-                renderCatalogCenter();
-                if (rec.id === selectedId) renderInspector();
+              if (rec.id === selectedId) {
+                renderSidebarCounts();
+                if (mode === 'catalog') renderInspector();
               }
             };
-            probe.src = url;
+            probe.src = rec.src;
 
-            // Extract embedded EXIF, GPS, IPTC, and XMP metadata automatically
             if (window.exifr) {
-              window.exifr.parse(file, {
+              window.exifr.parse(rec._file, {
                 tiff: true,
                 xmp: true,
                 iptc: true,
@@ -6780,26 +6968,189 @@
                     if (layout === 'map') renderGlobalMap();
                   }
                 }
-              }).catch((e) => {
-                console.warn('EXIF parse skip for', file.name, e);
-              });
+              }).catch(() => {});
             }
-
-            return rec;
           });
 
-          restoreCatalogMetadata(items);
+          if (index < list.length) {
+            if ('requestIdleCallback' in window) {
+              window.requestIdleCallback(processNextBatch, { timeout: 1000 });
+            } else {
+              setTimeout(processNextBatch, 150);
+            }
+          }
+        }
 
+        processNextBatch();
+      }
+
+      /* Native local folder chooser (with live chunked progress meter & persistent IndexedDB cache) */
+      function pickPhotoFolder() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = 'image/*';
+        input.setAttribute('webkitdirectory', '');
+        input.setAttribute('directory', '');
+        input.onchange = async () => {
+          const allFiles = Array.from(input.files || []);
+          if (!allFiles.length) return;
+
+          showImportProgress('Importing Photo Archive', `Scanning ${allFiles.length.toLocaleString()} files in folder...`, 10, `0 / ${allFiles.length.toLocaleString()}`);
+
+          const imgFiles = [];
+          const CHUNK_SIZE = 2000;
+          for (let i = 0; i < allFiles.length; i += CHUNK_SIZE) {
+            const chunk = allFiles.slice(i, i + CHUNK_SIZE);
+            for (const f of chunk) {
+              if (/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/'))) {
+                imgFiles.push(f);
+              }
+            }
+            const pct = Math.min(50, Math.round(10 + (i / allFiles.length) * 40));
+            updateImportProgress(`Scanning files (${imgFiles.length.toLocaleString()} photos found)...`, pct, `${Math.min(i + CHUNK_SIZE, allFiles.length).toLocaleString()} / ${allFiles.length.toLocaleString()}`);
+            await new Promise((r) => setTimeout(r, 0));
+          }
+
+          if (!imgFiles.length) {
+            hideImportProgress();
+            notify('No supported image files found in the selected folder.');
+            return;
+          }
+
+          const firstRel = imgFiles[0].webkitRelativePath || '';
+          const parts = firstRel.split('/').filter(Boolean);
+          rootFolderName = parts.length > 1 ? parts[0] : 'Local_Photos';
+          isCustomFolder = true;
+          activeFolder = null;
+          activeQueue = 'all';
+          search = '';
+          const searchInput = document.getElementById('search-input');
+          if (searchInput) searchInput.value = '';
+
+          const maxToLoad = Math.min(imgFiles.length, 1000);
+          updateImportProgress(`Indexing ${maxToLoad.toLocaleString()} photo records...`, 60, `0 / ${maxToLoad.toLocaleString()}`);
+          await new Promise((r) => setTimeout(r, 20));
+
+          const branchCycle = ['Gill', 'Costello', 'Russo'];
+          const newItems = [];
+
+          for (let i = 0; i < maxToLoad; i++) {
+            const file = imgFiles[i];
+            const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+            const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
+            // Support dates formatted with hyphens, underscores, or spaces (e.g. '2003 03 02')
+            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
+            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+            const isoDate = dateMatch
+              ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+              : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+            const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
+            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
+            const url = URL.createObjectURL(file);
+
+            newItems.push({
+              id: `FH-${String(i + 1).padStart(3, '0')}`,
+              file: file.name,
+              subfolder,
+              title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
+              isoDate,
+              decade,
+              place: '',
+              branch: branchCycle[i % branchCycle.length],
+              people: [],
+              unnamedFaces: 0,
+              width: 1200,
+              height: 900,
+              origWidth: 1200,
+              origHeight: 900,
+              origCrop: '50% 50%',
+              origScale: 1,
+              origRestored4k: false,
+              kb: Math.max(1, Math.round(file.size / 1024)),
+              restored4k: false,
+              fsId: '',
+              fsSynced: false,
+              fsMemoryId: '',
+              inReview: false,
+              screenshot: /screen|capture|snap/i.test(file.name),
+              crop: '50% 50%',
+              scale: 1,
+              filter: 'none',
+              story: '',
+              src: url,
+              workingSrc: null,
+              _file: file,
+              edits: [],
+              rotation: 0,
+              straighten: 0,
+              flipH: false,
+              cropRatio: 'Original',
+              cropBox: { x: 8, y: 8, w: 84, h: 84 },
+              tone: {
+                brightness: 100,
+                contrast: 100,
+                shadows: 0,
+                highlights: 0,
+                sharpen: 0,
+                smooth: 0,
+                vignette: 0,
+                defade: false
+              },
+              color: {
+                warmth: 0,
+                tint: 0,
+                saturation: 100,
+                sepia: 0,
+                bw: false,
+                colorizeStrength: 82
+              },
+              model: 'codeformer',
+              fidelity: 75,
+              scratchesFixed: true,
+              descreen: false,
+              deglare: false,
+              blemishesErased: 0,
+              redEyesFixed: 0,
+              eyePins: [],
+              history: []
+            });
+
+            if (i % 250 === 0 && i > 0) {
+              const p = Math.min(80, Math.round(60 + (i / maxToLoad) * 20));
+              updateImportProgress(`Indexing prints (${i} of ${maxToLoad})...`, p, `${i} / ${maxToLoad}`);
+              await new Promise((r) => setTimeout(r, 0));
+            }
+          }
+
+          items = newItems;
+
+          updateImportProgress('Saving archive to persistent database...', 85, 'Writing IndexedDB...');
+          await new Promise((r) => setTimeout(r, 20));
+          await saveArchiveToDb(items, rootFolderName);
+
+          updateImportProgress('Import complete!', 100, `${items.length} photos ready`);
+          await new Promise((r) => setTimeout(r, 200));
+          hideImportProgress();
+
+          restoreCatalogMetadata(items);
           selectedId = items[0].id;
           mode = 'catalog';
-          document.getElementById('sidebar').classList.remove('open');
-          notify(`Loaded ${items.length} photo(s) from "${rootFolderName}" locally in browser memory.`);
+          const side = document.getElementById('sidebar');
+          if (side) side.classList.remove('open');
+          notify(`Loaded ${items.length.toLocaleString()} photo(s) from "${rootFolderName}" (persisted locally).`);
           render();
+
+          // Lazy background dimension and EXIF extraction
+          scheduleMetadataExtraction(items);
         };
         input.click();
       }
 
-      function resetToSampleArchive() {
+      async function resetToSampleArchive() {
+        await clearArchiveFromDb();
         items = makeSampleItems();
         rootFolderName = 'Gill_Costello_Archive';
         isCustomFolder = false;
@@ -6810,10 +7161,17 @@
         render();
       }
 
-      function clearAllPhotos() {
+      async function clearAllPhotos() {
+        await clearArchiveFromDb();
         items = [];
         rootFolderName = '(No folder opened)';
         isCustomFolder = true;
+        activeFolder = null;
+        activeQueue = 'all';
+        selectedId = null;
+        notify('Cleared sample photos. Choose a photo folder to start working with your real photos.');
+        render();
+      }
         activeFolder = null;
         activeQueue = 'all';
         selectedId = null;
@@ -7066,11 +7424,28 @@
         document.getElementById('btn-toggle-charts').setAttribute('aria-pressed', 'true');
       }
 
+      // Check if user previously imported a custom archive into persistent IndexedDB
+      try {
+        const savedArchive = await loadArchiveFromDb();
+        if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
+          items = savedArchive.items;
+          rootFolderName = savedArchive.folderName;
+          isCustomFolder = true;
+          selectedId = items[0].id;
+        }
+      } catch (dbErr) {
+        console.warn('Could not restore archive from IndexedDB:', dbErr);
+      }
+
       mountIcons();
       restoreCatalogMetadata(items);
       render();
       if (typeof initFamilySearchAuth === 'function') {
-        initFamilySearchAuth();
+        await initFamilySearchAuth();
+      }
+
+      if (isCustomFolder && items.length > 0) {
+        scheduleMetadataExtraction(items);
       }
 
       if (window.FamilyHistoryTutorial) {

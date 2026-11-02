@@ -421,7 +421,7 @@
   "checks": {
     "latest": {
       "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
-      "id": "11654b3b-8df3-43b5-a42e-988d8557bb99"
+      "id": "fc37548c-d34a-4516-a5a9-8d9f68eb4074"
     },
     "revisions": {
       "ce7981d9-8769-41a3-82be-c0ca6b9f876a": [
@@ -680,6 +680,87 @@
             }
           },
           "createdAt": 1793627322324,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+          "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        },
+        {
+          "id": "c42698b7-b972-4918-9c3d-b03e03d9d196",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\c42698b7-b972-4918-9c3d-b03e03d9d196.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793630167729,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+          "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        },
+        {
+          "id": "6276f28e-e40c-4fb0-84c0-0abb79181a5f",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\6276f28e-e40c-4fb0-84c0-0abb79181a5f.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793641208479,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+          "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        },
+        {
+          "id": "fc37548c-d34a-4516-a5a9-8d9f68eb4074",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\fc37548c-d34a-4516-a5a9-8d9f68eb4074.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793646181484,
           "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
           "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
           "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",

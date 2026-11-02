@@ -231,7 +231,10 @@
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  async function startLogin(overrideUri) {
+  async function startLogin(overrideUriOrOptions) {
+    var overrideUri = typeof overrideUriOrOptions === 'string' ? overrideUriOrOptions : (overrideUriOrOptions && overrideUriOrOptions.redirectUri);
+    var usePopup = typeof overrideUriOrOptions === 'object' ? overrideUriOrOptions.popup !== false : true;
+
     var clientId = getClientId();
     var redirectUri = overrideUri || getRedirectUri();
     var codeVerifier = randomString(64);
@@ -239,8 +242,11 @@
     var codeChallenge = await sha256Base64Url(codeVerifier);
 
     try {
+      localStorage.setItem(FS_VERIFIER_KEY, codeVerifier);
       sessionStorage.setItem(FS_VERIFIER_KEY, codeVerifier);
+      localStorage.setItem(FS_STATE_KEY, state);
       sessionStorage.setItem(FS_STATE_KEY, state);
+      localStorage.setItem(FS_REDIRECT_KEY, redirectUri);
       sessionStorage.setItem(FS_REDIRECT_KEY, redirectUri);
     } catch (e) { }
 
@@ -253,16 +259,40 @@
       state: state
     });
 
-    window.location.href = AUTH_URL + '?' + params.toString();
+    var authUrl = AUTH_URL + '?' + params.toString();
+
+    if (usePopup && typeof window !== 'undefined' && window.open) {
+      var w = 600;
+      var h = 720;
+      var left = Math.max(0, (window.screen.width - w) / 2);
+      var top = Math.max(0, (window.screen.height - h) / 2);
+      var popup = window.open(
+        authUrl,
+        'fs_oauth_popup',
+        'width=' + w + ',height=' + h + ',top=' + top + ',left=' + left + ',menubar=no,toolbar=no,status=no'
+      );
+      if (popup && !popup.closed) {
+        popup.focus();
+        return;
+      }
+    }
+
+    window.location.href = authUrl;
   }
 
   async function handleCallbackCode(code) {
     var codeVerifier = null;
     var activeRedirect = null;
     try {
-      codeVerifier = sessionStorage.getItem(FS_VERIFIER_KEY);
-      activeRedirect = sessionStorage.getItem(FS_REDIRECT_KEY);
+      codeVerifier = sessionStorage.getItem(FS_VERIFIER_KEY) || localStorage.getItem(FS_VERIFIER_KEY);
+      activeRedirect = sessionStorage.getItem(FS_REDIRECT_KEY) || localStorage.getItem(FS_REDIRECT_KEY);
       sessionStorage.removeItem(FS_VERIFIER_KEY);
+      localStorage.removeItem(FS_VERIFIER_KEY);
+      sessionStorage.removeItem(FS_STATE_KEY);
+      localStorage.removeItem(FS_STATE_KEY);
+      sessionStorage.removeItem(FS_REDIRECT_KEY);
+      localStorage.removeItem(FS_REDIRECT_KEY);
+    } catch (e) { }
       sessionStorage.removeItem(FS_STATE_KEY);
       sessionStorage.removeItem(FS_REDIRECT_KEY);
     } catch (e) { }
