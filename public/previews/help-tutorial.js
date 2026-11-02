@@ -578,6 +578,49 @@
         from { outline-color: #1d5fbf; box-shadow: 0 0 16px rgba(29, 95, 191, 0.4); }
         to { outline-color: #10b981; box-shadow: 0 0 28px rgba(16, 185, 129, 0.6); }
       }
+      @media (max-width: 640px) {
+        .tutorial-modal {
+          max-height: 94vh;
+          border-radius: 12px;
+          margin: 8px;
+        }
+        .tutorial-header {
+          padding: 12px 14px;
+        }
+        .tutorial-body {
+          padding: 14px;
+        }
+        .tutorial-title {
+          font-size: 16px;
+        }
+        .step-progress-row {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+        .step-dots {
+          width: 100%;
+          justify-content: space-between;
+        }
+        .tutorial-footer {
+          padding: 10px 14px;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .tutorial-footer-left,
+        .tutorial-footer-right {
+          width: 100%;
+          justify-content: space-between;
+        }
+        .tutorial-docked {
+          bottom: 74px;
+          left: 10px;
+          right: 10px;
+          width: auto;
+          max-width: none;
+          padding: 12px;
+        }
+      }
     `;
     document.head.appendChild(style);
   }

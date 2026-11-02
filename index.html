@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Family History Photos — Mom's Family Memory Assistant &amp; 4K Photo Restorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1176,8 +1176,19 @@
       margin-top: 8px;
     }
 
-    @media (max-width: 1160px) {
+    /* Desktop defaults for mobile-only helper components */
+    .mobile-bottom-nav {
+      display: none;
+    }
+    .sidebar-backdrop,
+    .inspector-backdrop {
+      display: none;
+    }
+    .mob-only {
+      display: none !important;
+    }
 
+    @media (max-width: 1160px) {
       .workspace,
       .lab-shell,
       .charts-row,
@@ -1203,9 +1214,10 @@
         display: none;
         position: fixed;
         inset: 0 auto 0 0;
-        width: 260px;
-        z-index: 50;
+        width: 280px;
+        z-index: 110;
         border-right: 1px solid var(--border);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.2);
       }
 
       .sidebar.open {
@@ -1224,37 +1236,369 @@
       .btn.menu-toggle {
         display: inline-flex;
       }
-
-      .kpi-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .kpi:nth-child(3) {
-        border-left: 0;
-        border-top: 1px solid var(--border);
-      }
-
-      .kpi:nth-child(4) {
-        border-top: 1px solid var(--border);
-      }
     }
 
-    @media (max-width: 640px) {
+    /* PHONE & COMPACT MOBILE SCREENS (<= 768px) */
+    @media (max-width: 768px) {
+      .mob-only {
+        display: flex !important;
+      }
+      .desktop-only {
+        display: none !important;
+      }
+
+      body {
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+        overflow-x: hidden;
+      }
+
+      /* Edge-to-edge work sheet to maximize mobile screen space */
+      .sheet {
+        margin: 0 !important;
+        border-radius: 0 !important;
+        border-left: 0 !important;
+        border-right: 0 !important;
+        border-top: 0 !important;
+        padding: 12px 10px !important;
+        min-height: calc(100vh - 120px);
+      }
+
+      /* Compact, touch-friendly sticky mobile header */
+      .topbar {
+        height: auto !important;
+        padding: 8px 10px !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .topbar .top-left {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .topbar .top-right {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      .topbar .top-right::-webkit-scrollbar { display: none; }
+
+      .top-search {
+        flex: 1 1 auto !important;
+        max-width: none !important;
+        width: 100% !important;
+      }
+
+      .top-search input {
+        font-size: 16px !important;
+        height: 38px !important;
+      }
+
+      /* Horizontal swipeable KPI stat strip (prevents vertical space waste) */
+      .kpi-strip {
+        display: flex !important;
+        overflow-x: auto !important;
+        gap: 8px !important;
+        padding-bottom: 6px !important;
+        border: none !important;
+        background: transparent !important;
+        border-radius: 0 !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .kpi-strip::-webkit-scrollbar { display: none; }
+
+      .kpi {
+        flex: 0 0 auto !important;
+        min-width: 125px !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+        background: var(--surface) !important;
+        padding: 8px 10px !important;
+      }
+      .kpi-label {
+        font-size: 11px !important;
+      }
+      .kpi-val {
+        font-size: 18px !important;
+        margin: 2px 0 !important;
+      }
+      .kpi-sub {
+        font-size: 10px !important;
+      }
+
+      /* Title row compact */
       .title-row {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 6px !important;
+        margin-bottom: 10px !important;
       }
-
       .title-row h1 {
-        font-size: 20px;
+        font-size: 17px !important;
+        line-height: 1.25 !important;
+      }
+      .title-sub {
+        font-size: 12px !important;
+        margin-top: 2px !important;
+      }
+      .header-controls {
+        display: none !important; /* replaced by native mobile bottom navigation bar */
       }
 
-      .dup-pair {
-        grid-template-columns: 1fr;
+      /* 2-column mobile photo grid */
+      .contact-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+      }
+      .specimen {
+        padding: 6px !important;
+        border-radius: 8px !important;
+        gap: 4px !important;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .specimen:active {
+        transform: scale(0.98);
+      }
+      .spec-head {
+        font-size: 11px !important;
+      }
+      .spec-title {
+        font-size: 12px !important;
+        max-height: 2.4em;
+        overflow: hidden;
+      }
+      .spec-foot {
+        font-size: 10px !important;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .spec-foot .pill {
+        font-size: 10px !important;
+        padding: 1px 4px !important;
       }
 
-      #btn-export-zip {
-        display: none;
+      /* Scrollable table on phone */
+      .table-wrap {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
+        margin: 0 -4px;
+      }
+      .table-wrap table {
+        min-width: 560px;
+      }
+
+      /* Map touch height */
+      #family-global-map {
+        height: calc(100vh - 230px) !important;
+        min-height: 320px !important;
+        max-height: 480px !important;
+        border-radius: 8px !important;
+      }
+
+      /* Fixed Ergonomic Mobile Bottom Navigation */
+      .mobile-bottom-nav {
+        display: flex !important;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        z-index: 85;
+        box-shadow: 0 -2px 12px rgba(0,0,0,0.08);
+        justify-content: space-around;
+        align-items: center;
+      }
+
+      .mob-nav-btn {
+        flex: 1 1 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 500;
+        cursor: pointer;
+        position: relative;
+        padding: 4px 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mob-nav-btn.active {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .mob-nav-btn svg {
+        width: 20px;
+        height: 20px;
+      }
+
+      .mob-nav-badge {
+        position: absolute;
+        top: 3px;
+        right: calc(50% - 18px);
+        background: var(--accent);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        padding: 0 4px;
+        border-radius: 9999px;
+        max-width: 44px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 13px;
+      }
+
+      /* Slide-up Inspector Bottom Sheet */
+      .inspector {
+        position: fixed !important;
+        inset: auto 0 0 0 !important;
+        max-height: 88vh !important;
+        width: 100% !important;
+        z-index: 100 !important;
+        border-radius: 16px 16px 0 0 !important;
+        box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.3) !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        background: var(--surface) !important;
+        border-top: 1px solid var(--border) !important;
+        border-left: 0 !important;
+        border-right: 0 !important;
+        border-bottom: 0 !important;
+        padding: 12px 14px calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+        transform: translateY(115%);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .inspector.mobile-open {
+        transform: translateY(0) !important;
+      }
+
+      .mob-sheet-handle {
+        width: 36px;
+        height: 4px;
+        background: var(--control);
+        border-radius: 2px;
+        margin: 0 auto 10px;
+      }
+
+      .mob-sheet-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .sidebar-backdrop,
+      .inspector-backdrop {
+        display: block !important;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(2px);
+        z-index: 90;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      .sidebar-backdrop.open,
+      .inspector-backdrop.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* Photo Lab mobile touch optimizations */
+      .lab-shell {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+      }
+
+      .lab-stage-card {
+        padding: 10px !important;
+        border-radius: 8px !important;
+      }
+
+      .loupe-viewport {
+        height: 36vh !important;
+        max-height: 300px !important;
+        min-height: 200px !important;
+        aspect-ratio: auto !important;
+        touch-action: none;
+      }
+
+      .lab-toolbar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+      }
+
+      .lab-bar-left,
+      .lab-bar-right {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
+        gap: 6px !important;
+      }
+
+      .lab-seg {
+        display: flex !important;
+        overflow-x: auto !important;
+        scrollbar-width: none;
+      }
+      .lab-seg button {
+        padding: 0 7px !important;
+        font-size: 11px !important;
+      }
+
+      .lab-controls {
+        padding-bottom: 60px !important;
+      }
+
+      .lab-card {
+        padding: 12px !important;
+        border-radius: 8px !important;
+      }
+
+      .tool-row-btn {
+        min-height: 44px !important;
+        font-size: 13px !important;
+      }
+
+      /* 16px font size on inputs to avoid iOS Safari auto-zoom */
+      .field input,
+      .field select,
+      .field textarea,
+      .top-search input {
+        font-size: 16px !important;
       }
     }
 
@@ -1597,7 +1941,15 @@
   <div class="frame">
     <!-- #2 LEFT SIDEBAR: Folder Chooser + Album views + All Built-in Batch Cleanup Queues + Subfolders -->
     <aside class="sidebar" id="sidebar" aria-label="Archive navigation and cleanup queues">
-      <div class="brand">
+      <div class="sidebar-head mob-only" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);margin-bottom:8px;">
+        <div class="brand" style="margin:0;">
+          <span class="brand-mark">FH</span>
+          <span class="brand-title">Family History</span>
+        </div>
+        <button type="button" class="btn sm" id="btn-close-sidebar" aria-label="Close sidebar" style="font-size:16px;padding:4px 8px;border:none;background:none;cursor:pointer;">✕</button>
+      </div>
+
+      <div class="brand desktop-only">
         <span class="brand-mark">FH</span>
         <span class="brand-title">Family History</span>
       </div>
@@ -1660,21 +2012,27 @@
     <!-- TOP BAR -->
     <header class="topbar">
       <div class="top-left">
-        <button class="btn sm menu-toggle" type="button" id="btn-menu">Menu</button>
-        <div class="top-search">
+        <button class="btn sm menu-toggle" type="button" id="btn-menu" aria-label="Open navigation menu">
+          <span>☰</span><span class="desktop-only" style="margin-left:4px;">Menu</span>
+        </button>
+        <span class="brand-title mob-only" style="font-weight:700;font-size:15px;color:var(--text);letter-spacing:-0.02em;">Family History</span>
+        <div class="top-search desktop-only">
           <span data-icon="search"></span>
           <input type="search" id="search-input" placeholder="Search relatives, places, filenames, FamilySearch IDs..."
             aria-label="Search archive">
         </div>
       </div>
       <div class="top-right">
-        <button class="btn sm" type="button" id="btn-top-help" title="Open Interactive Tutorial & Workflow Guide" style="background:#1d5fbf;color:#ffffff;border-color:#164388;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-          <span data-icon="book"></span><span>Help &amp; Tutorial</span>
+        <button class="btn sm mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery" style="background:var(--accent);color:#ffffff;border-color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+          <span>📷 Add</span>
         </button>
-        <button class="btn sm" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
+        <button class="btn sm" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide" style="background:#1d5fbf;color:#ffffff;border-color:#164388;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+          <span data-icon="book"></span><span class="desktop-only">Help &amp; Tutorial</span>
+        </button>
+        <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
           <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
         </button>
-        <button class="btn sm" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
+        <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
           ✕ Clear Demo
         </button>
         <div style="display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;background:var(--surface);">
@@ -1685,7 +2043,11 @@
             ⚙️
           </button>
         </div>
-        <button class="btn sm" type="button" id="btn-export-zip">Export 4K ZIP</button>
+        <button class="btn sm desktop-only" type="button" id="btn-export-zip">Export 4K ZIP</button>
+      </div>
+      <div class="top-search mob-only" style="width:100%;">
+        <span data-icon="search"></span>
+        <input type="search" id="mob-search-input" placeholder="Search relatives, places, PIDs..." aria-label="Search archive on mobile">
       </div>
     </header>
 
@@ -1884,6 +2246,39 @@
       </section>
     </main>
   </div>
+
+  <!-- MOBILE BOTTOM NAVIGATION (Phones & Small screens) -->
+  <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Mobile Navigation">
+    <button type="button" class="mob-nav-btn active" data-mob-tab="photos" id="mob-tab-photos">
+      <span class="mob-nav-icon" data-icon="grid"></span>
+      <span class="mob-nav-label">Photos</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="map" id="mob-tab-map">
+      <span class="mob-nav-icon" data-icon="map"></span>
+      <span class="mob-nav-label">Map</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="lab" id="mob-tab-lab">
+      <span class="mob-nav-icon" data-icon="sliders"></span>
+      <span class="mob-nav-label">Lab</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="inspect" id="mob-tab-inspect">
+      <span class="mob-nav-icon" data-icon="book"></span>
+      <span class="mob-nav-label">Inspect</span>
+      <span class="mob-nav-badge" id="mob-inspect-badge">FH-002</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="sync" id="mob-tab-sync">
+      <span class="mob-nav-icon" data-icon="tree"></span>
+      <span class="mob-nav-label">FamilySearch</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="menu" id="mob-tab-menu">
+      <span class="mob-nav-icon" data-icon="folder"></span>
+      <span class="mob-nav-label">More</span>
+    </button>
+  </nav>
+
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+  <div class="inspector-backdrop" id="inspector-backdrop"></div>
+  <input type="file" id="mobile-camera-input" accept="image/*" multiple capture="environment" style="display:none;" />
 
   <script src="/exifr.js"></script>
   <script src="/leaflet/leaflet.js"></script>
@@ -2677,6 +3072,9 @@
                 selectedId = el.getAttribute('data-row');
                 renderCatalogCenter();
                 renderInspector();
+                if (isMobile()) {
+                  openMobileInspector();
+                }
               });
               el.addEventListener('dblclick', () => {
                 openPhotoLab(el.getAttribute('data-row'), 'restore');
@@ -2989,7 +3387,16 @@
             const bStyle = branches[p.branch] || branches.Gill;
 
             box.innerHTML = `
-          <div class="insp-top">
+          <div class="mob-only" style="width:100%;flex-direction:column;">
+            <div class="mob-sheet-handle"></div>
+            <div class="mob-sheet-top">
+              <button type="button" class="btn sm" id="btn-close-mob-insp">← Back to Photos</button>
+              <span class="mono" style="font-weight:600;font-size:13px;color:var(--text);">${esc(p.id)}</span>
+              <button type="button" class="btn sm primary" id="btn-mob-save-top">Save to File</button>
+            </div>
+          </div>
+
+          <div class="insp-top desktop-only">
             <span class="mono" style="font-weight:500;">${esc(p.id)} · ${p.width}×${p.height}</span>
             <span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>
           </div>
@@ -3158,8 +3565,19 @@
               render();
             };
             box.querySelector('#insp-open-lab').onclick = () => {
+              if (isMobile()) closeMobileInspector();
               openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
             };
+
+            const btnCloseMob = box.querySelector('#btn-close-mob-insp');
+            if (btnCloseMob) btnCloseMob.onclick = closeMobileInspector;
+            const btnMobSaveTop = box.querySelector('#btn-mob-save-top');
+            if (btnMobSaveTop) {
+              btnMobSaveTop.onclick = () => {
+                const saveBtn = box.querySelector('#btn-save-file');
+                if (saveBtn) saveBtn.click();
+              };
+            }
 
             const scanFacesBtn = box.querySelector('#insp-scan-faces');
             if (scanFacesBtn) {
@@ -5684,6 +6102,12 @@
           document.getElementById('page-sub').textContent = 'Direct OAuth2 upload to FamilySearch.org + EXIF-embedded 4K export packs & 1-click citations for Ancestry.com and MyHeritage.';
           renderSyncHub();
         }
+
+        if (typeof updateMobileNav === 'function') {
+          if (mode === 'lab') updateMobileNav('lab');
+          else if (mode === 'sync') updateMobileNav('sync');
+          else if (mode === 'catalog') updateMobileNav(layout === 'map' ? 'map' : 'photos');
+        }
       }
 
       /* Global event wiring */
@@ -6115,9 +6539,214 @@
         notify('Prepared ZIP archive with 4K repairs & embedded EXIF metadata.');
       };
 
+      /* Mobile Responsiveness Helpers & Event Listeners */
+      function isMobile() {
+        return window.innerWidth <= 768;
+      }
+
+      function openMobileInspector() {
+        const insp = document.getElementById('catalog-inspector');
+        const bdrop = document.getElementById('inspector-backdrop');
+        if (insp) insp.classList.add('mobile-open');
+        if (bdrop) bdrop.classList.add('open');
+        updateMobileNav('inspect');
+      }
+
+      function closeMobileInspector() {
+        const insp = document.getElementById('catalog-inspector');
+        const bdrop = document.getElementById('inspector-backdrop');
+        if (insp) insp.classList.remove('mobile-open');
+        if (bdrop) bdrop.classList.remove('open');
+        if (mode === 'catalog') {
+          updateMobileNav(layout === 'map' ? 'map' : 'photos');
+        }
+      }
+
+      function updateMobileNav(activeTab) {
+        const nav = document.getElementById('mobile-bottom-nav');
+        if (!nav) return;
+        nav.querySelectorAll('.mob-nav-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.getAttribute('data-mob-tab') === activeTab);
+        });
+        const badge = document.getElementById('mob-inspect-badge');
+        if (badge) {
+          const cur = currentPhoto();
+          badge.textContent = cur ? cur.id : '';
+        }
+      }
+
+      function inspectPhotoInLedger(id) {
+        selectedId = id;
+        if (isMobile()) {
+          renderInspector();
+          openMobileInspector();
+        } else {
+          layout = 'ledger';
+          render();
+        }
+      }
+
+      const mobPhotosBtn = document.getElementById('mob-tab-photos');
+      if (mobPhotosBtn) {
+        mobPhotosBtn.onclick = () => {
+          closeMobileInspector();
+          mode = 'catalog';
+          layout = 'sheet';
+          render();
+          updateMobileNav('photos');
+        };
+      }
+
+      const mobMapBtn = document.getElementById('mob-tab-map');
+      if (mobMapBtn) {
+        mobMapBtn.onclick = () => {
+          closeMobileInspector();
+          mode = 'catalog';
+          layout = 'map';
+          render();
+          updateMobileNav('map');
+        };
+      }
+
+      const mobLabBtn = document.getElementById('mob-tab-lab');
+      if (mobLabBtn) {
+        mobLabBtn.onclick = () => {
+          closeMobileInspector();
+          mode = 'lab';
+          render();
+          updateMobileNav('lab');
+        };
+      }
+
+      const mobInspectBtn = document.getElementById('mob-tab-inspect');
+      if (mobInspectBtn) {
+        mobInspectBtn.onclick = () => {
+          openMobileInspector();
+        };
+      }
+
+      const mobSyncBtn = document.getElementById('mob-tab-sync');
+      if (mobSyncBtn) {
+        mobSyncBtn.onclick = () => {
+          closeMobileInspector();
+          mode = 'sync';
+          render();
+          updateMobileNav('sync');
+        };
+      }
+
+      const mobMenuBtn = document.getElementById('mob-tab-menu');
+      if (mobMenuBtn) {
+        mobMenuBtn.onclick = () => {
+          const side = document.getElementById('sidebar');
+          const bdrop = document.getElementById('sidebar-backdrop');
+          const isOpen = side.classList.toggle('open');
+          if (bdrop) bdrop.classList.toggle('open', isOpen);
+        };
+      }
+
+      const inspBackdrop = document.getElementById('inspector-backdrop');
+      if (inspBackdrop) {
+        inspBackdrop.onclick = closeMobileInspector;
+      }
+
+      const sideBackdrop = document.getElementById('sidebar-backdrop');
+      if (sideBackdrop) {
+        sideBackdrop.onclick = () => {
+          document.getElementById('sidebar').classList.remove('open');
+          sideBackdrop.classList.remove('open');
+        };
+      }
+
+      const closeSidebarBtn = document.getElementById('btn-close-sidebar');
+      if (closeSidebarBtn) {
+        closeSidebarBtn.onclick = () => {
+          document.getElementById('sidebar').classList.remove('open');
+          if (sideBackdrop) sideBackdrop.classList.remove('open');
+        };
+      }
+
       document.getElementById('btn-menu').onclick = () => {
-        document.getElementById('sidebar').classList.toggle('open');
+        const side = document.getElementById('sidebar');
+        const bdrop = document.getElementById('sidebar-backdrop');
+        const isOpen = side.classList.toggle('open');
+        if (bdrop) bdrop.classList.toggle('open', isOpen);
       };
+
+      const mobSearchInput = document.getElementById('mob-search-input');
+      if (mobSearchInput) {
+        mobSearchInput.oninput = (e) => {
+          search = e.target.value.trim().toLowerCase();
+          const deskSearch = document.getElementById('search-input');
+          if (deskSearch) deskSearch.value = e.target.value;
+          if (mode !== 'catalog') mode = 'catalog';
+          render();
+        };
+      }
+
+      const mobCameraBtn = document.getElementById('btn-mob-camera');
+      const mobCameraInput = document.getElementById('mobile-camera-input');
+      if (mobCameraBtn && mobCameraInput) {
+        mobCameraBtn.onclick = () => mobCameraInput.click();
+        mobCameraInput.onchange = (e) => {
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          const imgFiles = files.filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+          if (!imgFiles.length) {
+            notify('No supported photo files selected.');
+            return;
+          }
+          if (!isCustomFolder) {
+            items = [];
+            isCustomFolder = true;
+            rootFolderName = 'Phone_Photos';
+          }
+          const branchCycle = ['Gill', 'Costello', 'Russo'];
+          const newRecs = imgFiles.map((file, i) => {
+            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Phone Photo ${items.length + i + 1}`;
+            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+            const isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : fallbackDate;
+            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+            const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
+            const url = URL.createObjectURL(file);
+            const id = `PH-${String(items.length + i + 1).padStart(3, '0')}`;
+            return {
+              id,
+              title: cleanTitle,
+              file,
+              url,
+              branch: branchCycle[(items.length + i) % 3],
+              subfolder: rootFolderName,
+              width: 1200,
+              height: 900,
+              year,
+              decade,
+              date: isoDate,
+              place: '',
+              lat: null,
+              lng: null,
+              fsId: '',
+              people: [],
+              faces: [],
+              story: '',
+              edits: [],
+              restored4k: false,
+              isScreenshot: false,
+              isDuplicate: false,
+              inReview: false
+            };
+          });
+          items = [...newRecs, ...items];
+          selectedId = newRecs[0].id;
+          activeQueue = 'all';
+          activeFolder = null;
+          notify(`Added ${newRecs.length} photo${newRecs.length > 1 ? 's' : ''} from phone!`);
+          renderSidebarCounts();
+          render();
+          openMobileInspector();
+        };
+      }
 
       const params = new URLSearchParams(window.location.search);
       if (params.get('mode') === 'lab') mode = 'lab';
