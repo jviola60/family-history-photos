@@ -26,6 +26,13 @@
     }
   }
 
+  function setClientId(id) {
+    try {
+      if (!id) localStorage.removeItem(FS_OVERRIDE_CLIENT_ID);
+      else localStorage.setItem(FS_OVERRIDE_CLIENT_ID, id.trim());
+    } catch (e) {}
+  }
+
   function getRedirectUri() {
     try {
       var override = localStorage.getItem(FS_OVERRIDE_REDIRECT_KEY);
@@ -36,11 +43,14 @@
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return window.location.origin; // e.g. http://localhost:5173
       }
-      // GitHub Pages production URL
+      // GitHub Pages production URL - default to NO trailing slash (most common in FamilySearch portal)
       var clean = window.location.origin + window.location.pathname;
-      return clean.endsWith('/') ? clean : clean + '/';
+      if (clean.endsWith('/') && clean.length > window.location.origin.length + 1) {
+        clean = clean.slice(0, -1);
+      }
+      return clean;
     }
-    return 'https://jviola60.github.io/family-history-photos/';
+    return 'https://jviola60.github.io/family-history-photos';
   }
 
   function setRedirectUri(uri) {
@@ -48,6 +58,127 @@
       if (!uri) localStorage.removeItem(FS_OVERRIDE_REDIRECT_KEY);
       else localStorage.setItem(FS_OVERRIDE_REDIRECT_KEY, uri.trim());
     } catch (e) {}
+  }
+
+  function showConnectionDialog(options) {
+    options = options || {};
+    var existingModal = document.getElementById('fs-connection-modal');
+    if (existingModal) existingModal.remove();
+
+    var currentClientId = getClientId();
+    var currentRedirect = getRedirectUri();
+    var ghNoSlash = 'https://jviola60.github.io/family-history-photos';
+    var ghWithSlash = 'https://jviola60.github.io/family-history-photos/';
+    var localUri = (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+      ? window.location.origin
+      : 'http://localhost:5173';
+
+    var modal = document.createElement('div');
+    modal.id = 'fs-connection-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(17,17,16,0.75);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit;';
+    modal.innerHTML = `
+      <div style="background:var(--surface,#ffffff);border:1px solid var(--border,#dfdeda);border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.4);max-width:580px;width:100%;overflow:hidden;color:var(--text,#111110);">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border,#dfdeda);background:var(--raised,#f0efec);display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:18px;">🌳</span>
+            <strong style="font-size:15px;">FamilySearch Beta OAuth2 Settings</strong>
+          </div>
+          <button type="button" id="fs-modal-close" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted,#575653);padding:2px 6px;">✕</button>
+        </div>
+
+        <div style="padding:20px;display:flex;flex-direction:column;gap:14px;font-size:13px;max-height:80vh;overflow-y:auto;">
+          <div style="background:var(--pill-warning-bg,#fffbeb);border:1px solid rgba(146,64,14,0.25);border-radius:8px;padding:12px 14px;color:var(--pill-warning-ink,#92400e);line-height:1.45;">
+            <strong>Why "redirect URI not configured correctly"?</strong><br>
+            FamilySearch requires the <em>Redirect URI</em> sent by this app to match <strong>character-for-character</strong> with the Redirect URIs configured under your AppKey in the FamilySearch Developer Portal (including whether there is a trailing slash <code>/</code>).
+          </div>
+
+          <div>
+            <label style="font-weight:600;display:block;margin-bottom:5px;">FamilySearch AppKey (Client ID):</label>
+            <input type="text" id="fs-modal-client-id" value="${currentClientId}" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border,#dfdeda);border-radius:6px;font-family:monospace;font-size:13px;background:var(--surface,#ffffff);color:var(--text,#111110);">
+          </div>
+
+          <div>
+            <label style="font-weight:600;display:block;margin-bottom:5px;">Active Redirect URI sent to FamilySearch:</label>
+            <input type="text" id="fs-modal-redirect-uri" value="${currentRedirect}" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border,#dfdeda);border-radius:6px;font-family:monospace;font-size:13px;background:var(--surface,#ffffff);color:var(--text,#111110);">
+            
+            <div style="margin-top:8px;">
+              <span style="font-size:11px;color:var(--muted,#575653);font-weight:600;display:block;margin-bottom:4px;">1-Click Quick Select:</span>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button type="button" class="btn sm" id="fs-preset-noslash" style="font-size:11px;padding:4px 8px;background:var(--raised,#f0efec);">
+                  No Slash (.../family-history-photos)
+                </button>
+                <button type="button" class="btn sm" id="fs-preset-slash" style="font-size:11px;padding:4px 8px;background:var(--raised,#f0efec);">
+                  With Slash (.../family-history-photos/)
+                </button>
+                <button type="button" class="btn sm" id="fs-preset-local" style="font-size:11px;padding:4px 8px;background:var(--raised,#f0efec);">
+                  Localhost (${localUri})
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:var(--ground,#f4f3f1);border:1px solid var(--border,#dfdeda);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--muted,#575653);line-height:1.5;">
+            <span>Check or update your registered Redirect URIs anytime:</span><br>
+            <a href="https://www.familysearch.org/developers/" target="_blank" rel="noopener" style="color:var(--accent,#1d5fbf);font-weight:600;display:inline-flex;align-items:center;gap:4px;margin-top:4px;">
+              FamilySearch Developer Portal ↗
+            </a>
+          </div>
+        </div>
+
+        <div style="padding:14px 20px;border-top:1px solid var(--border,#dfdeda);background:var(--raised,#f0efec);display:flex;justify-content:space-between;gap:8px;">
+          <button type="button" class="btn" id="fs-modal-cancel" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;">Cancel</button>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn" id="fs-modal-save-only" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;">Save Settings</button>
+            <button type="button" class="btn primary" id="fs-modal-save-login" style="padding:6px 18px;border:1px solid #164388;border-radius:6px;background:#1d5fbf;color:#ffffff;font-weight:600;cursor:pointer;">
+              Save &amp; Sign In →
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    function closeModal() {
+      modal.remove();
+    }
+
+    document.getElementById('fs-modal-close').onclick = closeModal;
+    document.getElementById('fs-modal-cancel').onclick = closeModal;
+
+    document.getElementById('fs-preset-noslash').onclick = function () {
+      document.getElementById('fs-modal-redirect-uri').value = ghNoSlash;
+    };
+    document.getElementById('fs-preset-slash').onclick = function () {
+      document.getElementById('fs-modal-redirect-uri').value = ghWithSlash;
+    };
+    document.getElementById('fs-preset-local').onclick = function () {
+      document.getElementById('fs-modal-redirect-uri').value = localUri;
+    };
+
+    function applySettings() {
+      var newClientId = document.getElementById('fs-modal-client-id').value.trim();
+      var newRedirect = document.getElementById('fs-modal-redirect-uri').value.trim();
+      if (newClientId) setClientId(newClientId);
+      if (newRedirect) setRedirectUri(newRedirect);
+    }
+
+    document.getElementById('fs-modal-save-only').onclick = function () {
+      applySettings();
+      closeModal();
+      if (typeof notify === 'function') notify('Saved FamilySearch connection settings.');
+    };
+
+    document.getElementById('fs-modal-save-login').onclick = function () {
+      applySettings();
+      var uri = document.getElementById('fs-modal-redirect-uri').value.trim();
+      closeModal();
+      startLogin(uri);
+    };
+
+    modal.onclick = function (e) {
+      if (e.target === modal) closeModal();
+    };
   }
 
   function getStoredToken() {
@@ -366,39 +497,100 @@
       }
     }
 
-    // 3. Attach Persona tags to the memory
+    // 2b. Auto-scan faces if not yet scanned
+    var faces = options.faces || (photo && photo.faces) || [];
+    if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
+      try {
+        onProgress({ step: 'faces', message: 'Detecting faces on photo for FamilySearch tag coordinates...' });
+        faces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
+        if (photo && faces && faces.length > 0) {
+          photo.faces = faces;
+        }
+      } catch (scanErr) {
+        console.warn('Auto face scan notice:', scanErr);
+      }
+    }
+
+    // 3. Attach Persona tags to the memory with face bounding box coordinates
     if (people && people.length > 0 && memoryId) {
-      onProgress({ step: 'tagging', message: 'Tagging relatives on FamilySearch memory...' });
+      onProgress({ step: 'tagging', message: 'Tagging relatives and face positions on FamilySearch memory...' });
       for (var pIdx = 0; pIdx < people.length; pIdx++) {
         var person = people[pIdx];
         var personName = typeof person === 'string' ? person : person.name;
         if (!personName) continue;
 
         try {
-          var personaPayload = {
-            persons: [
+          var assignedFace = null;
+          if (faces && faces.length > 0) {
+            if (faces.length === 1 && people.length === 1) {
+              assignedFace = faces[0];
+            } else {
+              assignedFace = faces.find(function (f) {
+                return f.name && f.name.toLowerCase() === personName.toLowerCase();
+              }) || (pIdx === 0 ? faces[0] : null);
+            }
+          }
+
+          var regionStr = null;
+          if (assignedFace && assignedFace.box) {
+            var b = assignedFace.box;
+            var x1 = Math.max(0, Math.min(1, b.x || 0));
+            var y1 = Math.max(0, Math.min(1, b.y || 0));
+            var x2 = Math.max(x1, Math.min(1, (b.x || 0) + (b.width || 0.2)));
+            var y2 = Math.max(y1, Math.min(1, (b.y || 0) + (b.height || 0.2)));
+            regionStr = x1.toFixed(4) + ',' + y1.toFixed(4) + ',' + x2.toFixed(4) + ',' + y2.toFixed(4);
+          }
+
+          var personaObj = {
+            extracted: true,
+            names: [
               {
-                extracted: true,
-                names: [
-                  {
-                    nameForms: [
-                      { fullText: personName }
-                    ]
-                  }
+                nameForms: [
+                  { fullText: personName }
                 ]
               }
             ]
           };
 
+          if (regionStr) {
+            var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
+            personaObj.media = [
+              {
+                description: memoryUri,
+                qualifiers: [
+                  {
+                    name: 'http://gedcomx.org/RectangleRegion',
+                    value: regionStr
+                  }
+                ]
+              }
+            ];
+            personaObj.evidence = [
+              {
+                resource: memoryUri,
+                qualifiers: [
+                  {
+                    name: 'http://gedcomx.org/RectangleRegion',
+                    value: regionStr
+                  }
+                ]
+              }
+            ];
+          }
+
           if (targetPersonId && (pIdx === 0 || people.length === 1)) {
-            personaPayload.persons[0].identifiers = {
+            personaObj.identifiers = {
               'http://familysearch.org/v1/FamilyTreePerson': [
                 'https://familysearch.org/ark:/61903/4:1:' + targetPersonId
               ]
             };
           }
 
-          await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
+          var personaPayload = {
+            persons: [personaObj]
+          };
+
+          var tagRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
             method: 'POST',
             headers: {
               'Authorization': 'Bearer ' + token.accessToken,
@@ -407,6 +599,38 @@
             },
             body: JSON.stringify(personaPayload)
           });
+
+          // Also attempt artifact-references tag endpoint if region was specified and persona created
+          var personaLocation = tagRes.headers.get('Location') || '';
+          var personaId = personaLocation ? personaLocation.split('/').pop() : null;
+          if (personaId && regionStr) {
+            try {
+              var artRefPayload = {
+                artifactReferences: [
+                  {
+                    resource: API_BASE + '/platform/memories/memories/' + memoryId,
+                    qualifiers: [
+                      {
+                        name: 'http://gedcomx.org/RectangleRegion',
+                        value: regionStr
+                      }
+                    ]
+                  }
+                ]
+              };
+              await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId + '/artifact-references', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(artRefPayload)
+              });
+            } catch (artErr) {
+              console.warn('Artifact reference tag notice:', artErr);
+            }
+          }
         } catch (tagErr) {
           console.warn('Persona tag creation notice:', tagErr);
         }
@@ -543,8 +767,10 @@
 
   global.FamilySearchClient = {
     getClientId: getClientId,
+    setClientId: setClientId,
     getRedirectUri: getRedirectUri,
     setRedirectUri: setRedirectUri,
+    showConnectionDialog: showConnectionDialog,
     getStoredToken: getStoredToken,
     saveToken: saveToken,
     clearToken: clearToken,

@@ -42,6 +42,42 @@
     var subjectXml = subjects.map(function (s) { return '<rdf:li>' + escapeXml(s) + '</rdf:li>'; }).join('\n     ');
     var peopleXml = peopleNames.map(function (p) { return '<rdf:li>' + escapeXml(p) + '</rdf:li>'; }).join('\n     ');
 
+    var facesXml = '';
+    if (meta.faces && meta.faces.length > 0) {
+      var regionItems = meta.faces.map(function (f, idx) {
+        var b = f.box || { x: 0.5, y: 0.5, width: 0.2, height: 0.2 };
+        var fName = escapeXml(f.name || (peopleNames[idx] || ''));
+        var cx = (b.x + (b.width || 0.2) / 2).toFixed(4);
+        var cy = (b.y + (b.height || 0.2) / 2).toFixed(4);
+        var w = (b.width || 0.2).toFixed(4);
+        var h = (b.height || 0.2).toFixed(4);
+        return '      <rdf:li rdf:parseType="Resource">\n' +
+          '       <mwg-rs:Name>' + fName + '</mwg-rs:Name>\n' +
+          '       <mwg-rs:Type>Face</mwg-rs:Type>\n' +
+          '       <mwg-rs:Area rdf:parseType="Resource">\n' +
+          '        <stArea:x>' + cx + '</stArea:x>\n' +
+          '        <stArea:y>' + cy + '</stArea:y>\n' +
+          '        <stArea:w>' + w + '</stArea:w>\n' +
+          '        <stArea:h>' + h + '</stArea:h>\n' +
+          '        <stArea:unit>normalized</stArea:unit>\n' +
+          '       </mwg-rs:Area>\n' +
+          '      </rdf:li>';
+      }).join('\n');
+
+      facesXml = '   <mwg-rs:Regions rdf:parseType="Resource">\n' +
+        '    <mwg-rs:AppliedToDimensions rdf:parseType="Resource">\n' +
+        '     <stDim:w>' + (meta.width || 1200) + '</stDim:w>\n' +
+        '     <stDim:h>' + (meta.height || 900) + '</stDim:h>\n' +
+        '     <stDim:unit>pixel</stDim:unit>\n' +
+        '    </mwg-rs:AppliedToDimensions>\n' +
+        '    <mwg-rs:RegionList>\n' +
+        '     <rdf:Bag>\n' +
+        regionItems + '\n' +
+        '     </rdf:Bag>\n' +
+        '    </mwg-rs:RegionList>\n' +
+        '   </mwg-rs:Regions>\n';
+    }
+
     return '<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>\n' +
       '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Family History Photos">\n' +
       ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n' +
@@ -50,6 +86,9 @@
       '    xmlns:photoshop="http://photoshop.com/s/1.0/"\n' +
       '    xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"\n' +
       '    xmlns:iptcExt="http://iptc.org/std/iptc-extension/2008-02-29/"\n' +
+      '    xmlns:mwg-rs="http://www.metadataworkinggroup.com/schemas/regions/"\n' +
+      '    xmlns:stDim="http://ns.adobe.com/xap/1.0/sType/Dimensions#"\n' +
+      '    xmlns:stArea="http://ns.adobe.com/xmp/sType/Area#"\n' +
       '    xmlns:xmp="http://ns.adobe.com/xap/1.0/">\n' +
       '   <dc:title>\n' +
       '    <rdf:Alt>\n' +
@@ -63,6 +102,7 @@
       '   </dc:description>\n' +
       (subjects.length > 0 ? '   <dc:subject>\n    <rdf:Bag>\n     ' + subjectXml + '\n    </rdf:Bag>\n   </dc:subject>\n' : '') +
       (peopleNames.length > 0 ? '   <iptcExt:PersonInImage>\n    <rdf:Bag>\n     ' + peopleXml + '\n    </rdf:Bag>\n   </iptcExt:PersonInImage>\n' : '') +
+      facesXml +
       (safeDate ? '   <photoshop:DateCreated>' + safeDate + '</photoshop:DateCreated>\n' : '') +
       (safeLocation ? '   <Iptc4xmpCore:Location>' + safeLocation + '</Iptc4xmpCore:Location>\n' : '') +
       (safeBranch ? '   <photoshop:Credit>' + safeBranch + '</photoshop:Credit>\n' : '') +
@@ -208,4 +248,3 @@
     downloadJpegWithMetadata: downloadJpegWithMetadata
   };
 })(typeof window !== 'undefined' ? window : this);
-

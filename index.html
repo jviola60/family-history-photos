@@ -1677,9 +1677,14 @@
         <button class="btn sm" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
           ✕ Clear Demo
         </button>
-        <button class="btn sm" type="button" id="btn-fs-auth">
-          <span data-icon="tree"></span><span id="fs-auth-label">Sign in: FamilySearch</span>
-        </button>
+        <div style="display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;background:var(--surface);">
+          <button class="btn sm" type="button" id="btn-fs-auth" style="border:none;background:none;border-radius:6px 0 0 6px;">
+            <span data-icon="tree"></span><span id="fs-auth-label">Sign in: FamilySearch</span>
+          </button>
+          <button class="btn sm" type="button" id="btn-fs-settings" title="FamilySearch Connection Settings &amp; Redirect URI" style="border:none;border-left:1px solid var(--border);background:none;padding:4px 7px;color:var(--muted);border-radius:0 6px 6px 0;cursor:pointer;">
+            ⚙️
+          </button>
+        </div>
         <button class="btn sm" type="button" id="btn-export-zip">Export 4K ZIP</button>
       </div>
     </header>
@@ -1885,6 +1890,7 @@
   <script src="taste-charts.js"></script>
   <script src="taste-data.js"></script>
   <script src="familysearch-client.js"></script>
+  <script src="face-detector.js"></script>
   <script src="jpeg-metadata-writer.js"></script>
   <script src="help-tutorial.js"></script>
   <script>
@@ -2064,6 +2070,8 @@
             lng: p.lng,
             branch: p.branch,
             people: p.people,
+            faces: p.faces,
+            unnamedFaces: p.unnamedFaces,
             story: p.story,
             fsId: p.fsId,
             fsSynced: p.fsSynced,
@@ -2095,6 +2103,8 @@
               if (typeof saved.lng === 'number') p.lng = saved.lng;
               if (saved.branch) p.branch = saved.branch;
               if (Array.isArray(saved.people)) p.people = saved.people;
+              if (Array.isArray(saved.faces)) p.faces = saved.faces;
+              if (typeof saved.unnamedFaces === 'number') p.unnamedFaces = saved.unnamedFaces;
               if (saved.story) p.story = saved.story;
               if (saved.fsId) p.fsId = saved.fsId;
               if (typeof saved.fsSynced === 'boolean') p.fsSynced = saved.fsSynced;
@@ -2940,6 +2950,25 @@
         }, 120);
       }
 
+      function renderFaceBoxes(p) {
+        if (!p || !p.faces || p.faces.length === 0) return '';
+        return p.faces.map((f, idx) => {
+          const b = f.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
+          const left = (b.x * 100).toFixed(1) + '%';
+          const top = (b.y * 100).toFixed(1) + '%';
+          const width = (b.width * 100).toFixed(1) + '%';
+          const height = (b.height * 100).toFixed(1) + '%';
+          const name = f.name || (p.people && p.people[idx] ? p.people[idx].name : (p.people && p.people.length === 1 ? p.people[0].name : ''));
+          return `
+            <div class="face-box-marker" data-face-idx="${idx}" style="position:absolute;left:${left};top:${top};width:${width};height:${height};border:2px solid #00d2ff;background:rgba(0,210,255,0.12);box-shadow:0 0 10px rgba(0,210,255,0.5);border-radius:6px;pointer-events:auto;cursor:pointer;transition:all 0.15s ease;" title="${name ? `Assigned to: ${esc(name)}` : 'Click to tag relative'}">
+              <div style="position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#f8fafc;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid #00d2ff;pointer-events:none;box-shadow:0 2px 4px rgba(0,0,0,0.5);">
+                ${esc(name) || `Face #${idx + 1} (Tag)`}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
       function renderInspector() {
             const p = currentPhoto();
             const box = document.getElementById('catalog-inspector');
@@ -2965,8 +2994,13 @@
             <span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>
           </div>
 
-          <div class="insp-preview">
-            <img src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)}">
+          <div class="insp-preview" style="position:relative;display:flex;justify-content:center;align-items:center;background:#18181b;border-radius:8px;overflow:hidden;">
+            <div style="position:relative;display:inline-block;max-width:100%;line-height:0;">
+              <img id="insp-active-img" src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)};max-width:100%;height:auto;display:block;">
+              <div id="insp-face-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+                ${renderFaceBoxes(p)}
+              </div>
+            </div>
           </div>
 
           <!-- QUICK REPAIR STRIP + DIRECT LAUNCH INTO 5-TOOL PHOTO LAB -->
@@ -2976,6 +3010,9 @@
             </button>
             <button class="btn sm" type="button" id="insp-rot-r" title="Rotate 90 degrees clockwise">
               <span data-icon="rotateR"></span>
+            </button>
+            <button class="btn sm" type="button" id="insp-scan-faces" title="Scan photo for human faces and FamilySearch tag coordinates">
+              <span data-icon="users"></span><span>${p.faces && p.faces.length > 0 ? `Faces (${p.faces.length})` : 'Scan Faces'}</span>
             </button>
             <button class="btn sm primary" type="button" id="insp-open-lab">
               <span data-icon="sliders"></span><span>Open in Photo Lab</span>
@@ -3032,7 +3069,10 @@
           <div class="field">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
               <label style="margin:0;font-weight:600;">Relatives in print (${p.people.length})</label>
-              ${p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : ''}
+              ${p.faces && p.faces.length > 0
+                ? `<span class="pill info" style="font-size:11px;">${p.faces.length} face${p.faces.length > 1 ? 's' : ''} detected</span>`
+                : (p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : '')}
+            </div>
             </div>
 
             <div class="tagged-people-list" id="tagged-people-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
@@ -3120,6 +3160,56 @@
             box.querySelector('#insp-open-lab').onclick = () => {
               openPhotoLab(p.id, isLowRes(p) ? 'restore' : 'tone');
             };
+
+            const scanFacesBtn = box.querySelector('#insp-scan-faces');
+            if (scanFacesBtn) {
+              scanFacesBtn.onclick = async () => {
+                scanFacesBtn.disabled = true;
+                scanFacesBtn.innerHTML = '<span>Scanning...</span>';
+                try {
+                  const imgEl = box.querySelector('#insp-active-img');
+                  if (!window.FaceDetectorEngine) {
+                    throw new Error('FaceDetectorEngine is not loaded yet.');
+                  }
+                  const faces = await window.FaceDetectorEngine.detectFaces(imgEl || afterSrc(p));
+                  p.faces = faces || [];
+                  p.facesScanned = true;
+                  
+                  // Auto-map if 1 person and 1 face
+                  if (p.faces.length === 1 && p.people.length === 1) {
+                    p.faces[0].name = p.people[0].name;
+                  }
+                  p.unnamedFaces = Math.max(0, p.faces.length - (p.people ? p.people.length : 0));
+                  saveItemMetadata(p);
+                  notify(p.faces.length > 0
+                    ? `✓ Detected ${p.faces.length} face${p.faces.length > 1 ? 's' : ''}! Face coordinates saved for FamilySearch.`
+                    : 'No distinct faces detected. You can add coordinates or tag relatives below.');
+                  render();
+                } catch (err) {
+                  console.error('Face scanning error:', err);
+                  notify(`Face scan error: ${err.message}`);
+                  render();
+                }
+              };
+            }
+
+            box.querySelectorAll('.face-box-marker').forEach((el) => {
+              el.onclick = (e) => {
+                e.stopPropagation();
+                const fIdx = parseInt(el.getAttribute('data-face-idx'), 10);
+                const f = p.faces && p.faces[fIdx];
+                if (!f) return;
+                const cur = f.name || (p.people && p.people[fIdx] ? p.people[fIdx].name : '');
+                const relNames = (p.people || []).map(x => x.name).filter(Boolean);
+                const choice = prompt(`Tag Face #${fIdx + 1}:\n(Current: ${cur || 'None'})\n\nRelatives:\n${relNames.join(', ')}\n\nType relative name:`, cur || (relNames[0] || ''));
+                if (choice !== null) {
+                  f.name = choice.trim();
+                  saveItemMetadata(p);
+                  notify(`Face #${fIdx + 1} assigned to ${f.name}.`);
+                  render();
+                }
+              };
+            });
             // Wire Map Pin button with automatic address geocoding
             const showMapBtn = box.querySelector('#btn-show-map');
             if (showMapBtn) {
@@ -3231,7 +3321,12 @@
                 const idx = parseInt(btn.getAttribute('data-idx'), 10);
                 if (p.people[idx]) {
                   const removed = p.people.splice(idx, 1)[0];
+                  if (p.faces) {
+                    const matchFace = p.faces.find(f => f.name === removed.name);
+                    if (matchFace) delete matchFace.name;
+                  }
                   p.unnamedFaces = (p.unnamedFaces || 0) + 1;
+                  saveItemMetadata(p);
                   notify(`Removed tag for ${removed.name}.`);
                   render();
                 }
@@ -3263,6 +3358,10 @@
               const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
               const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
               p.people.push({ name, rel, branch });
+              if (p.faces && p.faces.length > 0) {
+                const unassigned = p.faces.find(f => !f.name);
+                if (unassigned) unassigned.name = name;
+              }
               if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
               saveItemMetadata(p);
               notify(`Tagged ${name} (${rel}) on ${p.id}. Querying FamilySearch Tree...`);
@@ -5210,6 +5309,7 @@
                                       isoDate: p.isoDate,
                                       place: p.place,
                                       people: p.people,
+                                      faces: p.faces,
                                       targetPersonId: targetPid,
                                       onProgress: (status) => {
                                         if (status && status.message) notify(status.message);
@@ -5219,6 +5319,7 @@
                                     if (result && result.success) {
                                       p.fsSynced = true;
                                       p.fsMemoryId = result.memoryId;
+                                      saveItemMetadata(p);
                                       notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
                                       
                                       setTimeout(() => {
