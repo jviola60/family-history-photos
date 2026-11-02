@@ -217,6 +217,15 @@
       background: var(--ground);
     }
 
+    .topbar-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-width: 0;
+      gap: 12px;
+    }
+
     .top-left {
       display: flex;
       align-items: center;
@@ -1204,6 +1213,7 @@
     @media (max-width: 960px) {
       .frame {
         grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
       }
 
       #btn-top-folder {
@@ -1252,6 +1262,82 @@
         overflow-x: hidden;
       }
 
+      .frame {
+        display: flex !important;
+        flex-direction: column !important;
+        min-height: 100svh;
+      }
+
+      /* Compact, touch-friendly sticky mobile header */
+      .topbar {
+        height: auto !important;
+        min-height: auto !important;
+        padding: 8px 12px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .topbar-main {
+        width: 100%;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+      }
+
+      .topbar .top-left {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        min-width: 0 !important;
+        flex: 0 1 auto !important;
+      }
+
+      .brand-title-mob {
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        color: var(--text) !important;
+        white-space: nowrap !important;
+      }
+
+      .topbar .top-right {
+        display: flex !important;
+        align-items: center !important;
+        gap: 5px !important;
+        flex: 0 0 auto !important;
+        padding-bottom: 0 !important;
+        overflow-x: visible !important;
+      }
+
+      #fs-auth-label {
+        max-width: 55px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        vertical-align: middle;
+      }
+
+      .top-search.mob-search-full {
+        width: 100% !important;
+        max-width: 100% !important;
+        position: relative !important;
+        margin: 0 !important;
+      }
+
+      .top-search.mob-search-full input {
+        width: 100% !important;
+        height: 38px !important;
+        font-size: 15px !important;
+        padding-left: 32px !important;
+      }
+
       /* Edge-to-edge work sheet to maximize mobile screen space */
       .sheet {
         margin: 0 !important;
@@ -1263,46 +1349,8 @@
         min-height: calc(100vh - 120px);
       }
 
-      /* Compact, touch-friendly sticky mobile header */
-      .topbar {
-        height: auto !important;
-        padding: 8px 10px !important;
-        flex-direction: column !important;
-        gap: 6px !important;
-        position: sticky;
-        top: 0;
-        z-index: 40;
-        background: var(--surface);
-        border-bottom: 1px solid var(--border);
-      }
-
-      .topbar .top-left {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .topbar .top-right {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        overflow-x: auto;
-        padding-bottom: 2px;
-      }
-      .topbar .top-right::-webkit-scrollbar { display: none; }
-
-      .top-search {
-        flex: 1 1 auto !important;
-        max-width: none !important;
-        width: 100% !important;
-      }
-
-      .top-search input {
-        font-size: 16px !important;
-        height: 38px !important;
+      .title-sub {
+        display: none !important;
       }
 
       /* Horizontal swipeable KPI stat strip (prevents vertical space waste) */
@@ -2092,39 +2140,41 @@
 
     <!-- TOP BAR -->
     <header class="topbar">
-      <div class="top-left">
-        <button class="btn sm menu-toggle" type="button" id="btn-menu" aria-label="Open navigation menu">
-          <span>☰</span><span class="desktop-only menu-label-gap">Menu</span>
-        </button>
-        <span class="brand-title brand-title-mob mob-only">Family History</span>
-        <div class="top-search desktop-only">
-          <span data-icon="search"></span>
-          <input type="search" id="search-input" placeholder="Search relatives, places, filenames, FamilySearch IDs..."
-            aria-label="Search archive">
-        </div>
-      </div>
-      <div class="top-right">
-        <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
-          <span>📷 Add</span>
-        </button>
-        <button class="btn sm btn-top-help" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide">
-          <span data-icon="book"></span><span class="desktop-only">Help &amp; Tutorial</span>
-        </button>
-        <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
-          <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
-        </button>
-        <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
-          ✕ Clear Demo
-        </button>
-        <div class="fs-auth-group">
-          <button class="btn sm btn-fs-auth-btn" type="button" id="btn-fs-auth">
-            <span data-icon="tree"></span><span id="fs-auth-label">Sign in: FamilySearch</span>
+      <div class="topbar-main">
+        <div class="top-left">
+          <button class="btn sm menu-toggle" type="button" id="btn-menu" aria-label="Open navigation menu">
+            <span>☰</span><span class="desktop-only menu-label-gap">Menu</span>
           </button>
-          <button class="btn sm btn-fs-settings-btn" type="button" id="btn-fs-settings" title="FamilySearch Connection Settings &amp; Redirect URI">
-            ⚙️
-          </button>
+          <span class="brand-title brand-title-mob mob-only">Family History</span>
+          <div class="top-search desktop-only">
+            <span data-icon="search"></span>
+            <input type="search" id="search-input" placeholder="Search relatives, places, filenames, FamilySearch IDs..."
+              aria-label="Search archive">
+          </div>
         </div>
-        <button class="btn sm desktop-only" type="button" id="btn-export-zip">Export 4K ZIP</button>
+        <div class="top-right">
+          <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
+            <span>📷 Add</span>
+          </button>
+          <button class="btn sm btn-top-help" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide">
+            <span data-icon="book"></span><span class="desktop-only">Help &amp; Tutorial</span>
+          </button>
+          <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
+            <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
+          </button>
+          <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
+            ✕ Clear Demo
+          </button>
+          <div class="fs-auth-group">
+            <button class="btn sm btn-fs-auth-btn" type="button" id="btn-fs-auth">
+              <span data-icon="tree"></span><span id="fs-auth-label">Sign in: FamilySearch</span>
+            </button>
+            <button class="btn sm btn-fs-settings-btn" type="button" id="btn-fs-settings" title="FamilySearch Connection Settings &amp; Redirect URI">
+              ⚙️
+            </button>
+          </div>
+          <button class="btn sm desktop-only" type="button" id="btn-export-zip">Export 4K ZIP</button>
+        </div>
       </div>
       <div class="top-search mob-search-full mob-only">
         <span data-icon="search"></span>
@@ -2492,7 +2542,7 @@
       let isCustomFolder = false;
 
       let mode = 'catalog';        // 'catalog' | 'lab' | 'sync'
-      let layout = 'ledger';       // 'ledger' | 'sheet'
+      let layout = (window.innerWidth <= 768) ? 'sheet' : 'ledger';       // 'ledger' | 'sheet' | 'map'
       let activeQueue = 'all';     // 'all' | 'unnamed' | 'unsynced' | 'lowres' | 'duplicates' | 'screenshots' | 'review'
       let activeFolder = null;
       let search = '';
@@ -6145,7 +6195,11 @@
         const authBtn = document.getElementById('btn-fs-auth');
         const authLabel = document.getElementById('fs-auth-label');
         authBtn.classList.toggle('fs-connected', Boolean(fsUser));
-        authLabel.textContent = fsUser ? `FamilySearch: ${fsUser.name}` : 'Sign in: FamilySearch';
+        if (window.innerWidth <= 768) {
+          authLabel.textContent = fsUser ? (fsUser.name?.split(' ')[0] || 'FS') : 'FS';
+        } else {
+          authLabel.textContent = fsUser ? `FamilySearch: ${fsUser.name}` : 'Sign in: FamilySearch';
+        }
 
         const isCatalog = mode === 'catalog';
         const isLab = mode === 'lab';
