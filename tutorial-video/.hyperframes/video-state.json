@@ -1,7 +1,7 @@
 {
   "version": 1,
   "historyId": "249872b4-9ec7-42bf-aead-4f555840a999",
-  "currentRevision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+  "currentRevision": "660a1c90-f1d1-420b-b99f-ff39dfd34a90",
   "pendingChanges": false,
   "files": {
     "AGENTS.md": {
@@ -49,24 +49,24 @@
       "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\ee\\ee729324ff20503290ace1099a14a2d986da5b6dc5d5b939c8770a4620583a65"
     },
     "compositions/scene-1-import.html": {
-      "hash": "001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\00\\001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d"
+      "hash": "d7f5fddaeacb38d90f6658efc03cfa1f54b081858a944512ceede835e2b91a0f",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d7\\d7f5fddaeacb38d90f6658efc03cfa1f54b081858a944512ceede835e2b91a0f"
     },
     "compositions/scene-2-map.html": {
-      "hash": "7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4"
+      "hash": "fe9450ee135bfca5eada893effc67c9a73977cf68a16f2d30c7606409a2080d0",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fe\\fe9450ee135bfca5eada893effc67c9a73977cf68a16f2d30c7606409a2080d0"
     },
     "compositions/scene-3-tree.html": {
-      "hash": "089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\08\\089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97"
+      "hash": "d2bc262f37465e0c94f1be15f613ecff21aaf599a7e9e449cdab6d7b9db33f24",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d2\\d2bc262f37465e0c94f1be15f613ecff21aaf599a7e9e449cdab6d7b9db33f24"
     },
     "compositions/scene-4-lab.html": {
-      "hash": "7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5"
+      "hash": "e4b06ceb5753f930125a819dffc897eb42e77c4ffeb05b20cf016bcd66dd8d1d",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\e4\\e4b06ceb5753f930125a819dffc897eb42e77c4ffeb05b20cf016bcd66dd8d1d"
     },
     "compositions/scene-5-save.html": {
-      "hash": "fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fb\\fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d"
+      "hash": "542480340bd81ce33c4c63fcdda68c4474d0dbebd99733508ccde1b69f90a0ca",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\54\\542480340bd81ce33c4c63fcdda68c4474d0dbebd99733508ccde1b69f90a0ca"
     },
     "SPEC.md": {
       "hash": "8f3ec58f4fae3d4999a516629ad7fd4e3d8a4fc103c757c5a85490d2c503d77d",
@@ -416,12 +416,43 @@
           "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\5a\\5a9eaaa92a3e1ddfd185b9e63df962ca1df2b8840c2134696164880bb923c057"
         }
       }
+    },
+    "660a1c90-f1d1-420b-b99f-ff39dfd34a90": {
+      "actor": {
+        "kind": "outside",
+        "name": "Outside"
+      },
+      "label": "Changed outside the app",
+      "startedAt": 1793653700158,
+      "endedAt": 1793653700240,
+      "files": {
+        "compositions/scene-1-import.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\00\\001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d7\\d7f5fddaeacb38d90f6658efc03cfa1f54b081858a944512ceede835e2b91a0f"
+        },
+        "compositions/scene-2-map.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fe\\fe9450ee135bfca5eada893effc67c9a73977cf68a16f2d30c7606409a2080d0"
+        },
+        "compositions/scene-3-tree.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\08\\089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d2\\d2bc262f37465e0c94f1be15f613ecff21aaf599a7e9e449cdab6d7b9db33f24"
+        },
+        "compositions/scene-4-lab.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\e4\\e4b06ceb5753f930125a819dffc897eb42e77c4ffeb05b20cf016bcd66dd8d1d"
+        },
+        "compositions/scene-5-save.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fb\\fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\54\\542480340bd81ce33c4c63fcdda68c4474d0dbebd99733508ccde1b69f90a0ca"
+        }
+      }
     }
   },
   "checks": {
     "latest": {
-      "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
-      "id": "fc37548c-d34a-4516-a5a9-8d9f68eb4074"
+      "revision": "660a1c90-f1d1-420b-b99f-ff39dfd34a90",
+      "id": "1ac20067-39b3-4684-98c2-fde3335e1785"
     },
     "revisions": {
       "ce7981d9-8769-41a3-82be-c0ca6b9f876a": [
@@ -764,6 +795,35 @@
           "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
           "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
           "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        }
+      ],
+      "660a1c90-f1d1-420b-b99f-ff39dfd34a90": [
+        {
+          "id": "1ac20067-39b3-4684-98c2-fde3335e1785",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\1ac20067-39b3-4684-98c2-fde3335e1785.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793653708568,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "660a1c90-f1d1-420b-b99f-ff39dfd34a90",
+          "inputFingerprint": "dd9a348fc99502351e1d70f6e967884018af15f4c82c24adcccc3adc2a86f378",
           "inputScope": "local-project-files",
           "attribution": "recorded-revision"
         }
