@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -1933,7 +1933,92 @@
       color: var(--negative);
       background: #fee2e2;
     }
-  
+
+    /* Header & Navigation Bar Utility Classes (Eliminating Inline Styles) */
+    .sidebar-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .brand-reset {
+      margin: 0;
+    }
+    .btn-close-sidebar {
+      font-size: 16px;
+      padding: 4px 8px;
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
+    .sidebar-help-btn {
+      color: var(--accent);
+      font-weight: 600;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .menu-label-gap {
+      margin-left: 4px;
+    }
+    .brand-title-mob {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .btn-mob-camera {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-top-help {
+      background: #1d5fbf;
+      color: #ffffff;
+      border-color: #164388;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .fs-auth-group {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .btn-fs-auth-btn {
+      border: none;
+      background: none;
+      border-radius: 6px 0 0 6px;
+    }
+    .btn-fs-settings-btn {
+      border: none;
+      border-left: 1px solid var(--border);
+      background: none;
+      padding: 4px 7px;
+      color: var(--muted);
+      border-radius: 0 6px 6px 0;
+      cursor: pointer;
+    }
+    .mob-search-full {
+      width: 100%;
+    }
   </style>
 </head>
 
@@ -1941,12 +2026,12 @@
   <div class="frame">
     <!-- #2 LEFT SIDEBAR: Folder Chooser + Album views + All Built-in Batch Cleanup Queues + Subfolders -->
     <aside class="sidebar" id="sidebar" aria-label="Archive navigation and cleanup queues">
-      <div class="sidebar-head mob-only" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);margin-bottom:8px;">
-        <div class="brand" style="margin:0;">
+      <div class="sidebar-head mob-only">
+        <div class="brand brand-reset">
           <span class="brand-mark">FH</span>
           <span class="brand-title">Family History</span>
         </div>
-        <button type="button" class="btn sm" id="btn-close-sidebar" aria-label="Close sidebar" style="font-size:16px;padding:4px 8px;border:none;background:none;cursor:pointer;">✕</button>
+        <button type="button" class="btn sm btn-close-sidebar" id="btn-close-sidebar" aria-label="Close sidebar">✕</button>
       </div>
 
       <div class="brand desktop-only">
@@ -1997,7 +2082,7 @@
       <div id="folder-nav"></div>
 
       <div class="sidebar-foot">
-        <button class="nav-item sidebar-help-btn" type="button" id="btn-sidebar-help" style="color:var(--accent);font-weight:600;width:100%;text-align:left;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;margin-bottom:6px;">
+        <button class="nav-item sidebar-help-btn" type="button" id="btn-sidebar-help">
           <span data-icon="book"></span><span>📖 Help &amp; Workflow Guide</span>
         </button>
         <a href="./classic.html" class="nav-item sidebar-back" title="Switch to previous classic version">
@@ -2013,9 +2098,9 @@
     <header class="topbar">
       <div class="top-left">
         <button class="btn sm menu-toggle" type="button" id="btn-menu" aria-label="Open navigation menu">
-          <span>☰</span><span class="desktop-only" style="margin-left:4px;">Menu</span>
+          <span>☰</span><span class="desktop-only menu-label-gap">Menu</span>
         </button>
-        <span class="brand-title mob-only" style="font-weight:700;font-size:15px;color:var(--text);letter-spacing:-0.02em;">Family History</span>
+        <span class="brand-title brand-title-mob mob-only">Family History</span>
         <div class="top-search desktop-only">
           <span data-icon="search"></span>
           <input type="search" id="search-input" placeholder="Search relatives, places, filenames, FamilySearch IDs..."
@@ -2023,10 +2108,10 @@
         </div>
       </div>
       <div class="top-right">
-        <button class="btn sm mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery" style="background:var(--accent);color:#ffffff;border-color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+        <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
           <span>📷 Add</span>
         </button>
-        <button class="btn sm" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide" style="background:#1d5fbf;color:#ffffff;border-color:#164388;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+        <button class="btn sm btn-top-help" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide">
           <span data-icon="book"></span><span class="desktop-only">Help &amp; Tutorial</span>
         </button>
         <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
@@ -2035,17 +2120,17 @@
         <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
           ✕ Clear Demo
         </button>
-        <div style="display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;background:var(--surface);">
-          <button class="btn sm" type="button" id="btn-fs-auth" style="border:none;background:none;border-radius:6px 0 0 6px;">
+        <div class="fs-auth-group">
+          <button class="btn sm btn-fs-auth-btn" type="button" id="btn-fs-auth">
             <span data-icon="tree"></span><span id="fs-auth-label">Sign in: FamilySearch</span>
           </button>
-          <button class="btn sm" type="button" id="btn-fs-settings" title="FamilySearch Connection Settings &amp; Redirect URI" style="border:none;border-left:1px solid var(--border);background:none;padding:4px 7px;color:var(--muted);border-radius:0 6px 6px 0;cursor:pointer;">
+          <button class="btn sm btn-fs-settings-btn" type="button" id="btn-fs-settings" title="FamilySearch Connection Settings &amp; Redirect URI">
             ⚙️
           </button>
         </div>
         <button class="btn sm desktop-only" type="button" id="btn-export-zip">Export 4K ZIP</button>
       </div>
-      <div class="top-search mob-only" style="width:100%;">
+      <div class="top-search mob-search-full mob-only">
         <span data-icon="search"></span>
         <input type="search" id="mob-search-input" placeholder="Search relatives, places, PIDs..." aria-label="Search archive on mobile">
       </div>
@@ -2278,7 +2363,7 @@
 
   <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   <div class="inspector-backdrop" id="inspector-backdrop"></div>
-  <input type="file" id="mobile-camera-input" accept="image/*" multiple capture="environment" style="display:none;" />
+  <input type="file" id="mobile-camera-input" accept="image/*" multiple capture="environment" hidden />
 
   <script src="exifr.js"></script>
   <script src="leaflet/leaflet.js"></script>

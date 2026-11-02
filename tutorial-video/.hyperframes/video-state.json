@@ -1,7 +1,7 @@
 {
   "version": 1,
   "historyId": "249872b4-9ec7-42bf-aead-4f555840a999",
-  "currentRevision": "ce45f956-ee54-4129-966a-0ba003f6ce01",
+  "currentRevision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
   "pendingChanges": false,
   "files": {
     "AGENTS.md": {
@@ -17,8 +17,8 @@
       "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\53\\53dbce1e19aa713cbb12ee0bc4d206143b45ab15e6ffbfcaa8f69572d4d24d50"
     },
     "index.html": {
-      "hash": "dcb1988ed29cdd3a5b180faaa35ea8cd8fbf60457ddc04642fe4cce6bb935dae",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\dc\\dcb1988ed29cdd3a5b180faaa35ea8cd8fbf60457ddc04642fe4cce6bb935dae"
+      "hash": "5a9eaaa92a3e1ddfd185b9e63df962ca1df2b8840c2134696164880bb923c057",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\5a\\5a9eaaa92a3e1ddfd185b9e63df962ca1df2b8840c2134696164880bb923c057"
     },
     "meta.json": {
       "hash": "9b15e0d3e51e0ce5385e35e0c98d6d54c16a80fbcc591be63cf395a40aab88cb",
@@ -49,24 +49,24 @@
       "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\ee\\ee729324ff20503290ace1099a14a2d986da5b6dc5d5b939c8770a4620583a65"
     },
     "compositions/scene-1-import.html": {
-      "hash": "32741ab32161bbbb2ecf492ef578147f258d81fc05fb59792f45e0895f91138b",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\32\\32741ab32161bbbb2ecf492ef578147f258d81fc05fb59792f45e0895f91138b"
+      "hash": "001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\00\\001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d"
     },
     "compositions/scene-2-map.html": {
-      "hash": "b33a2d527dcda340322f34723b9a86b7716b62adda895dc313dc51e97ddb036d",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\b3\\b33a2d527dcda340322f34723b9a86b7716b62adda895dc313dc51e97ddb036d"
+      "hash": "7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4"
     },
     "compositions/scene-3-tree.html": {
-      "hash": "dd46f91e906205483dd005e187a9ba121f2a53cfbe94e8651b7575f1b555739b",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\dd\\dd46f91e906205483dd005e187a9ba121f2a53cfbe94e8651b7575f1b555739b"
+      "hash": "089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\08\\089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97"
     },
     "compositions/scene-4-lab.html": {
-      "hash": "65aee3c37b8945bb06505e4d65d5dfe37fbaa0bcb960a225c63b83c0bce43fd0",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\65\\65aee3c37b8945bb06505e4d65d5dfe37fbaa0bcb960a225c63b83c0bce43fd0"
+      "hash": "7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5"
     },
     "compositions/scene-5-save.html": {
-      "hash": "b1cbe426c444b3bd4b1160df84ca4be1f769401e105553ac606f00599587f44a",
-      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\b1\\b1cbe426c444b3bd4b1160df84ca4be1f769401e105553ac606f00599587f44a"
+      "hash": "fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d",
+      "content": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fb\\fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d"
     },
     "SPEC.md": {
       "hash": "8f3ec58f4fae3d4999a516629ad7fd4e3d8a4fc103c757c5a85490d2c503d77d",
@@ -366,12 +366,62 @@
           "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\65\\65aee3c37b8945bb06505e4d65d5dfe37fbaa0bcb960a225c63b83c0bce43fd0"
         }
       }
+    },
+    "c2412bef-bb54-42c4-96ca-78f7844f6294": {
+      "actor": {
+        "kind": "outside",
+        "name": "Outside"
+      },
+      "label": "Changed outside the app",
+      "startedAt": 1793627060492,
+      "endedAt": 1793627060499,
+      "files": {
+        "index.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\dc\\dcb1988ed29cdd3a5b180faaa35ea8cd8fbf60457ddc04642fe4cce6bb935dae",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d2\\d2419d5edb45503b9270609a303bedfaa1edc1aea7a7da72b6510dd553a8e6bc"
+        }
+      }
+    },
+    "6b60da06-0d0b-4599-a451-30c99bb98e5b": {
+      "actor": {
+        "kind": "outside",
+        "name": "Outside"
+      },
+      "label": "Changed outside the app",
+      "startedAt": 1793627314072,
+      "endedAt": 1793627314156,
+      "files": {
+        "compositions/scene-1-import.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\32\\32741ab32161bbbb2ecf492ef578147f258d81fc05fb59792f45e0895f91138b",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\00\\001ada317b33c9d15c71e9d36cabf2f6808af5db19748dd845d59397440e424d"
+        },
+        "compositions/scene-2-map.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\b3\\b33a2d527dcda340322f34723b9a86b7716b62adda895dc313dc51e97ddb036d",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cd54cfa7ab2df021fa4b40e6ccc4f04490ef623f33ef6f1cd618cf6c69cb2f4"
+        },
+        "compositions/scene-3-tree.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\dd\\dd46f91e906205483dd005e187a9ba121f2a53cfbe94e8651b7575f1b555739b",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\08\\089aa4159e6a044fa82c87614891f04d3989fb326a868dc546c91e3cd64bcd97"
+        },
+        "compositions/scene-4-lab.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\65\\65aee3c37b8945bb06505e4d65d5dfe37fbaa0bcb960a225c63b83c0bce43fd0",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\7c\\7cf866b1ab9371b631c5c5d597279f85f940e5b5f767d5eda9c487ec26f962e5"
+        },
+        "compositions/scene-5-save.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\b1\\b1cbe426c444b3bd4b1160df84ca4be1f769401e105553ac606f00599587f44a",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\fb\\fb03e65ebeb6004e393292769f7a61de8474df31684f1f075b2ae194b7840a8d"
+        },
+        "index.html": {
+          "before": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\d2\\d2419d5edb45503b9270609a303bedfaa1edc1aea7a7da72b6510dd553a8e6bc",
+          "after": "C:\\Users\\jviol\\.cache\\hyperframes\\history\\249872b4-9ec7-42bf-aead-4f555840a999\\blobs\\5a\\5a9eaaa92a3e1ddfd185b9e63df962ca1df2b8840c2134696164880bb923c057"
+        }
+      }
     }
   },
   "checks": {
     "latest": {
-      "revision": "ce45f956-ee54-4129-966a-0ba003f6ce01",
-      "id": "9da4f2bb-01c1-40fa-a203-1fd2f88b575a"
+      "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+      "id": "11654b3b-8df3-43b5-a42e-988d8557bb99"
     },
     "revisions": {
       "ce7981d9-8769-41a3-82be-c0ca6b9f876a": [
@@ -575,6 +625,64 @@
           "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
           "revision": "ce45f956-ee54-4129-966a-0ba003f6ce01",
           "inputFingerprint": "e0e0b9874a2b3795f99ebf8971b62afbdddf6c98a3095be7a81661973ee22e88",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        }
+      ],
+      "c2412bef-bb54-42c4-96ca-78f7844f6294": [
+        {
+          "id": "1d3a2d6a-1c50-4aaf-a18a-ec2a0f41b094",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\1d3a2d6a-1c50-4aaf-a18a-ec2a0f41b094.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793627069452,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "c2412bef-bb54-42c4-96ca-78f7844f6294",
+          "inputFingerprint": "a6f2e6bc73f8cf40f8dbae1926edbe681bf2d146708f65b87da9e8d759edeb8b",
+          "inputScope": "local-project-files",
+          "attribution": "recorded-revision"
+        }
+      ],
+      "6b60da06-0d0b-4599-a451-30c99bb98e5b": [
+        {
+          "id": "11654b3b-8df3-43b5-a42e-988d8557bb99",
+          "scope": "project",
+          "report": "C:\\Projects\\google-projects\\Family History Photos\\tutorial-video\\.hyperframes\\artifacts\\checks\\11654b3b-8df3-43b5-a42e-988d8557bb99.json",
+          "metadata": {
+            "ok": true,
+            "browserSkipped": false,
+            "options": {
+              "samples": 9,
+              "atTransitions": false,
+              "maxIssues": 80,
+              "collapseStatic": true,
+              "tolerance": 2,
+              "timeout": 10000,
+              "contrast": true,
+              "strict": false,
+              "snapshots": false,
+              "browserGpuMode": "auto"
+            }
+          },
+          "createdAt": 1793627322324,
+          "contentHash": "28f570224e7f4011f734a5207676845677b9f5ff2cbdccf2c750ad26d44a2986",
+          "revision": "6b60da06-0d0b-4599-a451-30c99bb98e5b",
+          "inputFingerprint": "59546653d89439b97299dc0c6dfdf113e9fd2d6336368777dcdaf4b81223c832",
           "inputScope": "local-project-files",
           "attribution": "recorded-revision"
         }
