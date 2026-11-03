@@ -2114,6 +2114,12 @@
       font-weight: 600;
       width: 100%;
     }
+    .folder-pick-secondary {
+      margin-top: 6px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
     .share-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -2161,6 +2167,10 @@
       font-size: 16px;
       font-weight: 600;
       color: var(--text);
+    }
+    .share-modal-sub {
+      font-size: 12px;
+      margin: 2px 0 0;
     }
     .share-modal-preview {
       display: flex;
@@ -2304,7 +2314,7 @@
         <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick 1 to 5 photos from your device to tag, repair &amp; sync">
           <span data-icon="grid"></span><span>Pick 1–5 Photos...</span>
         </button>
-        <button class="btn sm folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer" style="margin-top:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);">
+        <button class="btn sm folder-pick-btn folder-pick-secondary desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
@@ -2658,7 +2668,7 @@
           <span class="share-modal-icon">📤</span>
           <div>
             <h3 id="share-modal-title">Share Family Photo</h3>
-            <p class="muted" id="share-modal-sub" style="font-size:12px;margin:2px 0 0;">Photo &amp; metadata ready</p>
+            <p class="muted share-modal-sub" id="share-modal-sub">Photo &amp; metadata ready</p>
           </div>
         </div>
         <button type="button" class="btn sm" id="btn-share-modal-close" aria-label="Close share dialog">✕</button>
