@@ -406,17 +406,13 @@ async function uploadMemory(options) {
   var filename = (isoDate ? isoDate + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
 
   // 1. Determine upload endpoint
-  // If targetPersonId is specified, we try direct attachment endpoint first, fallback to standard memories endpoint
-  var uploadUrl = targetPersonId
-    ? API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories'
-    : API_BASE + '/platform/memories/memories';
-
+  // Upload to universal Memories artifact endpoint so artifact metadata and face bounding box qualifiers
+  // can be cleanly created and positioned before tree evidence linking, avoiding unpositioned prompt.
+  var uploadUrl = API_BASE + '/platform/memories/memories';
   var qParams = [];
   if (title) qParams.push('title=' + encodeURIComponent(title));
-  if (isoDate) qParams.push('date=' + encodeURIComponent(isoDate));
-  if (place) qParams.push('place=' + encodeURIComponent(place));
   if (qParams.length > 0) {
-    uploadUrl += (uploadUrl.includes('?') ? '&' : '?') + qParams.join('&');
+    uploadUrl += '?' + qParams.join('&');
   }
 
   var formData = new FormData();
@@ -425,14 +421,8 @@ async function uploadMemory(options) {
   if (fullDescription) {
     formData.append('description', fullDescription);
   }
-  if (isoDate) {
-    formData.append('date', isoDate);
-  }
-  if (place) {
-    formData.append('place', place);
-  }
 
-  onProgress({ step: 'uploading', message: 'Uploading to FamilySearch Beta Memories (' + (targetPersonId || 'Gallery') + ')...' });
+  onProgress({ step: 'uploading', message: 'Uploading photo to FamilySearch Beta Memories...' });
 
   var uploadRes = await fetch(uploadUrl, {
     method: 'POST',
@@ -447,18 +437,15 @@ async function uploadMemory(options) {
 
   if (!uploadRes.ok) {
     if (uploadRes.status === 409) {
-      // Conflict - memory exists
+      // Conflict - memory already exists on FamilySearch
       var loc = uploadRes.headers.get('Location') || '';
       var xId = uploadRes.headers.get('X-entity-id') || '';
-      memoryId = xId || (loc ? loc.split('/').pop() : null);
+      memoryId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
     } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
-      // Person endpoint not accepted, fallback to universal memories endpoint
-      onProgress({ step: 'fallback', message: 'Posting to universal Memories artifact endpoint...' });
-      var fallbackUrl = API_BASE + '/platform/memories/memories';
-      if (qParams.length > 0) {
-        fallbackUrl += '?' + qParams.join('&');
-      }
-      var fallbackRes = await fetch(fallbackUrl, {
+      // Fallback attempt to person memories endpoint if universal rejected
+      onProgress({ step: 'fallback', message: 'Posting to Person Memories endpoint...' });
+      var personUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories';
+      var personRes = await fetch(personUrl, {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer ' + token.accessToken,
@@ -466,13 +453,13 @@ async function uploadMemory(options) {
         },
         body: formData
       });
-      if (!fallbackRes.ok && fallbackRes.status !== 409) {
-        var fbErr = await fallbackRes.text();
-        throw new Error('FamilySearch universal upload failed (' + fallbackRes.status + '): ' + fbErr);
+      if (!personRes.ok && personRes.status !== 409) {
+        var pErr = await personRes.text();
+        throw new Error('FamilySearch upload failed (' + personRes.status + '): ' + pErr);
       }
-      var fbLoc = fallbackRes.headers.get('Location') || '';
-      var fbXId = fallbackRes.headers.get('X-entity-id') || '';
-      memoryId = fbXId || (fbLoc ? fbLoc.split('/').pop() : null);
+      var pLoc = personRes.headers.get('Location') || '';
+      var pXId = personRes.headers.get('X-entity-id') || '';
+      memoryId = pXId || (pLoc ? pLoc.replace(/\/+$/, '').split('/').pop() : null);
     } else {
       var errText = await uploadRes.text();
       throw new Error('FamilySearch upload failed (' + uploadRes.status + '): ' + errText);
@@ -480,7 +467,7 @@ async function uploadMemory(options) {
   } else {
     var resLoc = uploadRes.headers.get('Location') || '';
     var resXId = uploadRes.headers.get('X-entity-id') || '';
-    memoryId = resXId || (resLoc ? resLoc.split('/').pop() : null);
+    memoryId = resXId || (resLoc ? resLoc.replace(/\/+$/, '').split('/').pop() : null);
   }
 
   if (!memoryId && photo.id) {
@@ -494,8 +481,7 @@ async function uploadMemory(options) {
       var coverageEntry = {};
       if (isoDate) {
         coverageEntry.temporal = {
-          original: isoDate,
-          formal: (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate)
+          original: isoDate
         };
       }
       if (place) {
@@ -508,35 +494,15 @@ async function uploadMemory(options) {
         }
       }
 
-      // First attempt: read existing source description structure
-      var existingSd = null;
-      try {
-        var getMemRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
-          }
-        });
-        if (getMemRes.ok) {
-          var getMemJson = await getMemRes.json();
-          if (getMemJson && getMemJson.sourceDescriptions && getMemJson.sourceDescriptions[0]) {
-            existingSd = getMemJson.sourceDescriptions[0];
-          }
-        }
-      } catch (e) {
-        // fallback to manual structure
-      }
-
-      var sdToUpdate = existingSd || {
-        id: memoryId,
-        about: API_BASE + '/platform/memories/memories/' + memoryId,
-        titles: [{ value: title }],
-        descriptions: fullDescription ? [{ value: fullDescription }] : []
-      };
-      sdToUpdate.coverage = [coverageEntry];
-
       var updatePayload = {
-        sourceDescriptions: [sdToUpdate]
+        sourceDescriptions: [
+          {
+            id: memoryId,
+            titles: [{ value: title }],
+            descriptions: fullDescription ? [{ value: fullDescription }] : [],
+            coverage: [coverageEntry]
+          }
+        ]
       };
 
       var postCovRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
@@ -551,7 +517,7 @@ async function uploadMemory(options) {
 
       if (!postCovRes.ok) {
         // Retry with standard GEDCOM X content type
-        await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+        postCovRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + token.accessToken,
@@ -561,67 +527,25 @@ async function uploadMemory(options) {
           body: JSON.stringify(updatePayload)
         });
       }
+
+      // Also try artifact description endpoint if memory endpoint did not return 200/204
+      if (!postCovRes.ok) {
+        await fetch(API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Content-Type': 'application/x-fs-v1+json',
+            'Accept': 'application/x-fs-v1+json, application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+      }
     } catch (covErr) {
       console.warn('Memory coverage date/place update notice:', covErr);
     }
   }
 
-  // 2. Attach memory reference to Family Tree person if specified
-  if (targetPersonId && memoryId) {
-    onProgress({ step: 'linking', message: 'Linking memory to Tree Person ' + targetPersonId + '...' });
-    try {
-      var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId);
-      var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
-      var evidencePayload = {
-        persons: [
-          {
-            id: targetPersonId,
-            evidence: [
-              { resource: memoryUri }
-            ]
-          }
-        ]
-      };
-      await fetch(updatePersonUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Content-Type': 'application/x-fs-v1+json',
-          'Accept': 'application/x-fs-v1+json, application/json'
-        },
-        body: JSON.stringify(evidencePayload)
-      });
-    } catch (linkErr) {
-      console.warn('Evidence link to tree person notice:', linkErr);
-    }
-
-    // Also try person memory references endpoint
-    try {
-      var refUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memory-references';
-      var refPayload = {
-        persons: [
-          {
-            evidence: [
-              { resource: API_BASE + '/platform/memories/memories/' + memoryId }
-            ]
-          }
-        ]
-      };
-      await fetch(refUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Content-Type': 'application/x-gedcomx-v1+json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(refPayload)
-      });
-    } catch (refErr) {
-      console.warn('Memory-reference endpoint notice:', refErr);
-    }
-  }
-
-  // 2b. Auto-scan faces if not yet scanned
+  // 2. Auto-scan faces if not yet scanned
   var faces = options.faces || (photo && photo.faces) || [];
   if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
     try {
@@ -635,129 +559,332 @@ async function uploadMemory(options) {
     }
   }
 
-  // 3. Attach Persona tags to the memory with face bounding box coordinates
-  if (people && people.length > 0 && memoryId) {
+  // 3. Query any existing personas on this memory artifact
+  var existingPersonas = [];
+  if (memoryId) {
+    try {
+      var listRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas', {
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-fs-v1+json, application/json'
+        }
+      });
+      if (listRes.ok) {
+        var listJson = await listRes.json();
+        if (listJson && listJson.persons) {
+          existingPersonas = listJson.persons;
+        }
+      }
+    } catch (listErr) {
+      console.warn('Could not list existing personas on memory:', listErr);
+    }
+  }
+
+  // 4. Attach Persona tags to the memory with face bounding box coordinates & link Tree persons
+  var linkedPersonas = [];
+  if (memoryId && ((people && people.length > 0) || targetPersonId)) {
+    var peopleList = (people && people.length > 0)
+      ? people
+      : [{ name: title, fsId: targetPersonId }];
+
     onProgress({ step: 'tagging', message: 'Tagging relatives and face positions on FamilySearch memory...' });
-    for (var pIdx = 0; pIdx < people.length; pIdx++) {
-      var person = people[pIdx];
+    for (var pIdx = 0; pIdx < peopleList.length; pIdx++) {
+      var person = peopleList[pIdx];
       var personName = typeof person === 'string' ? person : person.name;
       if (!personName) continue;
+
+      var personPid = (targetPersonId && (pIdx === 0 || peopleList.length === 1))
+        ? targetPersonId
+        : (person.fsId || null);
+
+      if (!personPid) {
+        var kfMatch = KNOWN_FAMILY.find(function (kf) {
+          return kf.name.toLowerCase() === personName.toLowerCase() ||
+                 (kf.aliases && kf.aliases.some(function (a) { return personName.toLowerCase().includes(a); }));
+        });
+        if (kfMatch) personPid = kfMatch.id;
+      }
 
       try {
         var assignedFace = null;
         if (faces && faces.length > 0) {
-          if (faces.length === 1 && people.length === 1) {
+          if (faces.length === 1 && peopleList.length === 1) {
             assignedFace = faces[0];
           } else {
             assignedFace = faces.find(function (f) {
-              return f.name && f.name.toLowerCase() === personName.toLowerCase();
+              return f.name && personName && f.name.toLowerCase() === personName.toLowerCase();
             }) || (pIdx === 0 ? faces[0] : null);
           }
         }
 
+        var hasBox = false;
         var regionStr = null;
+        var regionBox = null;
+        var x1Str = '0.0000', y1Str = '0.0000', wStr = '0.2000', hStr = '0.2000';
+
         if (assignedFace && assignedFace.box) {
           var b = assignedFace.box;
-          var x1 = Math.max(0, Math.min(1, b.x || 0));
-          var y1 = Math.max(0, Math.min(1, b.y || 0));
-          var x2 = Math.max(x1, Math.min(1, (b.x || 0) + (b.width || 0.2)));
-          var y2 = Math.max(y1, Math.min(1, (b.y || 0) + (b.height || 0.2)));
-          regionStr = x1.toFixed(4) + ',' + y1.toFixed(4) + ',' + x2.toFixed(4) + ',' + y2.toFixed(4);
+          var bx = (b.x !== undefined) ? b.x : (b.left !== undefined ? b.left : 0);
+          var by = (b.y !== undefined) ? b.y : (b.top !== undefined ? b.top : 0);
+          var bw = (b.width !== undefined) ? b.width : (b.w !== undefined ? b.w : 0.2);
+          var bh = (b.height !== undefined) ? b.height : (b.h !== undefined ? b.h : 0.2);
+
+          var x = Math.max(0, Math.min(1, Number(bx)));
+          var y = Math.max(0, Math.min(1, Number(by)));
+          var w = Math.max(0.01, Math.min(1 - x, Number(bw)));
+          var h = Math.max(0.01, Math.min(1 - y, Number(bh)));
+          hasBox = true;
+
+          x1Str = x.toFixed(4);
+          y1Str = y.toFixed(4);
+          var x2Str = Math.min(1, x + w).toFixed(4);
+          var y2Str = Math.min(1, y + h).toFixed(4);
+          wStr = w.toFixed(4);
+          hStr = h.toFixed(4);
+
+          // GEDCOM X RectangleRegion: x1,y1,x2,y2
+          regionStr = x1Str + ',' + y1Str + ',' + x2Str + ',' + y2Str;
+          // FamilySearch RectangleRegion: x,y,width,height
+          regionBox = x1Str + ',' + y1Str + ',' + wStr + ',' + hStr;
         }
 
-        var personaObj = {
-          extracted: true,
-          names: [
-            {
-              nameForms: [
-                { fullText: personName }
-              ]
-            }
-          ]
-        };
+        var qualifiers = hasBox ? [
+          { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+          { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox },
+          { name: 'http://familysearch.org/v1/x', value: x1Str },
+          { name: 'http://familysearch.org/v1/y', value: y1Str },
+          { name: 'http://familysearch.org/v1/width', value: wStr },
+          { name: 'http://familysearch.org/v1/height', value: hStr }
+        ] : undefined;
 
-        if (regionStr) {
-          var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
-          personaObj.media = [
-            {
-              description: memoryUri,
-              qualifiers: [
-                {
-                  name: 'http://gedcomx.org/RectangleRegion',
-                  value: regionStr
-                }
-              ]
-            }
+        var media = hasBox ? [
+          {
+            description: API_BASE + '/platform/memories/artifacts/' + memoryId + '/description',
+            qualifiers: qualifiers
+          }
+        ] : undefined;
+
+        var identifiers = {};
+        if (personPid) {
+          identifiers['http://familysearch.org/v1/FamilyTreePerson'] = [
+            'https://familysearch.org/ark:/61903/4:1:' + personPid
           ];
-          personaObj.evidence = [
-            {
-              resource: memoryUri,
-              qualifiers: [
-                {
-                  name: 'http://gedcomx.org/RectangleRegion',
-                  value: regionStr
-                }
-              ]
+        }
+        var hasIdentifiers = Object.keys(identifiers).length > 0;
+
+        // Check if an existing persona on the memory matches this person
+        var matchedExisting = existingPersonas.find(function (p) {
+          if (personPid && p.identifiers && p.identifiers['http://familysearch.org/v1/FamilyTreePerson']) {
+            var arks = p.identifiers['http://familysearch.org/v1/FamilyTreePerson'];
+            if (Array.isArray(arks) && arks.some(function (ark) { return ark.indexOf(personPid) !== -1; })) {
+              return true;
             }
-          ];
-        }
-
-        if (targetPersonId && (pIdx === 0 || people.length === 1)) {
-          personaObj.identifiers = {
-            'http://familysearch.org/v1/FamilyTreePerson': [
-              'https://familysearch.org/ark:/61903/4:1:' + targetPersonId
-            ]
-          };
-        }
-
-        var personaPayload = {
-          persons: [personaObj]
-        };
-
-        var tagRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Content-Type': 'application/x-fs-v1+json',
-            'Accept': 'application/x-fs-v1+json, application/json'
-          },
-          body: JSON.stringify(personaPayload)
+          }
+          var pName = p.names && p.names[0] && p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText;
+          if (pName && personName) {
+            var pLower = pName.trim().toLowerCase();
+            var tLower = personName.trim().toLowerCase();
+            return pLower === tLower || pLower.indexOf(tLower) !== -1 || tLower.indexOf(pLower) !== -1;
+          }
+          return false;
         });
 
-        // Also attempt artifact-references tag endpoint if region was specified and persona created
-        var personaLocation = tagRes.headers.get('Location') || '';
-        var personaId = personaLocation ? personaLocation.split('/').pop() : null;
-        if (personaId && regionStr) {
-          try {
-            var artRefPayload = {
-              artifactReferences: [
-                {
-                  resource: API_BASE + '/platform/memories/memories/' + memoryId,
-                  qualifiers: [
-                    {
-                      name: 'http://gedcomx.org/RectangleRegion',
-                      value: regionStr
-                    }
-                  ]
-                }
-              ]
+        var personaId = matchedExisting ? matchedExisting.id : null;
+        var opSuccess = false;
+
+        if (matchedExisting) {
+          // UPDATE existing persona with bounding box coordinates and identifiers
+          var updatePerson = {
+            id: matchedExisting.id,
+            extracted: true,
+            names: [{ nameForms: [{ fullText: personName }] }]
+          };
+          if (hasIdentifiers) updatePerson.identifiers = identifiers;
+          if (media) updatePerson.media = media;
+
+          var updateRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Content-Type': 'application/x-fs-v1+json',
+              'Accept': 'application/x-fs-v1+json, application/json'
+            },
+            body: JSON.stringify({ persons: [updatePerson] })
+          });
+
+          if (updateRes.ok || updateRes.status === 204) {
+            opSuccess = true;
+            personaId = matchedExisting.id;
+          } else {
+            var updateRetry = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-gedcomx-v1+json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify({ persons: [updatePerson] })
+            });
+            if (updateRetry.ok || updateRetry.status === 204) {
+              opSuccess = true;
+              personaId = matchedExisting.id;
+            }
+          }
+        }
+
+        if (!opSuccess) {
+          // CREATE new persona with bounding box coordinates
+          var createPerson = {
+            extracted: true,
+            names: [{ nameForms: [{ fullText: personName }] }]
+          };
+          if (hasIdentifiers) createPerson.identifiers = identifiers;
+          if (media) createPerson.media = media;
+
+          var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Content-Type': 'application/x-fs-v1+json',
+              'Accept': 'application/x-fs-v1+json, application/json'
+            },
+            body: JSON.stringify({ persons: [createPerson] })
+          });
+
+          if (!personaRes.ok && hasIdentifiers) {
+            // Retry without identifiers in case server prefers creating first then linking
+            var fallbackPerson = {
+              extracted: true,
+              names: createPerson.names
             };
-            await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId + '/artifact-references', {
+            if (media) fallbackPerson.media = media;
+            personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
               method: 'POST',
               headers: {
                 'Authorization': 'Bearer ' + token.accessToken,
                 'Content-Type': 'application/x-fs-v1+json',
+                'Accept': 'application/x-fs-v1+json, application/json'
+              },
+              body: JSON.stringify({ persons: [fallbackPerson] })
+            });
+          }
+
+          if (personaRes.ok || personaRes.status === 201) {
+            var entId = personaRes.headers.get('X-entity-id');
+            var loc = personaRes.headers.get('Location') || '';
+            personaId = entId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null);
+            opSuccess = true;
+          }
+        }
+
+        // Link persona to Tree Person
+        if (personPid && personaId) {
+          linkedPersonas.push({ personPid: personPid, personaId: personaId });
+
+          try {
+            // 1. Link persona to Tree Person ARK
+            await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId, {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-fs-v1+json',
+                'Accept': 'application/x-fs-v1+json, application/json'
+              },
+              body: JSON.stringify({
+                persons: [
+                  {
+                    id: personaId,
+                    extracted: true,
+                    identifiers: {
+                      'http://familysearch.org/v1/FamilyTreePerson': [
+                        'https://familysearch.org/ark:/61903/4:1:' + personPid
+                      ]
+                    }
+                  }
+                ]
+              })
+            });
+          } catch (pidLinkErr) {
+            console.warn('Persona ARK link notice:', pidLinkErr);
+          }
+
+          try {
+            // 2. Attach persona specifically as evidence on the Tree Person
+            var evidencePersonaUri = API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId;
+            await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid), {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-fs-v1+json',
+                'Accept': 'application/x-fs-v1+json, application/json'
+              },
+              body: JSON.stringify({
+                persons: [
+                  {
+                    id: personPid,
+                    evidence: [
+                      { resource: evidencePersonaUri }
+                    ]
+                  }
+                ]
+              })
+            });
+          } catch (evErr) {
+            console.warn('Tree person evidence link notice:', evErr);
+          }
+
+          try {
+            // 3. Attach persona as memory reference on Tree Person
+            await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid) + '/memory-references', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-gedcomx-v1+json',
                 'Accept': 'application/json'
               },
-              body: JSON.stringify(artRefPayload)
+              body: JSON.stringify({
+                persons: [
+                  {
+                    evidence: [
+                      { resource: API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId }
+                    ]
+                  }
+                ]
+              })
             });
-          } catch (artErr) {
-            console.warn('Artifact reference tag notice:', artErr);
+          } catch (refErr) {
+            console.warn('Tree person memory-reference notice:', refErr);
           }
         }
       } catch (tagErr) {
         console.warn('Persona tag creation notice:', tagErr);
       }
+    }
+  }
+
+  // 5. Fallback link of memory to targetPersonId if no personas could be linked
+  if (targetPersonId && memoryId && linkedPersonas.length === 0) {
+    try {
+      var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId);
+      var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
+      await fetch(updatePersonUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Content-Type': 'application/x-fs-v1+json',
+          'Accept': 'application/x-fs-v1+json, application/json'
+        },
+        body: JSON.stringify({
+          persons: [
+            {
+              id: targetPersonId,
+              evidence: [{ resource: memoryUri }]
+            }
+          ]
+        })
+      });
+    } catch (fallbackLinkErr) {
+      console.warn('Fallback tree evidence link notice:', fallbackLinkErr);
     }
   }
 

@@ -6239,7 +6239,8 @@
                                       place: p.place,
                                       people: p.people,
                                       faces: p.faces,
-                                      memoryId: p.fsMemoryId,
+                                      memoryId: (oldMemoryId ? null : p.fsMemoryId),
+                                      replaceMemoryId: oldMemoryId,
                                       targetPersonId: targetPid,
                                       onProgress: (status) => {
                                         if (status && status.message) notify(status.message);
