@@ -363,6 +363,111 @@
 }
 
 /**
+ * Helper to convert ISO date (YYYY-MM-DD) into FamilySearch normalized date string (e.g. "2 March 2003")
+ */
+function formatNormalizedDate(iso) {
+  if (!iso) return '';
+  var clean = String(iso).trim();
+  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var parts = clean.split(/[-_\s./]+/);
+  if (parts.length === 3) {
+    var y = parts[0];
+    var m = parseInt(parts[1], 10);
+    var d = parseInt(parts[2], 10);
+    if (m >= 1 && m <= 12 && !isNaN(d)) {
+      return d + ' ' + months[m - 1] + ' ' + y;
+    }
+  } else if (parts.length === 2 && parts[0].length === 4) {
+    var ym = parseInt(parts[1], 10);
+    if (ym >= 1 && ym <= 12) {
+      return months[ym - 1] + ' ' + parts[0];
+    }
+  }
+  return clean;
+}
+
+/**
+ * Resolves the real numeric FamilySearch Memory ID if a photo was already uploaded (e.g. on 409 Conflict)
+ */
+async function resolveExistingMemoryId(targetPersonId, title, filename, token) {
+  var cleanTitle = (title || '').trim().toLowerCase();
+
+  // 1. Check target person's attached memories
+  if (targetPersonId) {
+    try {
+      var pRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories', {
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+        }
+      });
+      if (pRes.ok) {
+        var pJson = await pRes.json();
+        var sds = pJson.sourceDescriptions || [];
+        if (sds.length > 0) {
+          var matched = sds.find(function (sd) {
+            var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
+            var ab = sd.about || '';
+            return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
+                   (filename && ab.includes(filename));
+          });
+          var chosen = matched || sds[0];
+          if (chosen) {
+            var memIdFromAbout = (chosen.about && chosen.about.indexOf('/memories/') !== -1)
+              ? chosen.about.replace(/\/+$/, '').split('/').pop()
+              : null;
+            var chosenId = memIdFromAbout || (chosen.id ? String(chosen.id) : null);
+            if (chosenId && chosenId.indexOf('SD-') !== -1 && memIdFromAbout) {
+              chosenId = memIdFromAbout;
+            }
+            if (chosenId) return chosenId;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not query person memories for ID resolution:', e);
+    }
+  }
+
+  // 2. Check current user's memories list
+  try {
+    var uRes = await fetch(API_BASE + '/platform/memories/users/current/memories', {
+      headers: {
+        'Authorization': 'Bearer ' + token.accessToken,
+        'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+      }
+    });
+    if (uRes.ok) {
+      var uJson = await uRes.json();
+      var uSds = uJson.sourceDescriptions || [];
+      if (uSds.length > 0) {
+        var uMatched = uSds.find(function (sd) {
+          var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
+          var ab = sd.about || '';
+          return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
+                 (filename && ab.includes(filename));
+        });
+        var uChosen = uMatched || uSds[0];
+        if (uChosen) {
+          var uMemIdFromAbout = (uChosen.about && uChosen.about.indexOf('/memories/') !== -1)
+            ? uChosen.about.replace(/\/+$/, '').split('/').pop()
+            : null;
+          var uChosenId = uMemIdFromAbout || (uChosen.id ? String(uChosen.id) : null);
+          if (uChosenId && uChosenId.indexOf('SD-') !== -1 && uMemIdFromAbout) {
+            uChosenId = uMemIdFromAbout;
+          }
+          if (uChosenId) return uChosenId;
+        }
+      }
+    }
+  } catch (uErr) {
+    console.warn('Could not query user memories for ID resolution:', uErr);
+  }
+
+  return null;
+}
+
+/**
  * Upload an image to FamilySearch Beta Memories, link to Person, and attach persona tags
  */
 async function uploadMemory(options) {
@@ -387,6 +492,16 @@ async function uploadMemory(options) {
 
   onProgress({ step: 'preparing', message: 'Preparing photo artifact for FamilySearch...' });
 
+  // If replacing older copy requested, delete prior memory from FamilySearch first
+  if (options.replaceMemoryId) {
+    onProgress({ step: 'replacing', message: 'Removing older copy (Memory #' + options.replaceMemoryId + ') from FamilySearch...' });
+    try {
+      await deleteMemory(options.replaceMemoryId);
+    } catch (delErr) {
+      console.warn('Could not delete old memory before replace:', delErr);
+    }
+  }
+
   // Format rich descriptive summary for FamilySearch Memories description
   var descLines = [];
   if (story) descLines.push(story);
@@ -406,8 +521,6 @@ async function uploadMemory(options) {
   var filename = (isoDate ? isoDate + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
 
   // 1. Determine upload endpoint
-  // Upload to universal Memories artifact endpoint so artifact metadata and face bounding box qualifiers
-  // can be cleanly created and positioned before tree evidence linking, avoiding unpositioned prompt.
   var uploadUrl = API_BASE + '/platform/memories/memories';
   var qParams = [];
   if (title) qParams.push('title=' + encodeURIComponent(title));
@@ -438,9 +551,14 @@ async function uploadMemory(options) {
   if (!uploadRes.ok) {
     if (uploadRes.status === 409) {
       // Conflict - memory already exists on FamilySearch
+      onProgress({ step: 'conflict', message: 'Photo is already on FamilySearch. Resolving existing memory record...' });
       var loc = uploadRes.headers.get('Location') || '';
       var xId = uploadRes.headers.get('X-entity-id') || '';
       memoryId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
+
+      if (!memoryId) {
+        memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+      }
     } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
       // Fallback attempt to person memories endpoint if universal rejected
       onProgress({ step: 'fallback', message: 'Posting to Person Memories endpoint...' });
@@ -470,6 +588,10 @@ async function uploadMemory(options) {
     memoryId = resXId || (resLoc ? resLoc.replace(/\/+$/, '').split('/').pop() : null);
   }
 
+  if (!memoryId && targetPersonId) {
+    memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+  }
+
   if (!memoryId && photo.id) {
     memoryId = 'mem_' + Date.now();
   }
@@ -478,10 +600,16 @@ async function uploadMemory(options) {
   if (memoryId && (isoDate || place)) {
     onProgress({ step: 'coverage', message: 'Saving memory Date (' + (isoDate || 'N/A') + ') and Place (' + (place || 'N/A') + ') to FamilySearch...' });
     try {
+      var normalizedDate = formatNormalizedDate(isoDate);
+      var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
+
+      // In FamilySearch Memories, temporal coverage uses the normalized date string in original
       var coverageEntry = {};
       if (isoDate) {
         coverageEntry.temporal = {
-          original: isoDate
+          original: normalizedDate || isoDate,
+          formal: formalDate,
+          normalized: normalizedDate
         };
       }
       if (place) {
@@ -494,10 +622,31 @@ async function uploadMemory(options) {
         }
       }
 
-      var updatePayload = {
+      // Query live source description ID from FamilySearch if possible
+      var sdid = memoryId;
+      try {
+        var sdRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '?sourceDescriptions=true', {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+          }
+        });
+        if (sdRes.ok) {
+          var sdData = await sdRes.json();
+          if (sdData && sdData.sourceDescriptions && sdData.sourceDescriptions[0] && sdData.sourceDescriptions[0].id) {
+            sdid = sdData.sourceDescriptions[0].id;
+          }
+        }
+      } catch (sdFetchErr) {
+        console.warn('Could not read existing sourceDescription id:', sdFetchErr);
+      }
+
+      var updatePayload1 = {
         sourceDescriptions: [
           {
-            id: memoryId,
+            id: sdid,
+            about: API_BASE + '/platform/memories/memories/' + memoryId,
+            resourceType: 'http://gedcomx.org/DigitalArtifact',
             titles: [{ value: title }],
             descriptions: fullDescription ? [{ value: fullDescription }] : [],
             coverage: [coverageEntry]
@@ -505,40 +654,62 @@ async function uploadMemory(options) {
         ]
       };
 
-      var postCovRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Content-Type': 'application/x-fs-v1+json',
-          'Accept': 'application/x-fs-v1+json, application/json'
-        },
-        body: JSON.stringify(updatePayload)
-      });
+      var updatePayload2 = {
+        sourceDescriptions: [
+          {
+            id: sdid,
+            about: API_BASE + '/platform/memories/memories/' + memoryId,
+            resourceType: 'http://gedcomx.org/DigitalArtifact',
+            titles: [{ value: title }],
+            descriptions: fullDescription ? [{ value: fullDescription }] : [],
+            coverage: coverageEntry
+          }
+        ]
+      };
 
-      if (!postCovRes.ok) {
-        // Retry with standard GEDCOM X content type
-        postCovRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Content-Type': 'application/x-gedcomx-v1+json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(updatePayload)
-        });
-      }
+      var endpoints = [
+        API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(sdid),
+        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId),
+        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0',
+        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage',
+        API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description',
+        API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(memoryId)
+      ];
 
-      // Also try artifact description endpoint if memory endpoint did not return 200/204
-      if (!postCovRes.ok) {
-        await fetch(API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Content-Type': 'application/x-fs-v1+json',
-            'Accept': 'application/x-fs-v1+json, application/json'
-          },
-          body: JSON.stringify(updatePayload)
-        });
+      var covSaved = false;
+      for (var epIdx = 0; epIdx < endpoints.length && !covSaved; epIdx++) {
+        var epUrl = endpoints[epIdx];
+        for (var pVar of [updatePayload1, updatePayload2]) {
+          try {
+            var postRes = await fetch(epUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-fs-v1+json',
+                'Accept': 'application/x-fs-v1+json, application/json'
+              },
+              body: JSON.stringify(pVar)
+            });
+            if (postRes.ok || postRes.status === 204) {
+              covSaved = true;
+              break;
+            } else {
+              var postRes2 = await fetch(epUrl, {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-gedcomx-v1+json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(pVar)
+              });
+              if (postRes2.ok || postRes2.status === 204) {
+                covSaved = true;
+                break;
+              }
+            }
+          } catch (epErr) {}
+        }
       }
     } catch (covErr) {
       console.warn('Memory coverage date/place update notice:', covErr);
@@ -563,10 +734,10 @@ async function uploadMemory(options) {
   var existingPersonas = [];
   if (memoryId) {
     try {
-      var listRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas', {
+      var listRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas?includeTreeIdentifier=true', {
         headers: {
           'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-fs-v1+json, application/json'
+          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
         }
       });
       if (listRes.ok) {
@@ -642,14 +813,16 @@ async function uploadMemory(options) {
           wStr = w.toFixed(4);
           hStr = h.toFixed(4);
 
-          // GEDCOM X RectangleRegion: x1,y1,x2,y2
+          // GEDCOM X standard: x1,y1,x2,y2
           regionStr = x1Str + ',' + y1Str + ',' + x2Str + ',' + y2Str;
-          // FamilySearch RectangleRegion: x,y,width,height
+          // FamilySearch standard: x,y,width,height
           regionBox = x1Str + ',' + y1Str + ',' + wStr + ',' + hStr;
         }
 
         var qualifiers = hasBox ? [
           { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+          { name: 'http://gedcomx.org/Box', value: regionStr },
+          { name: 'http://gedcomx.org/box', value: regionBox },
           { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox },
           { name: 'http://familysearch.org/v1/x', value: x1Str },
           { name: 'http://familysearch.org/v1/y', value: y1Str },
@@ -659,13 +832,25 @@ async function uploadMemory(options) {
 
         var media = hasBox ? [
           {
-            description: API_BASE + '/platform/memories/artifacts/' + memoryId + '/description',
+            resource: API_BASE + '/platform/memories/memories/' + memoryId,
+            description: 'http://gedcomx.org/Photograph',
             qualifiers: qualifiers
           }
         ] : undefined;
 
+        var personNames = [
+          {
+            type: 'http://gedcomx.org/Preferred',
+            nameForms: [{ fullText: personName }],
+            forms: [{ fullText: personName }]
+          }
+        ];
+
         var identifiers = {};
         if (personPid) {
+          identifiers['http://gedcomx.org/Persistent'] = [
+            API_BASE + '/platform/tree/persons/' + personPid
+          ];
           identifiers['http://familysearch.org/v1/FamilyTreePerson'] = [
             'https://familysearch.org/ark:/61903/4:1:' + personPid
           ];
@@ -680,14 +865,22 @@ async function uploadMemory(options) {
               return true;
             }
           }
-          var pName = p.names && p.names[0] && p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText;
+          if (personPid && Array.isArray(p.identifiers)) {
+            if (p.identifiers.some(function (idObj) { return idObj.value && idObj.value.indexOf(personPid) !== -1; })) {
+              return true;
+            }
+          }
+          var pName = p.names && p.names[0] && (
+            (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText) ||
+            (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText)
+          );
           if (pName && personName) {
             var pLower = pName.trim().toLowerCase();
             var tLower = personName.trim().toLowerCase();
             return pLower === tLower || pLower.indexOf(tLower) !== -1 || tLower.indexOf(pLower) !== -1;
           }
           return false;
-        });
+        }) || (existingPersonas.length === 1 ? existingPersonas[0] : null);
 
         var personaId = matchedExisting ? matchedExisting.id : null;
         var opSuccess = false;
@@ -697,10 +890,10 @@ async function uploadMemory(options) {
           var updatePerson = {
             id: matchedExisting.id,
             extracted: true,
-            names: [{ nameForms: [{ fullText: personName }] }]
+            names: personNames,
+            media: media
           };
           if (hasIdentifiers) updatePerson.identifiers = identifiers;
-          if (media) updatePerson.media = media;
 
           var updateRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
             method: 'POST',
@@ -736,10 +929,10 @@ async function uploadMemory(options) {
           // CREATE new persona with bounding box coordinates
           var createPerson = {
             extracted: true,
-            names: [{ nameForms: [{ fullText: personName }] }]
+            names: personNames,
+            media: media
           };
           if (hasIdentifiers) createPerson.identifiers = identifiers;
-          if (media) createPerson.media = media;
 
           var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
             method: 'POST',
@@ -755,9 +948,9 @@ async function uploadMemory(options) {
             // Retry without identifiers in case server prefers creating first then linking
             var fallbackPerson = {
               extracted: true,
-              names: createPerson.names
+              names: createPerson.names,
+              media: media
             };
-            if (media) fallbackPerson.media = media;
             personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
               method: 'POST',
               headers: {
@@ -794,7 +987,6 @@ async function uploadMemory(options) {
                 persons: [
                   {
                     id: personaId,
-                    extracted: true,
                     identifiers: {
                       'http://familysearch.org/v1/FamilyTreePerson': [
                         'https://familysearch.org/ark:/61903/4:1:' + personPid
