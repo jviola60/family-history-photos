@@ -473,25 +473,38 @@
   async function resolvePlaceDescription(placeText, token) {
     if (!placeText || !token) return null;
     try {
-      // Strip street number if present so Place Authority matches the jurisdiction (e.g. "Bowling Green, OH")
-      var query = placeText.replace(/^\d+[^,]+,\s*/, '').trim() || placeText;
-      var pSearchUrl = API_BASE + '/platform/places/search?q=name:' + encodeURIComponent(query);
-      var pRes = await fetch(pSearchUrl, {
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-gedcomx-atom+json, application/json'
-        }
-      });
-      if (pRes.ok) {
-        var pData = await pRes.json();
-        var entries = pData.entries || [];
-        if (entries.length > 0 && entries[0].content && entries[0].content.gedcomx && entries[0].content.gedcomx.places) {
-          var matchedPlace = entries[0].content.gedcomx.places[0];
-          if (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href) {
-            return matchedPlace.links.description.href;
+      // 1. Clean place query: strip street address and postal code for jurisdictional matching (e.g. "Bowling Green, OH")
+      var query = placeText.replace(/^\d+[^,]+,\s*/, '').replace(/\s+\d{5}(-\d{4})?$/, '').trim() || placeText;
+      var candidateQueries = [
+        'name:' + encodeURIComponent('"' + query + '"'),
+        'name:' + encodeURIComponent(query),
+        encodeURIComponent(query)
+      ];
+
+      for (var qIdx = 0; qIdx < candidateQueries.length; qIdx++) {
+        var pSearchUrl = API_BASE + '/platform/places/search?q=' + candidateQueries[qIdx];
+        var pRes = await fetch(pSearchUrl, {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-gedcomx-atom+json, application/json'
           }
-          if (matchedPlace.id) {
-            return API_BASE + '/platform/places/description/' + matchedPlace.id;
+        });
+        if (pRes.ok) {
+          var pData = await pRes.json();
+          var entries = pData.entries || [];
+          if (entries.length > 0 && entries[0].content && entries[0].content.gedcomx && entries[0].content.gedcomx.places) {
+            var matchedPlace = entries[0].content.gedcomx.places[0];
+            var descHref = (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href)
+              ? matchedPlace.links.description.href
+              : (matchedPlace.id ? (API_BASE + '/platform/places/description/' + matchedPlace.id) : null);
+            var fullName = (matchedPlace.display && matchedPlace.display.fullName)
+              ? matchedPlace.display.fullName
+              : (matchedPlace.names && matchedPlace.names[0] ? matchedPlace.names[0].value : null);
+            return {
+              id: matchedPlace.id,
+              descriptionUrl: descHref,
+              fullName: fullName
+            };
           }
         }
       }
@@ -657,23 +670,54 @@
         var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
 
         // Resolve FamilySearch Place Authority reference URL if available
-        var placeDescUrl = await resolvePlaceDescription(place, token);
+        var placeInfo = await resolvePlaceDescription(place, token);
+        var placeDescUrl = placeInfo ? placeInfo.descriptionUrl : null;
 
-        var coverageEntry = {};
+        // Build cleanly typed GEDCOM X Coverage entries
+        // Notice: In GEDCOM X schema, temporal.normalized is List<TextValue>, not a string.
+        // We supply standard original and formal strings, plus variants for maximum compatibility.
+        var covClean = {};
         if (isoDate) {
-          coverageEntry.temporal = {
+          covClean.temporal = {
             original: normalizedDate || isoDate,
-            normalized: normalizedDate,
             formal: formalDate
           };
         }
         if (place) {
-          coverageEntry.spatial = {
+          covClean.spatial = {
             original: place
           };
           if (placeDescUrl) {
-            coverageEntry.spatial.description = placeDescUrl;
+            covClean.spatial.description = placeDescUrl;
           }
+        }
+
+        var covWithNormalized = {};
+        if (isoDate) {
+          covWithNormalized.temporal = {
+            original: normalizedDate || isoDate,
+            formal: formalDate,
+            normalized: [{ value: normalizedDate || isoDate }]
+          };
+        }
+        if (place) {
+          covWithNormalized.spatial = {
+            original: place
+          };
+          if (placeDescUrl) {
+            covWithNormalized.spatial.description = placeDescUrl;
+          }
+          if (placeInfo && placeInfo.fullName) {
+            covWithNormalized.spatial.normalized = [{ value: placeInfo.fullName }];
+          }
+        }
+
+        var covMinimal = {};
+        if (isoDate) {
+          covMinimal.temporal = { original: normalizedDate || isoDate };
+        }
+        if (place) {
+          covMinimal.spatial = { original: place };
         }
 
         // Query live source description from FamilySearch to inspect links and artifact references
@@ -701,19 +745,24 @@
           console.warn('Could not read existing memory description:', getErr);
         }
 
-        // Target endpoints: coverage sub-resource, artifact endpoint, and memory container
+        var targetSdId = (liveSd && liveSd.id) || memoryId;
+        var memoryAbout = API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId);
+
+        // Target endpoints: coverage sub-resource, memory container, and artifact endpoints
         var targetEndpoints = [];
         if (coverageHref) targetEndpoints.push({ url: coverageHref, isCoverageOnly: true });
         targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage', isCoverageOnly: true });
+        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), isCoverageOnly: false });
         if (artifactHref) {
           targetEndpoints.push({ url: artifactHref + '/coverage', isCoverageOnly: true });
           targetEndpoints.push({ url: artifactHref, isCoverageOnly: false });
         }
         targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0', isCoverageOnly: false });
         targetEndpoints.push({ url: API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description', isCoverageOnly: false });
-        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), isCoverageOnly: false });
 
-        // Dispatch coverage updates to all endpoints (do not break early so all necessary targets receive the update)
+        var coverageSaved = false;
+
+        // Dispatch coverage updates across endpoints until saved
         for (var tIdx = 0; tIdx < targetEndpoints.length; tIdx++) {
           var target = targetEndpoints[tIdx];
           var epUrl = target.url;
@@ -721,56 +770,104 @@
 
           if (target.isCoverageOnly) {
             // Direct coverage payloads (tried with POST and PUT)
-            payloads = [
-              { method: 'POST', body: coverageEntry },
-              { method: 'PUT', body: coverageEntry },
-              { method: 'POST', body: { coverage: coverageEntry } },
-              { method: 'PUT', body: { coverage: coverageEntry } }
-            ];
+            var covVariants = [covClean, covWithNormalized, covMinimal];
+            for (var cvIdx = 0; cvIdx < covVariants.length; cvIdx++) {
+              var cv = covVariants[cvIdx];
+              payloads.push({ method: 'POST', body: cv });
+              payloads.push({ method: 'PUT', body: cv });
+              payloads.push({ method: 'POST', body: [cv] });
+              payloads.push({ method: 'PUT', body: [cv] });
+              payloads.push({ method: 'POST', body: { coverage: cv } });
+              payloads.push({ method: 'PUT', body: { coverage: cv } });
+              payloads.push({ method: 'POST', body: { coverage: [cv] } });
+              payloads.push({ method: 'PUT', body: { coverage: [cv] } });
+            }
           } else {
             // Container / description payloads (SourceDescriptions)
-            var sd1 = {
-              id: (liveSd && liveSd.id) || '1',
-              about: API_BASE + '/platform/memories/memories/' + memoryId,
-              resourceType: 'http://gedcomx.org/DigitalArtifact',
-              titles: title ? [{ value: title }] : undefined,
-              descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
-              coverage: coverageEntry
-            };
-            var sd2 = Object.assign({}, sd1, { id: memoryId });
-            var sd3 = Object.assign({}, sd1, { coverage: [coverageEntry] });
-            payloads = [
-              { method: 'POST', body: { sourceDescriptions: [sd1] } },
-              { method: 'POST', body: { sourceDescriptions: [sd2] } },
-              { method: 'POST', body: { sourceDescriptions: [sd3] } }
-            ];
+            var covVariants2 = [covClean, covWithNormalized, covMinimal];
+            for (var cv2Idx = 0; cv2Idx < covVariants2.length; cv2Idx++) {
+              var cv2 = covVariants2[cv2Idx];
+              // Standard GEDCOM X SourceDescription with coverage array
+              payloads.push({
+                method: 'POST',
+                body: {
+                  sourceDescriptions: [{
+                    id: targetSdId,
+                    about: memoryAbout,
+                    titles: title ? [{ value: title }] : undefined,
+                    descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
+                    coverage: [cv2]
+                  }]
+                }
+              });
+              payloads.push({
+                method: 'POST',
+                body: {
+                  sourceDescriptions: [{
+                    id: targetSdId,
+                    about: memoryAbout,
+                    coverage: [cv2]
+                  }]
+                }
+              });
+              payloads.push({
+                method: 'POST',
+                body: {
+                  sourceDescriptions: [{
+                    id: targetSdId,
+                    about: memoryAbout,
+                    coverage: cv2
+                  }]
+                }
+              });
+              // Also try PUT on memory container
+              payloads.push({
+                method: 'PUT',
+                body: {
+                  sourceDescriptions: [{
+                    id: targetSdId,
+                    about: memoryAbout,
+                    coverage: [cv2]
+                  }]
+                }
+              });
+            }
           }
 
           for (var pIdx = 0; pIdx < payloads.length; pIdx++) {
             var item = payloads[pIdx];
-            try {
-              var pRes = await fetch(epUrl, {
-                method: item.method,
-                headers: {
-                  'Authorization': 'Bearer ' + token.accessToken,
-                  'Content-Type': 'application/x-fs-v1+json',
-                  'Accept': 'application/x-fs-v1+json, application/json'
-                },
-                body: JSON.stringify(item.body)
-              });
-              if (!pRes.ok) {
-                await fetch(epUrl, {
+            var contentTypes = ['application/x-fs-v1+json', 'application/x-gedcomx-v1+json', 'application/json'];
+            for (var cIdx = 0; cIdx < contentTypes.length; cIdx++) {
+              var cType = contentTypes[cIdx];
+              try {
+                var pRes = await fetch(epUrl, {
                   method: item.method,
                   headers: {
                     'Authorization': 'Bearer ' + token.accessToken,
-                    'Content-Type': 'application/x-gedcomx-v1+json',
-                    'Accept': 'application/json'
+                    'Content-Type': cType,
+                    'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
                   },
                   body: JSON.stringify(item.body)
                 });
+                var pText = '';
+                try { pText = await pRes.clone().text(); } catch (clErr) {}
+                console.log('FS coverage attempt:', item.method, epUrl, cType, pRes.status, pText);
+                if (pRes.ok) {
+                  console.log('FS coverage SUCCESS (' + pRes.status + ') at ' + epUrl);
+                  coverageSaved = true;
+                  break;
+                }
+              } catch (pErr) {
+                console.warn('FS coverage dispatch error:', pErr);
               }
-            } catch (pErr) {}
+            }
+            if (coverageSaved && target.isCoverageOnly) {
+              break;
+            }
           }
+        }
+        if (coverageSaved) {
+          onProgress({ step: 'coverage', message: 'Memory Date & Place coverage saved to FamilySearch.' });
         }
       } catch (covErr) {
         console.warn('Memory coverage date/place update notice:', covErr);

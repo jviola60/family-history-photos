@@ -208,8 +208,8 @@
         position: fixed;
         inset: 0;
         background: rgba(17, 17, 16, 0.75);
-        backdrop-filter: blur(5px);
         -webkit-backdrop-filter: blur(5px);
+        backdrop-filter: blur(5px);
         z-index: 10000;
         display: flex;
         align-items: center;
