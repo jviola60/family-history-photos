@@ -2086,6 +2086,12 @@
       align-items: center;
       gap: 4px;
     }
+    .insp-btn-share {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 500;
+    }
     .title-label-row {
       display: flex;
       justify-content: space-between;
@@ -2096,6 +2102,118 @@
       gap: 6px;
       margin-top: 8px;
       flex-wrap: wrap;
+    }
+    .btn-fill {
+      flex: 1;
+    }
+    .btn-pick-1-5 {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-weight: 600;
+      width: 100%;
+    }
+    .share-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.68);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+    }
+    .share-modal-backdrop[hidden] {
+      display: none !important;
+    }
+    .share-modal-card {
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .share-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .share-modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .share-modal-icon {
+      font-size: 24px;
+    }
+    .share-modal-title-group h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .share-modal-preview {
+      display: flex;
+      gap: 12px;
+      padding: 14px 18px;
+      background: var(--raised, rgba(0, 0, 0, 0.03));
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }
+    .share-modal-preview img {
+      width: 76px;
+      height: 76px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .share-modal-meta {
+      flex: 1;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow: hidden;
+    }
+    .share-modal-caption {
+      font-weight: 600;
+      margin: 0 0 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .share-modal-detail {
+      margin: 2px 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .share-modal-actions {
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .share-action-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      font-weight: 500;
+      width: 100%;
     }
     .btn-fill {
       flex: 1;
@@ -2183,8 +2301,11 @@
       </div>
 
       <div class="folder-picker-box">
-        <button class="btn primary folder-pick-btn" type="button" id="btn-choose-folder">
-          <span data-icon="folder"></span><span>Choose Photo Folder...</span>
+        <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick 1 to 5 photos from your device to tag, repair &amp; sync">
+          <span data-icon="grid"></span><span>Pick 1–5 Photos...</span>
+        </button>
+        <button class="btn sm folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer" style="margin-top:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);">
+          <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
           ✕ Clear Demo Photos
@@ -2252,13 +2373,16 @@
           </div>
         </div>
         <div class="top-right">
+          <button class="btn sm primary" type="button" id="btn-top-pick-photos" title="Pick 1 to 5 photos from your device to tag, repair &amp; sync">
+            <span data-icon="grid"></span><span>Pick 1–5 Photos</span>
+          </button>
           <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
-            <span>📷 Add</span>
+            <span>📷 Camera</span>
           </button>
           <button class="btn sm btn-top-help" type="button" id="btn-top-help" title="Open Interactive Tutorial &amp; Workflow Guide">
             <span data-icon="book"></span><span class="desktop-only">Help &amp; Tutorial</span>
           </button>
-          <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Choose a local photo folder from your computer">
+          <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Scan a local photo folder from your computer">
             <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
           </button>
           <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
@@ -2463,8 +2587,8 @@
             <div id="lab-tool-body"></div>
 
             <div class="lab-save-bar">
-              <button class="btn primary flex-fill" type="button" id="btn-save-return">Save &amp; return to
-                Ledger</button>
+              <button class="btn primary flex-fill" type="button" id="btn-save-return">Save &amp; return to Ledger</button>
+              <button class="btn" type="button" id="btn-lab-share" title="Share restored photo to Messages, Mail, AirDrop, or copy image"><span data-icon="share"></span><span>Share</span></button>
             </div>
           </aside>
         </div>
@@ -2526,6 +2650,45 @@
     </div>
   </div>
 
+  <!-- SHARE MODAL (Desktop & Mobile Fallback) -->
+  <div id="share-modal" class="share-modal-backdrop" hidden>
+    <div class="share-modal-card">
+      <div class="share-modal-header">
+        <div class="share-modal-title-group">
+          <span class="share-modal-icon">📤</span>
+          <div>
+            <h3 id="share-modal-title">Share Family Photo</h3>
+            <p class="muted" id="share-modal-sub" style="font-size:12px;margin:2px 0 0;">Photo &amp; metadata ready</p>
+          </div>
+        </div>
+        <button type="button" class="btn sm" id="btn-share-modal-close" aria-label="Close share dialog">✕</button>
+      </div>
+      <div class="share-modal-preview">
+        <img id="share-modal-img" src="sample.jpg" alt="Photo Preview">
+        <div class="share-modal-meta">
+          <p class="share-modal-caption" id="share-modal-caption">Family Photo</p>
+          <p class="share-modal-detail" id="share-modal-date"></p>
+          <p class="share-modal-detail" id="share-modal-place"></p>
+          <p class="share-modal-detail" id="share-modal-people"></p>
+        </div>
+      </div>
+      <div class="share-modal-actions">
+        <button type="button" class="btn primary share-action-btn" id="share-btn-copy-img">
+          <span data-icon="copy"></span><span>Copy Image to Clipboard</span>
+        </button>
+        <button type="button" class="btn share-action-btn" id="share-btn-email">
+          <span>✉️</span><span>Email Photo &amp; Citation</span>
+        </button>
+        <button type="button" class="btn share-action-btn" id="share-btn-copy-text">
+          <span>📋</span><span>Copy Caption &amp; Citation</span>
+        </button>
+        <button type="button" class="btn share-action-btn" id="share-btn-download">
+          <span data-icon="download"></span><span>Download JPEG Copy</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="/exifr.js"></script>
   <script src="/leaflet/leaflet.js"></script>
   <script src="/taste-charts.js"></script>
@@ -2550,7 +2713,8 @@
         clean: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>',
         map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>',
         pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
-        table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>'
+        table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>',
+        share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
       };
 
       const COMMON_RELATIONSHIPS = [
@@ -3323,19 +3487,24 @@
                     Demo photos have been removed. Select a local photo folder or family scan archive from your computer to organize memories, repair old photos with AI, and sync with FamilySearch.
                   </p>
                   <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn primary" type="button" id="btn-empty-choose">
-                      <span data-icon="folder"></span> Choose Photo Folder...
+                    <button class="btn primary" type="button" id="btn-empty-pick">
+                      <span data-icon="grid"></span> Pick 1–5 Photos...
+                    </button>
+                    <button class="btn desktop-only" type="button" id="btn-empty-choose">
+                      <span data-icon="folder"></span> Scan Entire Folder...
                     </button>
                     <button class="btn" type="button" id="btn-empty-reload-demo">
                       ↺ Reload Demo Photos
                     </button>
                   </div>
                   <p class="mono muted" style="font-size:11px;margin-top:16px;">
-                    100% private: All scans and edits stay in your browser on your computer.
+                    100% private: All scans, metadata and edits stay in your browser on your device.
                   </p>
                 </div>`;
               mountIcons(host);
-              host.querySelector('#btn-empty-choose').onclick = pickPhotoFolder;
+              host.querySelector('#btn-empty-pick').onclick = pickIndividualPhotos;
+              const emptyChooseBtn = host.querySelector('#btn-empty-choose');
+              if (emptyChooseBtn) emptyChooseBtn.onclick = pickPhotoFolder;
               host.querySelector('#btn-empty-reload-demo').onclick = resetToSampleArchive;
               return;
             }
@@ -3850,13 +4019,18 @@
             if (!p) {
               box.innerHTML = `
                 <div style="padding:32px 16px;text-align:center;">
-                  <p class="muted" style="font-size:13px;line-height:1.5;">No photo selected. Open a photo folder or reload demo data.</p>
-                  <button class="btn sm primary" type="button" style="margin-top:12px;width:100%;" id="insp-choose-empty">
-                    <span data-icon="folder"></span> Choose Photo Folder...
+                  <p class="muted" style="font-size:13px;line-height:1.5;">No photo selected. Pick 1 to 5 photos or scan a folder.</p>
+                  <button class="btn sm primary" type="button" style="margin-top:12px;width:100%;" id="insp-pick-empty">
+                    <span data-icon="grid"></span> Pick 1–5 Photos...
+                  </button>
+                  <button class="btn sm desktop-only" type="button" style="margin-top:6px;width:100%;" id="insp-choose-empty">
+                    <span data-icon="folder"></span> Scan Entire Folder...
                   </button>
                 </div>`;
               mountIcons(box);
-              box.querySelector('#insp-choose-empty').onclick = pickPhotoFolder;
+              box.querySelector('#insp-pick-empty').onclick = pickIndividualPhotos;
+              const inspChooseEmptyBtn = box.querySelector('#insp-choose-empty');
+              if (inspChooseEmptyBtn) inspChooseEmptyBtn.onclick = pickPhotoFolder;
               return;
             }
 
@@ -4012,6 +4186,9 @@
           <div class="insp-btn-actions">
             <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves all updates in the app immediately without downloading a new file">
               ✓ Update Record
+            </button>
+            <button class="btn insp-btn-share" type="button" id="btn-share-photo" title="Share photo via Messages, Mail, AirDrop, or copy image/link">
+              <span data-icon="share"></span><span>Share</span>
             </button>
             <button class="btn insp-btn-export" type="button" id="btn-download-file" title="Export and download a standalone JPEG copy with embedded EXIF &amp; IPTC tags to your computer">
               <span data-icon="download"></span><span>Export JPEG</span>
@@ -4372,6 +4549,11 @@
               };
             }
 
+            const sharePhotoBtn = box.querySelector('#btn-share-photo');
+            if (sharePhotoBtn) {
+              sharePhotoBtn.onclick = () => sharePhoto(p);
+            }
+
             const downloadFileBtn = box.querySelector('#btn-download-file');
             if (downloadFileBtn) {
               downloadFileBtn.onclick = async () => {
@@ -4442,12 +4624,15 @@
             vp.innerHTML = `
               <div class="panel" style="padding:48px 24px;text-align:center;max-width:560px;margin:32px auto;background:#1a1a1a;color:#fff;border-radius:12px;">
                 <p style="font-weight:600;font-size:16px;">Photo Lab is empty</p>
-                <p class="muted" style="font-size:13px;margin:8px 0 20px;color:#999;">Choose a photo folder or reload the demo archive to test photo restoration.</p>
-                <button class="btn primary" type="button" id="btn-lab-empty-choose">Choose Photo Folder...</button>
+                <p class="muted" style="font-size:13px;margin:8px 0 20px;color:#999;">Pick 1 to 5 photos to repair, or reload demo photos.</p>
+                <button class="btn primary" type="button" id="btn-lab-empty-pick">Pick 1–5 Photos...</button>
+                <button class="btn desktop-only" type="button" id="btn-lab-empty-choose" style="margin-left:8px;background:#333;color:#fff;border-color:#555;">Scan Entire Folder...</button>
                 <button class="btn" type="button" id="btn-lab-empty-demo" style="margin-left:8px;background:#333;color:#fff;border-color:#555;">Reload Demo Photos</button>
               </div>`;
             mountIcons(vp);
-            vp.querySelector('#btn-lab-empty-choose').onclick = pickPhotoFolder;
+            vp.querySelector('#btn-lab-empty-pick').onclick = pickIndividualPhotos;
+            const labEmptyChooseBtn = vp.querySelector('#btn-lab-empty-choose');
+            if (labEmptyChooseBtn) labEmptyChooseBtn.onclick = pickPhotoFolder;
             vp.querySelector('#btn-lab-empty-demo').onclick = resetToSampleArchive;
           }
           const body = document.getElementById('lab-tool-body');
@@ -7335,67 +7520,368 @@
         };
       }
 
+      /* -------------------------------------------------------------
+         LIGHTWEIGHT PHOTO SELECTION (1 TO 5 PHOTOS) & NATIVE SHARING
+         ------------------------------------------------------------- */
+      async function handleSelectedFiles(files, sourceLabel = 'Selected_Photos') {
+        const imgFiles = files.filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+        if (!imgFiles.length) {
+          notify('No supported photo files selected.');
+          return;
+        }
+
+        // Limit to 10 max so mobile devices and desktop browsers remain fast and never crash
+        const selectedFiles = imgFiles.slice(0, 10);
+        await clearArchiveFromDb();
+        isCustomFolder = true;
+        rootFolderName = sourceLabel;
+        activeFolder = null;
+        activeQueue = 'all';
+        search = '';
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = '';
+
+        const branchCycle = ['Gill', 'Costello', 'Russo'];
+        const newItems = [];
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Photo ${i + 1}`;
+          const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+          const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+          const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
+          const isoDate = dateMatch
+            ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+            : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+          const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+          const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
+          const url = URL.createObjectURL(file);
+          const id = `PH-${String(i + 1).padStart(3, '0')}`;
+
+          newItems.push({
+            id,
+            file: file.name,
+            title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
+            subfolder: sourceLabel,
+            isoDate,
+            decade,
+            year,
+            date: isoDate,
+            place: '',
+            branch: branchCycle[i % branchCycle.length],
+            people: [],
+            unnamedFaces: 0,
+            width: 1200,
+            height: 900,
+            origWidth: 1200,
+            origHeight: 900,
+            origCrop: '50% 50%',
+            origScale: 1,
+            origRestored4k: false,
+            kb: Math.max(1, Math.round(file.size / 1024)),
+            restored4k: false,
+            fsId: '',
+            fsSynced: false,
+            fsMemoryId: '',
+            inReview: false,
+            screenshot: /screen|capture|snap/i.test(file.name),
+            crop: '50% 50%',
+            scale: 1,
+            filter: 'none',
+            story: '',
+            src: url,
+            workingSrc: null,
+            _file: file,
+            edits: [],
+            rotation: 0,
+            straighten: 0,
+            flipH: false,
+            cropRatio: 'Original',
+            cropBox: { x: 8, y: 8, w: 84, h: 84 },
+            tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
+            color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
+            model: 'codeformer',
+            fidelity: 75,
+            scratchesFixed: true,
+            descreen: false,
+            deglare: false,
+            blemishesErased: 0,
+            redEyesFixed: 0,
+            eyePins: [],
+            history: []
+          });
+        }
+
+        items = newItems;
+        selectedId = items[0].id;
+        mode = 'catalog';
+        const side = document.getElementById('sidebar');
+        if (side) side.classList.remove('open');
+
+        notify(`Loaded ${items.length} photo${items.length > 1 ? 's' : ''} ready for metadata, Photo Lab fixes & sharing!`);
+        render();
+        if (isMobile()) {
+          openMobileInspector();
+        }
+        scheduleMetadataExtraction(items);
+      }
+
+      function pickIndividualPhotos() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = 'image/*';
+        input.onchange = () => {
+          handleSelectedFiles(Array.from(input.files || []), 'Selected_Photos');
+        };
+        input.click();
+      }
+
+      const pick15Btn = document.getElementById('btn-pick-1-5');
+      if (pick15Btn) pick15Btn.onclick = pickIndividualPhotos;
+
+      const topPickPhotosBtn = document.getElementById('btn-top-pick-photos');
+      if (topPickPhotosBtn) topPickPhotosBtn.onclick = pickIndividualPhotos;
+
       const mobCameraBtn = document.getElementById('btn-mob-camera');
       const mobCameraInput = document.getElementById('mobile-camera-input');
       if (mobCameraBtn && mobCameraInput) {
-        mobCameraBtn.onclick = () => mobCameraInput.click();
+        mobCameraBtn.onclick = () => {
+          mobCameraInput.setAttribute('capture', 'environment');
+          mobCameraInput.click();
+        };
         mobCameraInput.onchange = (e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          const imgFiles = files.filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
-          if (!imgFiles.length) {
-            notify('No supported photo files selected.');
+          handleSelectedFiles(Array.from(e.target.files || []), 'Camera_Capture');
+        };
+      }
+
+      /* -------------------------------------------------------------
+         SHARE CAPABILITIES (PHONE NATIVE SHARE SHEET + DESKTOP MODAL)
+         ------------------------------------------------------------- */
+      let activeSharePayload = null;
+
+      function convertBlobToPng(imgBlob) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          const url = URL.createObjectURL(imgBlob);
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.naturalWidth || img.width;
+              canvas.height = img.naturalHeight || img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              canvas.toBlob((b) => resolve(b || imgBlob), 'image/png');
+            } catch (e) {
+              URL.revokeObjectURL(url);
+              resolve(imgBlob);
+            }
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(imgBlob);
+          };
+          img.src = url;
+        });
+      }
+
+      function openShareModal(payload) {
+        activeSharePayload = payload;
+        const modal = document.getElementById('share-modal');
+        if (!modal) return;
+
+        const p = payload.photo;
+        const cleanTitle = (p.title || p.file || 'Family Photo').trim();
+        const dateStr = p.isoDate ? ` (${p.isoDate})` : '';
+
+        const titleEl = document.getElementById('share-modal-title');
+        if (titleEl) titleEl.textContent = 'Share Family Photo';
+        const subEl = document.getElementById('share-modal-sub');
+        if (subEl) subEl.textContent = `${cleanTitle}${dateStr}`;
+
+        const imgEl = document.getElementById('share-modal-img');
+        if (imgEl) imgEl.src = p.workingSrc || p.src;
+
+        const capEl = document.getElementById('share-modal-caption');
+        if (capEl) capEl.textContent = cleanTitle;
+
+        const dateEl = document.getElementById('share-modal-date');
+        if (dateEl) {
+          dateEl.textContent = p.isoDate ? `Date: ${p.isoDate}` : 'Date: (Not set)';
+        }
+
+        const placeEl = document.getElementById('share-modal-place');
+        if (placeEl) {
+          placeEl.textContent = p.place ? `Location: ${p.place}` : 'Location: (Not set)';
+        }
+
+        const peopleEl = document.getElementById('share-modal-people');
+        if (peopleEl) {
+          const names = (p.people && p.people.length > 0)
+            ? p.people.map((rel) => typeof rel === 'string' ? rel : `${rel.name}${rel.rel ? ` (${rel.rel})` : ''}`).join(', ')
+            : 'None tagged';
+          peopleEl.textContent = `People: ${names}`;
+        }
+
+        modal.removeAttribute('hidden');
+        mountIcons(modal);
+      }
+
+      function closeShareModal() {
+        const modal = document.getElementById('share-modal');
+        if (modal) modal.setAttribute('hidden', '');
+        activeSharePayload = null;
+      }
+
+      async function sharePhoto(p) {
+        if (!p) p = currentPhoto();
+        if (!p) return;
+        commitInspectorInputs(p, false);
+
+        notify('Preparing photo for sharing...');
+
+        let blob = null;
+        try {
+          if (window.JpegMetadataWriter && typeof window.JpegMetadataWriter.getJpegBlobWithMetadata === 'function') {
+            blob = await window.JpegMetadataWriter.getJpegBlobWithMetadata(p, p);
+          }
+        } catch (bakeErr) {
+          console.warn('Could not bake metadata for share:', bakeErr);
+        }
+
+        if (!blob) {
+          try {
+            const resp = await fetch(p.workingSrc || p.src);
+            blob = await resp.blob();
+          } catch (fetchErr) {
+            console.error('Could not fetch photo blob for share:', fetchErr);
+            notify('Unable to access photo image for sharing.');
             return;
           }
-          if (!isCustomFolder) {
-            items = [];
-            isCustomFolder = true;
-            rootFolderName = 'Phone_Photos';
+        }
+
+        const cleanTitle = (p.title || p.file || 'Family Photo').trim();
+        const dateStr = p.isoDate ? ` (${p.isoDate})` : '';
+        const placeStr = p.place ? ` · ${p.place}` : '';
+        const peopleList = (p.people && p.people.length > 0)
+          ? p.people.map((rel) => typeof rel === 'string' ? rel : `${rel.name}${rel.rel ? ` (${rel.rel})` : ''}`).join(', ')
+          : '';
+        const peopleStr = peopleList ? `\nPeople: ${peopleList}` : '';
+        const storyStr = p.story ? `\n"${p.story}"` : '';
+        const fsStr = p.fsId ? `\nFamilySearch PID: ${p.fsId}` : '';
+
+        const shareTitle = `${cleanTitle}${dateStr}`;
+        const shareText = `${cleanTitle}${dateStr}${placeStr}${peopleStr}${storyStr}${fsStr}\nPreserved with Family History Photos`;
+
+        const filename = (p.isoDate ? p.isoDate.replace(/[^0-9]/g, '') + '_' : '') +
+          cleanTitle.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30) + '.jpg';
+        const file = new File([blob], filename, { type: 'image/jpeg' });
+
+        // 2. Try native Web Share API (mobile phones, tablets, supported desktop browsers)
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              title: shareTitle,
+              text: shareText,
+              files: [file]
+            });
+            notify('✓ Photo shared successfully!');
+            return;
+          } catch (shareErr) {
+            if (shareErr.name === 'AbortError') return; // User closed share sheet
+            console.warn('Native file share cancelled or failed, falling back to Share Modal:', shareErr);
           }
-          const branchCycle = ['Gill', 'Costello', 'Russo'];
-          const newRecs = imgFiles.map((file, i) => {
-            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Phone Photo ${items.length + i + 1}`;
-            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-            const isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : fallbackDate;
-            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-            const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
-            const url = URL.createObjectURL(file);
-            const id = `PH-${String(items.length + i + 1).padStart(3, '0')}`;
-            return {
-              id,
-              title: cleanTitle,
-              file,
-              url,
-              branch: branchCycle[(items.length + i) % 3],
-              subfolder: rootFolderName,
-              width: 1200,
-              height: 900,
-              year,
-              decade,
-              date: isoDate,
-              place: '',
-              lat: null,
-              lng: null,
-              fsId: '',
-              people: [],
-              faces: [],
-              story: '',
-              edits: [],
-              restored4k: false,
-              isScreenshot: false,
-              isDuplicate: false,
-              inReview: false
-            };
-          });
-          items = [...newRecs, ...items];
-          selectedId = newRecs[0].id;
-          activeQueue = 'all';
-          activeFolder = null;
-          notify(`Added ${newRecs.length} photo${newRecs.length > 1 ? 's' : ''} from phone!`);
-          renderSidebarCounts();
-          render();
-          openMobileInspector();
+        }
+
+        // 3. Fallback: Open Share Modal
+        openShareModal({
+          photo: p,
+          file,
+          blob,
+          title: shareTitle,
+          text: shareText
+        });
+      }
+
+      const btnLabShare = document.getElementById('btn-lab-share');
+      if (btnLabShare) {
+        btnLabShare.onclick = () => sharePhoto(currentPhoto());
+      }
+
+      const btnShareModalClose = document.getElementById('btn-share-modal-close');
+      if (btnShareModalClose) btnShareModalClose.onclick = closeShareModal;
+
+      const shareModalEl = document.getElementById('share-modal');
+      if (shareModalEl) {
+        shareModalEl.onclick = (e) => {
+          if (e.target.id === 'share-modal') closeShareModal();
+        };
+      }
+
+      const shareBtnCopyImg = document.getElementById('share-btn-copy-img');
+      if (shareBtnCopyImg) {
+        shareBtnCopyImg.onclick = async () => {
+          if (!activeSharePayload) return;
+          try {
+            const pngBlob = await convertBlobToPng(activeSharePayload.blob);
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': pngBlob })
+            ]);
+            notify('✓ Image copied to clipboard! Paste directly into Messages, Mail, or Facebook.');
+            closeShareModal();
+          } catch (clipErr) {
+            try {
+              await navigator.clipboard.writeText(activeSharePayload.text);
+              notify('✓ Copied photo citation and summary to clipboard!');
+              closeShareModal();
+            } catch (e2) {
+              notify('Could not copy to clipboard.');
+            }
+          }
+        };
+      }
+
+      const shareBtnEmail = document.getElementById('share-btn-email');
+      if (shareBtnEmail) {
+        shareBtnEmail.onclick = () => {
+          if (!activeSharePayload) return;
+          const subj = encodeURIComponent(`Family Photo: ${activeSharePayload.title}`);
+          const body = encodeURIComponent(`${activeSharePayload.text}\n\nPhoto preserved with Family History Photos.`);
+          window.location.href = `mailto:?subject=${subj}&body=${body}`;
+          notify('Opened email composer with photo details.');
+          closeShareModal();
+        };
+      }
+
+      const shareBtnCopyText = document.getElementById('share-btn-copy-text');
+      if (shareBtnCopyText) {
+        shareBtnCopyText.onclick = async () => {
+          if (!activeSharePayload) return;
+          try {
+            await navigator.clipboard.writeText(activeSharePayload.text);
+            notify('✓ Copied caption & citation to clipboard!');
+            closeShareModal();
+          } catch (e) {
+            notify('Could not copy to clipboard.');
+          }
+        };
+      }
+
+      const shareBtnDownload = document.getElementById('share-btn-download');
+      if (shareBtnDownload) {
+        shareBtnDownload.onclick = () => {
+          if (!activeSharePayload) return;
+          const url = URL.createObjectURL(activeSharePayload.blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = activeSharePayload.file.name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          notify(`✓ Downloaded ${activeSharePayload.file.name}`);
+          closeShareModal();
         };
       }
 

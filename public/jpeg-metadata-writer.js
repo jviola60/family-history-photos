@@ -203,32 +203,35 @@
     }
   }
 
+  async function getJpegBlobWithMetadata(photo, meta) {
+    var buffer = null;
+    if (photo && photo._file && typeof photo._file.arrayBuffer === 'function') {
+      buffer = await photo._file.arrayBuffer();
+    } else if (photo && photo._handle && typeof photo._handle.getFile === 'function') {
+      var f = await photo._handle.getFile();
+      buffer = await f.arrayBuffer();
+    } else if (photo && (photo.workingSrc || photo.src)) {
+      var res = await fetch(photo.workingSrc || photo.src);
+      buffer = await res.arrayBuffer();
+    }
+
+    if (!buffer) throw new Error('No image buffer found');
+    var uint8 = new Uint8Array(buffer);
+    var updated = embedXmpInJpeg(uint8, meta || photo);
+    return new Blob([updated], { type: 'image/jpeg' });
+  }
+
   async function downloadJpegWithMetadata(photo, meta) {
     try {
-      var buffer = null;
-      if (photo._file) {
-        buffer = await photo._file.arrayBuffer();
-      } else if (photo._handle && typeof photo._handle.getFile === 'function') {
-        var f = await photo._handle.getFile();
-        buffer = await f.arrayBuffer();
-      } else if (photo.workingSrc || photo.src) {
-        var res = await fetch(photo.workingSrc || photo.src);
-        buffer = await res.arrayBuffer();
-      }
-
-      if (!buffer) throw new Error('No image buffer found');
-
-      var uint8 = new Uint8Array(buffer);
-      var updated = embedXmpInJpeg(uint8, meta || photo);
-      var blob = new Blob([updated], { type: 'image/jpeg' });
+      var blob = await getJpegBlobWithMetadata(photo, meta);
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
       
-      var cleanTitle = (meta.title || photo.title || photo.file || 'family_photo')
+      var cleanTitle = ((meta && meta.title) || (photo && photo.title) || (photo && photo.file) || 'family_photo')
         .replace(/[^a-zA-Z0-9_-]/g, '_')
         .slice(0, 40);
-      var datePrefix = (meta.isoDate || photo.isoDate || '').replace(/[^0-9]/g, '');
+      var datePrefix = ((meta && meta.isoDate) || (photo && photo.isoDate) || '').replace(/[^0-9]/g, '');
       a.download = (datePrefix ? datePrefix + '_' : '') + cleanTitle + '.jpg';
       
       document.body.appendChild(a);
@@ -245,7 +248,8 @@
   global.JpegMetadataWriter = {
     embedXmpInJpeg: embedXmpInJpeg,
     writeMetadataToHandle: writeMetadataToHandle,
-    downloadJpegWithMetadata: downloadJpegWithMetadata
+    downloadJpegWithMetadata: downloadJpegWithMetadata,
+    getJpegBlobWithMetadata: getJpegBlobWithMetadata
   };
 })(typeof window !== 'undefined' ? window : this);
 
