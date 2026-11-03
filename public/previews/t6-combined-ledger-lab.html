@@ -2395,7 +2395,7 @@
           <button class="btn sm desktop-only" type="button" id="btn-top-folder" title="Scan a local photo folder from your computer">
             <span data-icon="folder"></span><span id="top-folder-label">Folder: Gill_Costello_Archive</span>
           </button>
-          <button class="btn sm desktop-only" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
+          <button class="btn sm" type="button" id="btn-top-clear-demo" title="Clear sample demo prints to load your own photos">
             ✕ Clear Demo
           </button>
           <div class="fs-auth-group">
@@ -2835,6 +2835,7 @@
       let activeQueue = 'all';     // 'all' | 'unnamed' | 'unsynced' | 'lowres' | 'duplicates' | 'screenshots' | 'review'
       let activeFolder = null;
       let search = '';
+      let catalogPage = 1;
       let showCharts = false;
       let selectedId = 'FH-002';   // Start on a vintage 640x480 scan ready for repairs
       let fsUser = null;           // null when signed out, { name, pid } when signed in via FamilySearch OAuth2
@@ -3588,6 +3589,20 @@
               return;
             }
 
+            const pageSize = isMobile() ? 12 : 36;
+            const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+            if (catalogPage > totalPages) catalogPage = 1;
+            const pagedList = (list.length > pageSize)
+              ? list.slice((catalogPage - 1) * pageSize, catalogPage * pageSize)
+              : list;
+
+            const paginationHtml = totalPages > 1 ? `
+              <div class="pagination-bar" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:16px;padding:10px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+                <button class="btn sm" type="button" id="btn-page-prev" ${catalogPage <= 1 ? 'disabled' : ''}>← Previous</button>
+                <span class="mono" style="font-size:12px;color:var(--text);">Page ${catalogPage} of ${totalPages} (${list.length} photos)</span>
+                <button class="btn sm" type="button" id="btn-page-next" ${catalogPage >= totalPages ? 'disabled' : ''}>Next →</button>
+              </div>` : '';
+
             /* #4 GENEALOGIST'S LEDGER TABLE */
             if (layout === 'ledger') {
               host.innerHTML = `
@@ -3604,7 +3619,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  ${list.map((p) => {
+                  ${pagedList.map((p) => {
                 const low = isLowRes(p);
                 const statusPill = p.restored4k
                   ? `<span class="pill pos">4K Restored</span>`
@@ -3649,7 +3664,7 @@
               }).join('')}
                 </tbody>
               </table>
-            </div>`;
+            </div>${paginationHtml}`;
             } else {
               /* #3 GLOBAL MAP VIEW */
             if (layout === 'map') {
@@ -3694,7 +3709,7 @@
             /* #2 CONTACT SHEET SPECIMEN GRID */
             host.innerHTML = `
             <div class="contact-grid">
-              ${list.map((p) => {
+              ${pagedList.map((p) => {
                 const low = isLowRes(p);
                 return `
                   <article class="specimen" data-row="${esc(p.id)}" aria-selected="${p.id === selectedId ? 'true' : 'false'}">
@@ -3717,7 +3732,7 @@
                   </article>
                 `;
               }).join('')}
-            </div>`;
+            </div>${paginationHtml}`;
             }
 
             host.querySelectorAll('[data-row]').forEach((el) => {
@@ -3744,6 +3759,27 @@
                 openPhotoLab(id, isLowRes(target) ? 'restore' : 'tone');
               });
             });
+
+            const btnPrev = host.querySelector('#btn-page-prev');
+            if (btnPrev) {
+              btnPrev.addEventListener('click', () => {
+                if (catalogPage > 1) {
+                  catalogPage--;
+                  renderCatalogCenter();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              });
+            }
+            const btnNext = host.querySelector('#btn-page-next');
+            if (btnNext) {
+              btnNext.addEventListener('click', () => {
+                if (catalogPage < totalPages) {
+                  catalogPage++;
+                  renderCatalogCenter();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              });
+            }
           }
 
           
@@ -6893,6 +6929,7 @@
         btn.addEventListener('click', () => {
           activeQueue = btn.getAttribute('data-queue');
           activeFolder = null;
+          catalogPage = 1;
           mode = 'catalog';
           document.getElementById('sidebar').classList.remove('open');
           render();
@@ -6932,6 +6969,7 @@
 
       document.getElementById('search-input').oninput = (e) => {
         search = e.target.value.trim().toLowerCase();
+        catalogPage = 1;
         if (mode !== 'catalog') mode = 'catalog';
         render();
       };
@@ -7216,6 +7254,7 @@
           isCustomFolder = true;
           activeFolder = null;
           activeQueue = 'all';
+          catalogPage = 1;
           search = '';
           const searchInput = document.getElementById('search-input');
           if (searchInput) searchInput.value = '';
@@ -7348,6 +7387,7 @@
         isCustomFolder = false;
         activeFolder = null;
         activeQueue = 'all';
+        catalogPage = 1;
         selectedId = 'FH-002';
         notify('Restored sample Gill_Costello_Archive (10 active prints).');
         render();
@@ -7360,6 +7400,7 @@
         isCustomFolder = true;
         activeFolder = null;
         activeQueue = 'all';
+        catalogPage = 1;
         selectedId = null;
         notify('Cleared sample photos. Choose a photo folder to start working with your real photos.');
         render();
@@ -7547,6 +7588,7 @@
         rootFolderName = sourceLabel;
         activeFolder = null;
         activeQueue = 'all';
+        catalogPage = 1;
         search = '';
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
@@ -7913,12 +7955,30 @@
 
       // Check if user previously imported a custom archive into persistent IndexedDB
       try {
-        const savedArchive = await loadArchiveFromDb();
-        if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
-          items = savedArchive.items;
-          rootFolderName = savedArchive.folderName;
-          isCustomFolder = true;
-          selectedId = items[0].id;
+        if (params.get('reset') === '1' || params.get('clear') === '1') {
+          await clearArchiveFromDb();
+          items = makeSampleItems();
+          isCustomFolder = false;
+        } else {
+          const savedArchive = await loadArchiveFromDb();
+          if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
+            if (isMobile() && savedArchive.items.length > 20) {
+              console.log('Mobile device detected with large historical archive (' + savedArchive.items.length + ' photos). Purging heavy cache.');
+              await clearArchiveFromDb();
+              items = [];
+              isCustomFolder = true;
+              rootFolderName = '(Clean mobile queue)';
+              selectedId = null;
+              setTimeout(() => {
+                notify('Cleared previous 1,000+ photo backlog to optimize mobile speed! Tap "Pick 1–5 Photos" to begin.');
+              }, 400);
+            } else {
+              items = savedArchive.items;
+              rootFolderName = savedArchive.folderName;
+              isCustomFolder = true;
+              selectedId = items[0] ? items[0].id : null;
+            }
+          }
         }
       } catch (dbErr) {
         console.warn('Could not restore archive from IndexedDB:', dbErr);
