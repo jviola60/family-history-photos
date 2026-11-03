@@ -295,1006 +295,1029 @@
     } catch (e) { }
 
     if (!codeVerifier) {
-    throw new Error('Missing PKCE code verifier in session. Please sign in again.');
+      throw new Error('Missing PKCE code verifier in session. Please sign in again.');
+    }
+
+    var redirectUriToUse = activeRedirect || getRedirectUri();
+    var body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: getClientId(),
+      code: code,
+      redirect_uri: redirectUriToUse,
+      code_verifier: codeVerifier
+    });
+
+    var res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: body.toString()
+    });
+
+    if (!res.ok) {
+      var err = await res.text();
+      throw new Error('FamilySearch token exchange failed (' + res.status + '): ' + err);
+    }
+
+    var data = await res.json();
+    var tokenData = {
+      accessToken: data.access_token,
+      tokenType: data.token_type || 'Bearer',
+      expiresIn: data.expires_in,
+      expiresAt: Date.now() + (Number(data.expires_in || 3600) * 1000),
+      scope: data.scope || ''
+    };
+    saveToken(tokenData);
+    return tokenData;
   }
-
-  var redirectUriToUse = activeRedirect || getRedirectUri();
-  var body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    client_id: getClientId(),
-    code: code,
-    redirect_uri: redirectUriToUse,
-    code_verifier: codeVerifier
-  });
-
-  var res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json'
-    },
-    body: body.toString()
-  });
-
-  if (!res.ok) {
-    var err = await res.text();
-    throw new Error('FamilySearch token exchange failed (' + res.status + '): ' + err);
-  }
-
-  var data = await res.json();
-  var tokenData = {
-    accessToken: data.access_token,
-    tokenType: data.token_type || 'Bearer',
-    expiresIn: data.expires_in,
-    expiresAt: Date.now() + (Number(data.expires_in || 3600) * 1000),
-    scope: data.scope || ''
-  };
-  saveToken(tokenData);
-  return tokenData;
-}
 
   async function getCurrentUser() {
-  var token = getStoredToken();
-  if (!token) return null;
+    var token = getStoredToken();
+    if (!token) return null;
 
-  try {
-    var res = await fetch(API_BASE + '/platform/users/current', {
-      headers: {
-        'Authorization': 'Bearer ' + token.accessToken,
-        'Accept': 'application/json'
-      }
-    });
-    if (res.status === 401) {
-      clearToken();
-      return null;
-    }
-    if (!res.ok) return null;
-    var data = await res.json();
-    var u = data && data.users && data.users[0];
-    return {
-      id: u ? u.id : null,
-      contactName: u ? (u.contactName || u.displayName || 'FamilySearch User') : 'FamilySearch User',
-      treePersonId: u ? u.personId : null
-    };
-  } catch (err) {
-    console.warn('FamilySearch profile check failed:', err);
-    return null;
-  }
-}
-
-/**
- * Helper to convert ISO date (YYYY-MM-DD) into FamilySearch normalized date string (e.g. "2 March 2003")
- */
-function formatNormalizedDate(iso) {
-  if (!iso) return '';
-  var clean = String(iso).trim();
-  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  var parts = clean.split(/[-_\s./]+/);
-  if (parts.length === 3) {
-    var y = parts[0];
-    var m = parseInt(parts[1], 10);
-    var d = parseInt(parts[2], 10);
-    if (m >= 1 && m <= 12 && !isNaN(d)) {
-      return d + ' ' + months[m - 1] + ' ' + y;
-    }
-  } else if (parts.length === 2 && parts[0].length === 4) {
-    var ym = parseInt(parts[1], 10);
-    if (ym >= 1 && ym <= 12) {
-      return months[ym - 1] + ' ' + parts[0];
-    }
-  }
-  return clean;
-}
-
-/**
- * Resolves the real numeric FamilySearch Memory ID if a photo was already uploaded (e.g. on 409 Conflict)
- */
-async function resolveExistingMemoryId(targetPersonId, title, filename, token) {
-  var cleanTitle = (title || '').trim().toLowerCase();
-
-  // 1. Check target person's attached memories
-  if (targetPersonId) {
     try {
-      var pRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories', {
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
-        }
-      });
-      if (pRes.ok) {
-        var pJson = await pRes.json();
-        var sds = pJson.sourceDescriptions || [];
-        if (sds.length > 0) {
-          var matched = sds.find(function (sd) {
-            var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
-            var ab = sd.about || '';
-            return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
-                   (filename && ab.includes(filename));
-          });
-          var chosen = matched || sds[0];
-          if (chosen) {
-            var memIdFromAbout = (chosen.about && chosen.about.indexOf('/memories/') !== -1)
-              ? chosen.about.replace(/\/+$/, '').split('/').pop()
-              : null;
-            var chosenId = memIdFromAbout || (chosen.id ? String(chosen.id) : null);
-            if (chosenId && chosenId.indexOf('SD-') !== -1 && memIdFromAbout) {
-              chosenId = memIdFromAbout;
-            }
-            if (chosenId) return chosenId;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Could not query person memories for ID resolution:', e);
-    }
-  }
-
-  // 2. Check current user's memories list
-  try {
-    var uRes = await fetch(API_BASE + '/platform/memories/users/current/memories', {
-      headers: {
-        'Authorization': 'Bearer ' + token.accessToken,
-        'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
-      }
-    });
-    if (uRes.ok) {
-      var uJson = await uRes.json();
-      var uSds = uJson.sourceDescriptions || [];
-      if (uSds.length > 0) {
-        var uMatched = uSds.find(function (sd) {
-          var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
-          var ab = sd.about || '';
-          return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
-                 (filename && ab.includes(filename));
-        });
-        var uChosen = uMatched || uSds[0];
-        if (uChosen) {
-          var uMemIdFromAbout = (uChosen.about && uChosen.about.indexOf('/memories/') !== -1)
-            ? uChosen.about.replace(/\/+$/, '').split('/').pop()
-            : null;
-          var uChosenId = uMemIdFromAbout || (uChosen.id ? String(uChosen.id) : null);
-          if (uChosenId && uChosenId.indexOf('SD-') !== -1 && uMemIdFromAbout) {
-            uChosenId = uMemIdFromAbout;
-          }
-          if (uChosenId) return uChosenId;
-        }
-      }
-    }
-  } catch (uErr) {
-    console.warn('Could not query user memories for ID resolution:', uErr);
-  }
-
-  return null;
-}
-
-/**
- * Upload an image to FamilySearch Beta Memories, link to Person, and attach persona tags
- */
-async function uploadMemory(options) {
-  var token = getStoredToken();
-  if (!token) {
-    throw new Error('Not signed in to FamilySearch. Please click Sign In first.');
-  }
-
-  var photo = options.photo || {};
-  var imageBlob = options.imageBlob;
-  if (!imageBlob) {
-    throw new Error('No image data available for upload.');
-  }
-
-  var title = options.title || photo.title || 'Family Memory';
-  var story = options.story || photo.story || '';
-  var isoDate = options.isoDate || photo.isoDate || '';
-  var place = options.place || photo.place || '';
-  var people = options.people || photo.people || [];
-  var targetPersonId = (options.targetPersonId || photo.fsId || '').trim().toUpperCase();
-  var onProgress = options.onProgress || function () { };
-
-  onProgress({ step: 'preparing', message: 'Preparing photo artifact for FamilySearch...' });
-
-  // If replacing older copy requested, delete prior memory from FamilySearch first
-  if (options.replaceMemoryId) {
-    onProgress({ step: 'replacing', message: 'Removing older copy (Memory #' + options.replaceMemoryId + ') from FamilySearch...' });
-    try {
-      await deleteMemory(options.replaceMemoryId);
-    } catch (delErr) {
-      console.warn('Could not delete old memory before replace:', delErr);
-    }
-  }
-
-  // Format rich descriptive summary for FamilySearch Memories description
-  var descLines = [];
-  if (story) descLines.push(story);
-  if (isoDate) descLines.push('Date: ' + isoDate);
-  if (place) descLines.push('Location: ' + place);
-  if (people && people.length > 0) {
-    var names = people.map(function (p) {
-      return typeof p === 'string' ? p : (p.name + (p.rel ? ' (' + p.rel + ')' : ''));
-    });
-    descLines.push('People: ' + names.join(', '));
-  }
-  descLines.push('Preserved with Family History Photos');
-  var fullDescription = descLines.join('\n\n');
-
-  // Build filename
-  var cleanSlug = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
-  var filename = (isoDate ? isoDate + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
-
-  // 1. Determine upload endpoint
-  var uploadUrl = API_BASE + '/platform/memories/memories';
-  var qParams = [];
-  if (title) qParams.push('title=' + encodeURIComponent(title));
-  if (qParams.length > 0) {
-    uploadUrl += '?' + qParams.join('&');
-  }
-
-  var formData = new FormData();
-  formData.append('artifact', imageBlob, filename);
-  formData.append('title', title);
-  if (fullDescription) {
-    formData.append('description', fullDescription);
-  }
-
-  onProgress({ step: 'uploading', message: 'Uploading photo to FamilySearch Beta Memories...' });
-
-  var uploadRes = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + token.accessToken,
-      'Accept': 'application/json'
-    },
-    body: formData
-  });
-
-  var memoryId = null;
-
-  if (!uploadRes.ok) {
-    if (uploadRes.status === 409) {
-      // Conflict - memory already exists on FamilySearch
-      onProgress({ step: 'conflict', message: 'Photo is already on FamilySearch. Resolving existing memory record...' });
-      var loc = uploadRes.headers.get('Location') || '';
-      var xId = uploadRes.headers.get('X-entity-id') || '';
-      memoryId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
-
-      if (!memoryId) {
-        memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
-      }
-    } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
-      // Fallback attempt to person memories endpoint if universal rejected
-      onProgress({ step: 'fallback', message: 'Posting to Person Memories endpoint...' });
-      var personUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories';
-      var personRes = await fetch(personUrl, {
-        method: 'POST',
+      var res = await fetch(API_BASE + '/platform/users/current', {
         headers: {
           'Authorization': 'Bearer ' + token.accessToken,
           'Accept': 'application/json'
-        },
-        body: formData
+        }
       });
-      if (!personRes.ok && personRes.status !== 409) {
-        var pErr = await personRes.text();
-        throw new Error('FamilySearch upload failed (' + personRes.status + '): ' + pErr);
+      if (res.status === 401) {
+        clearToken();
+        return null;
       }
-      var pLoc = personRes.headers.get('Location') || '';
-      var pXId = personRes.headers.get('X-entity-id') || '';
-      memoryId = pXId || (pLoc ? pLoc.replace(/\/+$/, '').split('/').pop() : null);
-    } else {
-      var errText = await uploadRes.text();
-      throw new Error('FamilySearch upload failed (' + uploadRes.status + '): ' + errText);
+      if (!res.ok) return null;
+      var data = await res.json();
+      var u = data && data.users && data.users[0];
+      return {
+        id: u ? u.id : null,
+        contactName: u ? (u.contactName || u.displayName || 'FamilySearch User') : 'FamilySearch User',
+        treePersonId: u ? u.personId : null
+      };
+    } catch (err) {
+      console.warn('FamilySearch profile check failed:', err);
+      return null;
     }
-  } else {
-    var resLoc = uploadRes.headers.get('Location') || '';
-    var resXId = uploadRes.headers.get('X-entity-id') || '';
-    memoryId = resXId || (resLoc ? resLoc.replace(/\/+$/, '').split('/').pop() : null);
   }
 
-  if (!memoryId && targetPersonId) {
-    memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
-  }
-
-  if (!memoryId && photo.id) {
-    memoryId = 'mem_' + Date.now();
-  }
-
-  // 1b. Update Memory Date & Place Coverage metadata
-  if (memoryId && (isoDate || place)) {
-    onProgress({ step: 'coverage', message: 'Saving memory Date (' + (isoDate || 'N/A') + ') and Place (' + (place || 'N/A') + ') to FamilySearch...' });
-    try {
-      var normalizedDate = formatNormalizedDate(isoDate);
-      var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
-
-      // In FamilySearch Memories GEDCOM X schema:
-      // - spatial is a PlaceReference with 'original' text only (no latitude/longitude properties)
-      // - temporal is a Date with 'normalized' text, 'original', and 'formal'
-      var coverageEntry = {};
-      if (isoDate) {
-        coverageEntry.temporal = {
-          normalized: normalizedDate,
-          original: normalizedDate || isoDate,
-          formal: formalDate
-        };
+  /**
+   * Helper to convert ISO date (YYYY-MM-DD) into FamilySearch normalized date string (e.g. "2 March 2003")
+   */
+  function formatNormalizedDate(iso) {
+    if (!iso) return '';
+    var clean = String(iso).trim();
+    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var parts = clean.split(/[-_\s./]+/);
+    if (parts.length === 3) {
+      var y = parts[0];
+      var m = parseInt(parts[1], 10);
+      var d = parseInt(parts[2], 10);
+      if (m >= 1 && m <= 12 && !isNaN(d)) {
+        return d + ' ' + months[m - 1] + ' ' + y;
       }
-      if (place) {
-        coverageEntry.spatial = {
-          original: place
-        };
+    } else if (parts.length === 2 && parts[0].length === 4) {
+      var ym = parseInt(parts[1], 10);
+      if (ym >= 1 && ym <= 12) {
+        return months[ym - 1] + ' ' + parts[0];
       }
+    }
+    return clean;
+  }
 
-      // Query live source description from FamilySearch to ensure exact schema match
-      var liveSd = null;
+  /**
+   * Resolves the real numeric FamilySearch Memory ID if a photo was already uploaded (e.g. on 409 Conflict)
+   */
+  async function resolveExistingMemoryId(targetPersonId, title, filename, token) {
+    var cleanTitle = (title || '').trim().toLowerCase();
+
+    // 1. Check target person's attached memories
+    if (targetPersonId) {
       try {
-        var memRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+        var pRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories', {
           headers: {
             'Authorization': 'Bearer ' + token.accessToken,
             'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
           }
         });
-        if (memRes.ok) {
-          var memData = await memRes.json();
-          if (memData && memData.sourceDescriptions && memData.sourceDescriptions[0]) {
-            liveSd = memData.sourceDescriptions[0];
+        if (pRes.ok) {
+          var pJson = await pRes.json();
+          var sds = pJson.sourceDescriptions || [];
+          if (sds.length > 0) {
+            var matched = sds.find(function (sd) {
+              var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
+              var ab = sd.about || '';
+              return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
+                (filename && ab.includes(filename));
+            });
+            var chosen = matched || sds[0];
+            if (chosen) {
+              var memIdFromAbout = (chosen.about && chosen.about.indexOf('/memories/') !== -1)
+                ? chosen.about.replace(/\/+$/, '').split('/').pop()
+                : null;
+              var chosenId = memIdFromAbout || (chosen.id ? String(chosen.id) : null);
+              if (chosenId && chosenId.indexOf('SD-') !== -1 && memIdFromAbout) {
+                chosenId = memIdFromAbout;
+              }
+              if (chosenId) return chosenId;
+            }
           }
         }
-      } catch (getErr) {
-        console.warn('Could not read existing memory description:', getErr);
+      } catch (e) {
+        console.warn('Could not query person memories for ID resolution:', e);
       }
+    }
 
-      var payloadsToTry = [];
-      if (liveSd) {
-        var baseSd = Object.assign({}, liveSd);
-        delete baseSd.links;
-        delete baseSd.sources;
-        baseSd.coverage = coverageEntry;
-        if (title) baseSd.titles = [{ value: title }];
-        if (fullDescription) baseSd.descriptions = [{ value: fullDescription }];
-        payloadsToTry.push({ sourceDescriptions: [baseSd] });
+    // 2. Check current user's memories list
+    try {
+      var uRes = await fetch(API_BASE + '/platform/memories/users/current/memories', {
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+        }
+      });
+      if (uRes.ok) {
+        var uJson = await uRes.json();
+        var uSds = uJson.sourceDescriptions || [];
+        if (uSds.length > 0) {
+          var uMatched = uSds.find(function (sd) {
+            var t = (sd.titles && sd.titles[0] && sd.titles[0].value) || '';
+            var ab = sd.about || '';
+            return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
+              (filename && ab.includes(filename));
+          });
+          var uChosen = uMatched || uSds[0];
+          if (uChosen) {
+            var uMemIdFromAbout = (uChosen.about && uChosen.about.indexOf('/memories/') !== -1)
+              ? uChosen.about.replace(/\/+$/, '').split('/').pop()
+              : null;
+            var uChosenId = uMemIdFromAbout || (uChosen.id ? String(uChosen.id) : null);
+            if (uChosenId && uChosenId.indexOf('SD-') !== -1 && uMemIdFromAbout) {
+              uChosenId = uMemIdFromAbout;
+            }
+            if (uChosenId) return uChosenId;
+          }
+        }
       }
+    } catch (uErr) {
+      console.warn('Could not query user memories for ID resolution:', uErr);
+    }
 
-      // Documented FamilySearch Memories update schema with id: "1"
-      payloadsToTry.push({
-        sourceDescriptions: [
-          {
-            id: '1',
-            about: API_BASE + '/platform/memories/memories/' + memoryId,
-            resourceType: 'http://gedcomx.org/DigitalArtifact',
-            titles: title ? [{ value: title }] : undefined,
-            descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
-            coverage: coverageEntry
-          }
-        ]
+    return null;
+  }
+
+  /**
+   * Resolves authoritative Place Description link via FamilySearch Places Search API
+   */
+  async function resolvePlaceDescription(placeText, token) {
+    if (!placeText || !token) return null;
+    try {
+      // Strip street number if present so Place Authority matches the jurisdiction (e.g. "Bowling Green, OH")
+      var query = placeText.replace(/^\d+[^,]+,\s*/, '').trim() || placeText;
+      var pSearchUrl = API_BASE + '/platform/places/search?q=name:' + encodeURIComponent(query);
+      var pRes = await fetch(pSearchUrl, {
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-gedcomx-atom+json, application/json'
+        }
       });
-
-      // Canonical payload with id: memoryId
-      payloadsToTry.push({
-        sourceDescriptions: [
-          {
-            id: memoryId,
-            about: API_BASE + '/platform/memories/memories/' + memoryId,
-            resourceType: 'http://gedcomx.org/DigitalArtifact',
-            titles: title ? [{ value: title }] : undefined,
-            descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
-            coverage: coverageEntry
+      if (pRes.ok) {
+        var pData = await pRes.json();
+        var entries = pData.entries || [];
+        if (entries.length > 0 && entries[0].content && entries[0].content.gedcomx && entries[0].content.gedcomx.places) {
+          var matchedPlace = entries[0].content.gedcomx.places[0];
+          if (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href) {
+            return matchedPlace.links.description.href;
           }
-        ]
-      });
-
-      // Fallback with coverage as array
-      payloadsToTry.push({
-        sourceDescriptions: [
-          {
-            id: '1',
-            about: API_BASE + '/platform/memories/memories/' + memoryId,
-            coverage: [coverageEntry]
+          if (matchedPlace.id) {
+            return API_BASE + '/platform/places/description/' + matchedPlace.id;
           }
-        ]
+        }
+      }
+    } catch (placeErr) {
+      console.warn('Place description resolution notice:', placeErr);
+    }
+    return null;
+  }
+
+  /**
+   * Upload an image to FamilySearch Beta Memories, link to Person, and attach persona tags
+   */
+  async function uploadMemory(options) {
+    var token = getStoredToken();
+    if (!token) {
+      throw new Error('Not signed in to FamilySearch. Please click Sign In first.');
+    }
+
+    var photo = options.photo || {};
+    var imageBlob = options.imageBlob;
+    if (!imageBlob) {
+      throw new Error('No image data available for upload.');
+    }
+
+    var title = options.title || photo.title || 'Family Memory';
+    var story = options.story || photo.story || '';
+    var isoDate = options.isoDate || photo.isoDate || '';
+    var place = options.place || photo.place || '';
+    var people = options.people || photo.people || [];
+    var targetPersonId = (options.targetPersonId || photo.fsId || '').trim().toUpperCase();
+    var onProgress = options.onProgress || function () { };
+
+    onProgress({ step: 'preparing', message: 'Preparing photo artifact for FamilySearch...' });
+
+    // If replacing older copy requested, delete prior memory from FamilySearch first
+    if (options.replaceMemoryId) {
+      onProgress({ step: 'replacing', message: 'Removing older copy (Memory #' + options.replaceMemoryId + ') from FamilySearch...' });
+      try {
+        await deleteMemory(options.replaceMemoryId);
+      } catch (delErr) {
+        console.warn('Could not delete old memory before replace:', delErr);
+      }
+    }
+
+    // Format rich descriptive summary for FamilySearch Memories description
+    var descLines = [];
+    if (story) descLines.push(story);
+    if (isoDate) descLines.push('Date: ' + isoDate);
+    if (place) descLines.push('Location: ' + place);
+    if (people && people.length > 0) {
+      var names = people.map(function (p) {
+        return typeof p === 'string' ? p : (p.name + (p.rel ? ' (' + p.rel + ')' : ''));
       });
+      descLines.push('People: ' + names.join(', '));
+    }
+    descLines.push('Preserved with Family History Photos');
+    var fullDescription = descLines.join('\n\n');
 
-      // Endpoints ordered from standard primary memory endpoint to sub-resource endpoints
-      var endpoints = [
-        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId),
-        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0',
-        API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description',
-        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage'
-      ];
+    // Build filename
+    var cleanSlug = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+    var filename = (isoDate ? isoDate + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
 
-      var covSaved = false;
-      for (var epIdx = 0; epIdx < endpoints.length && !covSaved; epIdx++) {
-        var epUrl = endpoints[epIdx];
-        var isCoverageSubEndpoint = epUrl.endsWith('/coverage');
+    // 1. Determine upload endpoint
+    var normalizedDate = formatNormalizedDate(isoDate);
+    var uploadUrl = API_BASE + '/platform/memories/memories';
+    var qParams = [];
+    if (title) qParams.push('title=' + encodeURIComponent(title));
+    if (fullDescription) qParams.push('description=' + encodeURIComponent(fullDescription));
+    if (normalizedDate) {
+      qParams.push('date=' + encodeURIComponent(normalizedDate));
+      qParams.push('coverageDate=' + encodeURIComponent(normalizedDate));
+    }
+    if (place) {
+      qParams.push('place=' + encodeURIComponent(place));
+      qParams.push('coveragePlace=' + encodeURIComponent(place));
+    }
+    if (qParams.length > 0) {
+      uploadUrl += '?' + qParams.join('&');
+    }
 
-        var currentPayloads = isCoverageSubEndpoint
-          ? [{ coverage: coverageEntry }, coverageEntry]
-          : payloadsToTry;
+    var formData = new FormData();
+    formData.append('artifact', imageBlob, filename);
+    formData.append('title', title);
+    if (fullDescription) {
+      formData.append('description', fullDescription);
+    }
+    if (normalizedDate) {
+      formData.append('date', normalizedDate);
+      formData.append('coverageDate', normalizedDate);
+      formData.append('temporal', normalizedDate);
+    }
+    if (place) {
+      formData.append('place', place);
+      formData.append('coveragePlace', place);
+      formData.append('spatial', place);
+    }
 
-        for (var pIdx = 0; pIdx < currentPayloads.length && !covSaved; pIdx++) {
-          var pVar = currentPayloads[pIdx];
-          try {
-            var postRes = await fetch(epUrl, {
+    onProgress({ step: 'uploading', message: 'Uploading photo to FamilySearch Beta Memories...' });
+
+    var uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token.accessToken,
+        'Accept': 'application/json'
+      },
+      body: formData
+    });
+
+    var memoryId = null;
+
+    if (!uploadRes.ok) {
+      if (uploadRes.status === 409) {
+        // Conflict - memory already exists on FamilySearch
+        onProgress({ step: 'conflict', message: 'Photo is already on FamilySearch. Resolving existing memory record...' });
+        var loc = uploadRes.headers.get('Location') || '';
+        var xId = uploadRes.headers.get('X-entity-id') || '';
+        memoryId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
+
+        if (!memoryId) {
+          memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+        }
+      } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
+        // Fallback attempt to person memories endpoint if universal rejected
+        onProgress({ step: 'fallback', message: 'Posting to Person Memories endpoint...' });
+        var personUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories';
+        var personRes = await fetch(personUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/json'
+          },
+          body: formData
+        });
+        if (!personRes.ok && personRes.status !== 409) {
+          var pErr = await personRes.text();
+          throw new Error('FamilySearch upload failed (' + personRes.status + '): ' + pErr);
+        }
+        var pLoc = personRes.headers.get('Location') || '';
+        var pXId = personRes.headers.get('X-entity-id') || '';
+        memoryId = pXId || (pLoc ? pLoc.replace(/\/+$/, '').split('/').pop() : null);
+      } else {
+        var errText = await uploadRes.text();
+        throw new Error('FamilySearch upload failed (' + uploadRes.status + '): ' + errText);
+      }
+    } else {
+      var resLoc = uploadRes.headers.get('Location') || '';
+      var resXId = uploadRes.headers.get('X-entity-id') || '';
+      memoryId = resXId || (resLoc ? resLoc.replace(/\/+$/, '').split('/').pop() : null);
+    }
+
+    if (!memoryId && targetPersonId) {
+      memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+    }
+
+    if (!memoryId && photo.id) {
+      memoryId = 'mem_' + Date.now();
+    }
+
+    // 1b. Update Memory Date & Place Coverage metadata
+    if (memoryId && (isoDate || place)) {
+      onProgress({ step: 'coverage', message: 'Saving memory Date (' + (normalizedDate || isoDate || 'N/A') + ') and Place (' + (place || 'N/A') + ') to FamilySearch...' });
+      try {
+        var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
+
+        // Resolve FamilySearch Place Authority reference URL if available
+        var placeDescUrl = await resolvePlaceDescription(place, token);
+
+        var coverageEntry = {};
+        if (isoDate) {
+          coverageEntry.temporal = {
+            original: normalizedDate || isoDate,
+            normalized: normalizedDate,
+            formal: formalDate
+          };
+        }
+        if (place) {
+          coverageEntry.spatial = {
+            original: place
+          };
+          if (placeDescUrl) {
+            coverageEntry.spatial.description = placeDescUrl;
+          }
+        }
+
+        // Query live source description from FamilySearch to inspect links and artifact references
+        var liveSd = null;
+        var coverageHref = null;
+        var artifactHref = null;
+        try {
+          var memRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+            }
+          });
+          if (memRes.ok) {
+            var memData = await memRes.json();
+            if (memData && memData.sourceDescriptions && memData.sourceDescriptions[0]) {
+              liveSd = memData.sourceDescriptions[0];
+              if (liveSd.links) {
+                if (liveSd.links.coverage && liveSd.links.coverage.href) coverageHref = liveSd.links.coverage.href;
+                if (liveSd.links.artifact && liveSd.links.artifact.href) artifactHref = liveSd.links.artifact.href;
+              }
+            }
+          }
+        } catch (getErr) {
+          console.warn('Could not read existing memory description:', getErr);
+        }
+
+        // Target endpoints: coverage sub-resource, artifact endpoint, and memory container
+        var targetEndpoints = [];
+        if (coverageHref) targetEndpoints.push({ url: coverageHref, isCoverageOnly: true });
+        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage', isCoverageOnly: true });
+        if (artifactHref) {
+          targetEndpoints.push({ url: artifactHref + '/coverage', isCoverageOnly: true });
+          targetEndpoints.push({ url: artifactHref, isCoverageOnly: false });
+        }
+        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0', isCoverageOnly: false });
+        targetEndpoints.push({ url: API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description', isCoverageOnly: false });
+        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), isCoverageOnly: false });
+
+        // Dispatch coverage updates to all endpoints (do not break early so all necessary targets receive the update)
+        for (var tIdx = 0; tIdx < targetEndpoints.length; tIdx++) {
+          var target = targetEndpoints[tIdx];
+          var epUrl = target.url;
+          var payloads = [];
+
+          if (target.isCoverageOnly) {
+            // Direct coverage payloads (tried with POST and PUT)
+            payloads = [
+              { method: 'POST', body: coverageEntry },
+              { method: 'PUT', body: coverageEntry },
+              { method: 'POST', body: { coverage: coverageEntry } },
+              { method: 'PUT', body: { coverage: coverageEntry } }
+            ];
+          } else {
+            // Container / description payloads (SourceDescriptions)
+            var sd1 = {
+              id: (liveSd && liveSd.id) || '1',
+              about: API_BASE + '/platform/memories/memories/' + memoryId,
+              resourceType: 'http://gedcomx.org/DigitalArtifact',
+              titles: title ? [{ value: title }] : undefined,
+              descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
+              coverage: coverageEntry
+            };
+            var sd2 = Object.assign({}, sd1, { id: memoryId });
+            var sd3 = Object.assign({}, sd1, { coverage: [coverageEntry] });
+            payloads = [
+              { method: 'POST', body: { sourceDescriptions: [sd1] } },
+              { method: 'POST', body: { sourceDescriptions: [sd2] } },
+              { method: 'POST', body: { sourceDescriptions: [sd3] } }
+            ];
+          }
+
+          for (var pIdx = 0; pIdx < payloads.length; pIdx++) {
+            var item = payloads[pIdx];
+            try {
+              var pRes = await fetch(epUrl, {
+                method: item.method,
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
+                },
+                body: JSON.stringify(item.body)
+              });
+              if (!pRes.ok) {
+                await fetch(epUrl, {
+                  method: item.method,
+                  headers: {
+                    'Authorization': 'Bearer ' + token.accessToken,
+                    'Content-Type': 'application/x-gedcomx-v1+json',
+                    'Accept': 'application/json'
+                  },
+                  body: JSON.stringify(item.body)
+                });
+              }
+            } catch (pErr) {}
+          }
+        }
+      } catch (covErr) {
+        console.warn('Memory coverage date/place update notice:', covErr);
+      }
+    }
+
+    // 2. Auto-scan faces if not yet scanned
+    var faces = options.faces || (photo && photo.faces) || [];
+    if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
+      try {
+        onProgress({ step: 'faces', message: 'Detecting faces on photo for FamilySearch tag coordinates...' });
+        faces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
+        if (photo && faces && faces.length > 0) {
+          photo.faces = faces;
+        }
+      } catch (scanErr) {
+        console.warn('Auto face scan notice:', scanErr);
+      }
+    }
+
+    // 3. Query any existing personas on this memory artifact
+    var existingPersonas = [];
+    if (memoryId) {
+      try {
+        var listRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas?includeTreeIdentifier=true', {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+          }
+        });
+        if (listRes.ok) {
+          var listJson = await listRes.json();
+          if (listJson && listJson.persons) {
+            existingPersonas = listJson.persons;
+          }
+        }
+      } catch (listErr) {
+        console.warn('Could not list existing personas on memory:', listErr);
+      }
+    }
+
+    // 4. Attach Persona tags to the memory with face bounding box coordinates & link Tree persons
+    var linkedPersonas = [];
+    if (memoryId && ((people && people.length > 0) || targetPersonId)) {
+      var peopleList = (people && people.length > 0)
+        ? people
+        : [{ name: title, fsId: targetPersonId }];
+
+      onProgress({ step: 'tagging', message: 'Tagging relatives and face positions on FamilySearch memory...' });
+      for (var pIdx = 0; pIdx < peopleList.length; pIdx++) {
+        var person = peopleList[pIdx];
+        var personName = typeof person === 'string' ? person : person.name;
+        if (!personName) continue;
+
+        var personPid = (targetPersonId && (pIdx === 0 || peopleList.length === 1))
+          ? targetPersonId
+          : (person.fsId || null);
+
+        if (!personPid) {
+          var kfMatch = KNOWN_FAMILY.find(function (kf) {
+            return kf.name.toLowerCase() === personName.toLowerCase() ||
+              (kf.aliases && kf.aliases.some(function (a) { return personName.toLowerCase().includes(a); }));
+          });
+          if (kfMatch) personPid = kfMatch.id;
+        }
+
+        try {
+          var assignedFace = null;
+          if (faces && faces.length > 0) {
+            if (faces.length === 1 && peopleList.length === 1) {
+              assignedFace = faces[0];
+            } else {
+              assignedFace = faces.find(function (f) {
+                return f.name && personName && f.name.toLowerCase() === personName.toLowerCase();
+              }) || (pIdx === 0 ? faces[0] : null);
+            }
+          }
+
+          var hasBox = false;
+          var regionStr = null;
+          var regionBox = null;
+          var x1Str = '0.0000', y1Str = '0.0000', wStr = '0.2000', hStr = '0.2000';
+
+          if (assignedFace && assignedFace.box) {
+            var b = assignedFace.box;
+            var bx = (b.x !== undefined) ? b.x : (b.left !== undefined ? b.left : 0);
+            var by = (b.y !== undefined) ? b.y : (b.top !== undefined ? b.top : 0);
+            var bw = (b.width !== undefined) ? b.width : (b.w !== undefined ? b.w : 0.2);
+            var bh = (b.height !== undefined) ? b.height : (b.h !== undefined ? b.h : 0.2);
+
+            var x = Math.max(0, Math.min(1, Number(bx)));
+            var y = Math.max(0, Math.min(1, Number(by)));
+            var w = Math.max(0.01, Math.min(1 - x, Number(bw)));
+            var h = Math.max(0.01, Math.min(1 - y, Number(bh)));
+            hasBox = true;
+
+            x1Str = x.toFixed(4);
+            y1Str = y.toFixed(4);
+            var x2Str = Math.min(1, x + w).toFixed(4);
+            var y2Str = Math.min(1, y + h).toFixed(4);
+            wStr = w.toFixed(4);
+            hStr = h.toFixed(4);
+
+            // GEDCOM X standard: x1,y1,x2,y2
+            regionStr = x1Str + ',' + y1Str + ',' + x2Str + ',' + y2Str;
+            // FamilySearch standard: x,y,width,height
+            regionBox = x1Str + ',' + y1Str + ',' + wStr + ',' + hStr;
+          }
+
+          var qualifiers = hasBox ? [
+            { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+            { name: 'http://gedcomx.org/Box', value: regionStr },
+            { name: 'http://gedcomx.org/box', value: regionBox },
+            { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox },
+            { name: 'http://familysearch.org/v1/x', value: x1Str },
+            { name: 'http://familysearch.org/v1/y', value: y1Str },
+            { name: 'http://familysearch.org/v1/width', value: wStr },
+            { name: 'http://familysearch.org/v1/height', value: hStr }
+          ] : undefined;
+
+          var media = hasBox ? [
+            {
+              resource: API_BASE + '/platform/memories/memories/' + memoryId,
+              description: 'http://gedcomx.org/Photograph',
+              qualifiers: qualifiers
+            }
+          ] : undefined;
+
+          var personNames = [
+            {
+              type: 'http://gedcomx.org/Preferred',
+              nameForms: [{ fullText: personName }],
+              forms: [{ fullText: personName }]
+            }
+          ];
+
+          var identifiers = {};
+          if (personPid) {
+            identifiers['http://gedcomx.org/Persistent'] = [
+              API_BASE + '/platform/tree/persons/' + personPid
+            ];
+            identifiers['http://familysearch.org/v1/FamilyTreePerson'] = [
+              'https://familysearch.org/ark:/61903/4:1:' + personPid
+            ];
+          }
+          var hasIdentifiers = Object.keys(identifiers).length > 0;
+
+          // Check if an existing persona on the memory matches this person
+          var matchedExisting = existingPersonas.find(function (p) {
+            if (personPid && p.identifiers && p.identifiers['http://familysearch.org/v1/FamilyTreePerson']) {
+              var arks = p.identifiers['http://familysearch.org/v1/FamilyTreePerson'];
+              if (Array.isArray(arks) && arks.some(function (ark) { return ark.indexOf(personPid) !== -1; })) {
+                return true;
+              }
+            }
+            if (personPid && Array.isArray(p.identifiers)) {
+              if (p.identifiers.some(function (idObj) { return idObj.value && idObj.value.indexOf(personPid) !== -1; })) {
+                return true;
+              }
+            }
+            var pName = p.names && p.names[0] && (
+              (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText) ||
+              (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText)
+            );
+            if (pName && personName) {
+              var pLower = pName.trim().toLowerCase();
+              var tLower = personName.trim().toLowerCase();
+              return pLower === tLower || pLower.indexOf(tLower) !== -1 || tLower.indexOf(pLower) !== -1;
+            }
+            return false;
+          }) || (existingPersonas.length === 1 ? existingPersonas[0] : null);
+
+          var personaId = matchedExisting ? matchedExisting.id : null;
+          var opSuccess = false;
+
+          if (matchedExisting) {
+            // UPDATE existing persona with bounding box coordinates and identifiers
+            var updatePerson = {
+              id: matchedExisting.id,
+              extracted: true,
+              names: personNames,
+              media: media
+            };
+            if (hasIdentifiers) updatePerson.identifiers = identifiers;
+
+            var updateRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
               method: 'POST',
               headers: {
                 'Authorization': 'Bearer ' + token.accessToken,
                 'Content-Type': 'application/x-fs-v1+json',
                 'Accept': 'application/x-fs-v1+json, application/json'
               },
-              body: JSON.stringify(pVar)
+              body: JSON.stringify({ persons: [updatePerson] })
             });
 
-            if (postRes.ok || postRes.status === 204) {
-              covSaved = true;
-              console.log('✓ FamilySearch Memory coverage saved successfully to', epUrl);
-              break;
+            if (updateRes.ok || updateRes.status === 204) {
+              opSuccess = true;
+              personaId = matchedExisting.id;
             } else {
-              // Retry with GEDCOM X header
-              var postRes2 = await fetch(epUrl, {
+              var updateRetry = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
                 method: 'POST',
                 headers: {
                   'Authorization': 'Bearer ' + token.accessToken,
                   'Content-Type': 'application/x-gedcomx-v1+json',
                   'Accept': 'application/json'
                 },
-                body: JSON.stringify(pVar)
+                body: JSON.stringify({ persons: [updatePerson] })
               });
-
-              if (postRes2.ok || postRes2.status === 204) {
-                covSaved = true;
-                console.log('✓ FamilySearch Memory coverage saved via gedcomx to', epUrl);
-                break;
-              } else {
-                var errTxt = await postRes.text();
-                console.warn('Coverage attempt returned', postRes.status, 'for', epUrl, errTxt);
+              if (updateRetry.ok || updateRetry.status === 204) {
+                opSuccess = true;
+                personaId = matchedExisting.id;
               }
             }
-          } catch (epErr) {
-            console.warn('Coverage attempt network error for', epUrl, epErr);
           }
-        }
-      }
-    } catch (covErr) {
-      console.warn('Memory coverage date/place update notice:', covErr);
-    }
-  }
 
-  // 2. Auto-scan faces if not yet scanned
-  var faces = options.faces || (photo && photo.faces) || [];
-  if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
-    try {
-      onProgress({ step: 'faces', message: 'Detecting faces on photo for FamilySearch tag coordinates...' });
-      faces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
-      if (photo && faces && faces.length > 0) {
-        photo.faces = faces;
-      }
-    } catch (scanErr) {
-      console.warn('Auto face scan notice:', scanErr);
-    }
-  }
-
-  // 3. Query any existing personas on this memory artifact
-  var existingPersonas = [];
-  if (memoryId) {
-    try {
-      var listRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas?includeTreeIdentifier=true', {
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
-        }
-      });
-      if (listRes.ok) {
-        var listJson = await listRes.json();
-        if (listJson && listJson.persons) {
-          existingPersonas = listJson.persons;
-        }
-      }
-    } catch (listErr) {
-      console.warn('Could not list existing personas on memory:', listErr);
-    }
-  }
-
-  // 4. Attach Persona tags to the memory with face bounding box coordinates & link Tree persons
-  var linkedPersonas = [];
-  if (memoryId && ((people && people.length > 0) || targetPersonId)) {
-    var peopleList = (people && people.length > 0)
-      ? people
-      : [{ name: title, fsId: targetPersonId }];
-
-    onProgress({ step: 'tagging', message: 'Tagging relatives and face positions on FamilySearch memory...' });
-    for (var pIdx = 0; pIdx < peopleList.length; pIdx++) {
-      var person = peopleList[pIdx];
-      var personName = typeof person === 'string' ? person : person.name;
-      if (!personName) continue;
-
-      var personPid = (targetPersonId && (pIdx === 0 || peopleList.length === 1))
-        ? targetPersonId
-        : (person.fsId || null);
-
-      if (!personPid) {
-        var kfMatch = KNOWN_FAMILY.find(function (kf) {
-          return kf.name.toLowerCase() === personName.toLowerCase() ||
-                 (kf.aliases && kf.aliases.some(function (a) { return personName.toLowerCase().includes(a); }));
-        });
-        if (kfMatch) personPid = kfMatch.id;
-      }
-
-      try {
-        var assignedFace = null;
-        if (faces && faces.length > 0) {
-          if (faces.length === 1 && peopleList.length === 1) {
-            assignedFace = faces[0];
-          } else {
-            assignedFace = faces.find(function (f) {
-              return f.name && personName && f.name.toLowerCase() === personName.toLowerCase();
-            }) || (pIdx === 0 ? faces[0] : null);
-          }
-        }
-
-        var hasBox = false;
-        var regionStr = null;
-        var regionBox = null;
-        var x1Str = '0.0000', y1Str = '0.0000', wStr = '0.2000', hStr = '0.2000';
-
-        if (assignedFace && assignedFace.box) {
-          var b = assignedFace.box;
-          var bx = (b.x !== undefined) ? b.x : (b.left !== undefined ? b.left : 0);
-          var by = (b.y !== undefined) ? b.y : (b.top !== undefined ? b.top : 0);
-          var bw = (b.width !== undefined) ? b.width : (b.w !== undefined ? b.w : 0.2);
-          var bh = (b.height !== undefined) ? b.height : (b.h !== undefined ? b.h : 0.2);
-
-          var x = Math.max(0, Math.min(1, Number(bx)));
-          var y = Math.max(0, Math.min(1, Number(by)));
-          var w = Math.max(0.01, Math.min(1 - x, Number(bw)));
-          var h = Math.max(0.01, Math.min(1 - y, Number(bh)));
-          hasBox = true;
-
-          x1Str = x.toFixed(4);
-          y1Str = y.toFixed(4);
-          var x2Str = Math.min(1, x + w).toFixed(4);
-          var y2Str = Math.min(1, y + h).toFixed(4);
-          wStr = w.toFixed(4);
-          hStr = h.toFixed(4);
-
-          // GEDCOM X standard: x1,y1,x2,y2
-          regionStr = x1Str + ',' + y1Str + ',' + x2Str + ',' + y2Str;
-          // FamilySearch standard: x,y,width,height
-          regionBox = x1Str + ',' + y1Str + ',' + wStr + ',' + hStr;
-        }
-
-        var qualifiers = hasBox ? [
-          { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
-          { name: 'http://gedcomx.org/Box', value: regionStr },
-          { name: 'http://gedcomx.org/box', value: regionBox },
-          { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox },
-          { name: 'http://familysearch.org/v1/x', value: x1Str },
-          { name: 'http://familysearch.org/v1/y', value: y1Str },
-          { name: 'http://familysearch.org/v1/width', value: wStr },
-          { name: 'http://familysearch.org/v1/height', value: hStr }
-        ] : undefined;
-
-        var media = hasBox ? [
-          {
-            resource: API_BASE + '/platform/memories/memories/' + memoryId,
-            description: 'http://gedcomx.org/Photograph',
-            qualifiers: qualifiers
-          }
-        ] : undefined;
-
-        var personNames = [
-          {
-            type: 'http://gedcomx.org/Preferred',
-            nameForms: [{ fullText: personName }],
-            forms: [{ fullText: personName }]
-          }
-        ];
-
-        var identifiers = {};
-        if (personPid) {
-          identifiers['http://gedcomx.org/Persistent'] = [
-            API_BASE + '/platform/tree/persons/' + personPid
-          ];
-          identifiers['http://familysearch.org/v1/FamilyTreePerson'] = [
-            'https://familysearch.org/ark:/61903/4:1:' + personPid
-          ];
-        }
-        var hasIdentifiers = Object.keys(identifiers).length > 0;
-
-        // Check if an existing persona on the memory matches this person
-        var matchedExisting = existingPersonas.find(function (p) {
-          if (personPid && p.identifiers && p.identifiers['http://familysearch.org/v1/FamilyTreePerson']) {
-            var arks = p.identifiers['http://familysearch.org/v1/FamilyTreePerson'];
-            if (Array.isArray(arks) && arks.some(function (ark) { return ark.indexOf(personPid) !== -1; })) {
-              return true;
-            }
-          }
-          if (personPid && Array.isArray(p.identifiers)) {
-            if (p.identifiers.some(function (idObj) { return idObj.value && idObj.value.indexOf(personPid) !== -1; })) {
-              return true;
-            }
-          }
-          var pName = p.names && p.names[0] && (
-            (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText) ||
-            (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText)
-          );
-          if (pName && personName) {
-            var pLower = pName.trim().toLowerCase();
-            var tLower = personName.trim().toLowerCase();
-            return pLower === tLower || pLower.indexOf(tLower) !== -1 || tLower.indexOf(pLower) !== -1;
-          }
-          return false;
-        }) || (existingPersonas.length === 1 ? existingPersonas[0] : null);
-
-        var personaId = matchedExisting ? matchedExisting.id : null;
-        var opSuccess = false;
-
-        if (matchedExisting) {
-          // UPDATE existing persona with bounding box coordinates and identifiers
-          var updatePerson = {
-            id: matchedExisting.id,
-            extracted: true,
-            names: personNames,
-            media: media
-          };
-          if (hasIdentifiers) updatePerson.identifiers = identifiers;
-
-          var updateRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + token.accessToken,
-              'Content-Type': 'application/x-fs-v1+json',
-              'Accept': 'application/x-fs-v1+json, application/json'
-            },
-            body: JSON.stringify({ persons: [updatePerson] })
-          });
-
-          if (updateRes.ok || updateRes.status === 204) {
-            opSuccess = true;
-            personaId = matchedExisting.id;
-          } else {
-            var updateRetry = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
-              method: 'POST',
-              headers: {
-                'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-gedcomx-v1+json',
-                'Accept': 'application/json'
-              },
-              body: JSON.stringify({ persons: [updatePerson] })
-            });
-            if (updateRetry.ok || updateRetry.status === 204) {
-              opSuccess = true;
-              personaId = matchedExisting.id;
-            }
-          }
-        }
-
-        if (!opSuccess) {
-          // CREATE new persona with bounding box coordinates
-          var createPerson = {
-            extracted: true,
-            names: personNames,
-            media: media
-          };
-          if (hasIdentifiers) createPerson.identifiers = identifiers;
-
-          var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + token.accessToken,
-              'Content-Type': 'application/x-fs-v1+json',
-              'Accept': 'application/x-fs-v1+json, application/json'
-            },
-            body: JSON.stringify({ persons: [createPerson] })
-          });
-
-          if (!personaRes.ok && hasIdentifiers) {
-            // Retry without identifiers in case server prefers creating first then linking
-            var fallbackPerson = {
+          if (!opSuccess) {
+            // CREATE new persona with bounding box coordinates
+            var createPerson = {
               extracted: true,
-              names: createPerson.names,
+              names: personNames,
               media: media
             };
-            personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
+            if (hasIdentifiers) createPerson.identifiers = identifiers;
+
+            var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
               method: 'POST',
               headers: {
                 'Authorization': 'Bearer ' + token.accessToken,
                 'Content-Type': 'application/x-fs-v1+json',
                 'Accept': 'application/x-fs-v1+json, application/json'
               },
-              body: JSON.stringify({ persons: [fallbackPerson] })
+              body: JSON.stringify({ persons: [createPerson] })
             });
+
+            if (!personaRes.ok && hasIdentifiers) {
+              // Retry without identifiers in case server prefers creating first then linking
+              var fallbackPerson = {
+                extracted: true,
+                names: createPerson.names,
+                media: media
+              };
+              personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
+                },
+                body: JSON.stringify({ persons: [fallbackPerson] })
+              });
+            }
+
+            if (personaRes.ok || personaRes.status === 201) {
+              var entId = personaRes.headers.get('X-entity-id');
+              var loc = personaRes.headers.get('Location') || '';
+              personaId = entId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null);
+              opSuccess = true;
+            }
           }
 
-          if (personaRes.ok || personaRes.status === 201) {
-            var entId = personaRes.headers.get('X-entity-id');
-            var loc = personaRes.headers.get('Location') || '';
-            personaId = entId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null);
-            opSuccess = true;
-          }
-        }
+          // Link persona to Tree Person
+          if (personPid && personaId) {
+            linkedPersonas.push({ personPid: personPid, personaId: personaId });
 
-        // Link persona to Tree Person
-        if (personPid && personaId) {
-          linkedPersonas.push({ personPid: personPid, personaId: personaId });
+            try {
+              // 1. Link persona to Tree Person ARK
+              await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId, {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
+                },
+                body: JSON.stringify({
+                  persons: [
+                    {
+                      id: personaId,
+                      identifiers: {
+                        'http://familysearch.org/v1/FamilyTreePerson': [
+                          'https://familysearch.org/ark:/61903/4:1:' + personPid
+                        ]
+                      }
+                    }
+                  ]
+                })
+              });
+            } catch (pidLinkErr) {
+              console.warn('Persona ARK link notice:', pidLinkErr);
+            }
 
-          try {
-            // 1. Link persona to Tree Person ARK
-            await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId, {
-              method: 'POST',
-              headers: {
-                'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-fs-v1+json',
-                'Accept': 'application/x-fs-v1+json, application/json'
-              },
-              body: JSON.stringify({
-                persons: [
-                  {
-                    id: personaId,
-                    identifiers: {
-                      'http://familysearch.org/v1/FamilyTreePerson': [
-                        'https://familysearch.org/ark:/61903/4:1:' + personPid
+            try {
+              // 2. Attach persona specifically as evidence on the Tree Person
+              var evidencePersonaUri = API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId;
+              await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid), {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
+                },
+                body: JSON.stringify({
+                  persons: [
+                    {
+                      id: personPid,
+                      evidence: [
+                        { resource: evidencePersonaUri }
                       ]
                     }
-                  }
-                ]
-              })
-            });
-          } catch (pidLinkErr) {
-            console.warn('Persona ARK link notice:', pidLinkErr);
-          }
+                  ]
+                })
+              });
+            } catch (evErr) {
+              console.warn('Tree person evidence link notice:', evErr);
+            }
 
-          try {
-            // 2. Attach persona specifically as evidence on the Tree Person
-            var evidencePersonaUri = API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId;
-            await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid), {
-              method: 'POST',
-              headers: {
-                'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-fs-v1+json',
-                'Accept': 'application/x-fs-v1+json, application/json'
-              },
-              body: JSON.stringify({
-                persons: [
-                  {
-                    id: personPid,
-                    evidence: [
-                      { resource: evidencePersonaUri }
-                    ]
-                  }
-                ]
-              })
-            });
-          } catch (evErr) {
-            console.warn('Tree person evidence link notice:', evErr);
+            try {
+              // 3. Attach persona as memory reference on Tree Person
+              await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid) + '/memory-references', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-gedcomx-v1+json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                  persons: [
+                    {
+                      evidence: [
+                        { resource: API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId }
+                      ]
+                    }
+                  ]
+                })
+              });
+            } catch (refErr) {
+              console.warn('Tree person memory-reference notice:', refErr);
+            }
           }
+        } catch (tagErr) {
+          console.warn('Persona tag creation notice:', tagErr);
+        }
+      }
+    }
 
-          try {
-            // 3. Attach persona as memory reference on Tree Person
-            await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(personPid) + '/memory-references', {
-              method: 'POST',
-              headers: {
-                'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-gedcomx-v1+json',
-                'Accept': 'application/json'
-              },
-              body: JSON.stringify({
-                persons: [
-                  {
-                    evidence: [
-                      { resource: API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId }
-                    ]
-                  }
-                ]
-              })
-            });
-          } catch (refErr) {
-            console.warn('Tree person memory-reference notice:', refErr);
+    // 5. Fallback link of memory to targetPersonId if no personas could be linked
+    if (targetPersonId && memoryId && linkedPersonas.length === 0) {
+      try {
+        var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId);
+        var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
+        await fetch(updatePersonUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Content-Type': 'application/x-fs-v1+json',
+            'Accept': 'application/x-fs-v1+json, application/json'
+          },
+          body: JSON.stringify({
+            persons: [
+              {
+                id: targetPersonId,
+                evidence: [{ resource: memoryUri }]
+              }
+            ]
+          })
+        });
+      } catch (fallbackLinkErr) {
+        console.warn('Fallback tree evidence link notice:', fallbackLinkErr);
+      }
+    }
+
+    var memoryWebUrl = memoryId ? WEB_BASE + '/memories/memory/' + memoryId : WEB_BASE + '/memories/gallery';
+    var personMemoriesUrl = targetPersonId ? WEB_BASE + '/en/tree/person/memories/' + targetPersonId : null;
+
+    onProgress({ step: 'done', message: '✓ Memory saved to FamilySearch Beta!' });
+
+    return {
+      success: true,
+      memoryId: memoryId,
+      memoryUrl: memoryWebUrl,
+      personMemoriesUrl: personMemoriesUrl,
+      targetPersonId: targetPersonId,
+      title: title
+    };
+  }
+
+  /**
+   * Delete an existing memory from FamilySearch Beta
+   */
+  async function deleteMemory(memoryId) {
+    var token = getStoredToken();
+    if (!token) {
+      throw new Error('Not signed in to FamilySearch.');
+    }
+    if (!memoryId) return false;
+
+    try {
+      var res = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+        method: 'DELETE',
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken
+        }
+      });
+      if (res.status === 204 || res.ok) {
+        return true;
+      }
+      if (res.status === 404) {
+        return true;
+      }
+      var errText = await res.text();
+      console.warn('FamilySearch deleteMemory notice (' + res.status + '):', errText);
+      return false;
+    } catch (e) {
+      console.warn('FamilySearch deleteMemory error:', e);
+      return false;
+    }
+  }
+
+  var KNOWN_FAMILY = [
+    { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'gill', 'mom', 'patricia gill', 'patricia josephine gill'] },
+    { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'viola', 'jeff viola', 'jeffrey alan viola'] },
+    { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'baber', 'rayna baber'] },
+    { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'viola', 'brittany viola'] },
+    { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'viola', 'kourtnie viola'] },
+    { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'viola', 'makinzie viola'] }
+  ];
+
+  async function searchPersons(query) {
+    if (!query || !query.trim()) return [];
+    var trimmed = query.trim();
+    var lower = trimmed.toLowerCase();
+
+    // 1. Check local seeds
+    var localMatches = KNOWN_FAMILY.filter(function (f) {
+      if (f.id.toLowerCase() === lower) return true;
+      if (f.name.toLowerCase().includes(lower) || lower.includes(f.name.toLowerCase())) return true;
+      if (f.aliases && f.aliases.some(function (a) { return lower.includes(a) || a.includes(lower); })) return true;
+      return false;
+    });
+
+    var token = getStoredToken();
+    if (!token) {
+      return localMatches;
+    }
+
+    // 2. Direct PID lookup
+    var isPid = /^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed);
+    if (isPid) {
+      try {
+        var pidRes = await fetch(API_BASE + '/platform/tree/persons/' + trimmed.toUpperCase(), {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-gedcomx-v1+json'
+          }
+        });
+        if (pidRes.ok) {
+          var pData = await pidRes.json();
+          var pItem = pData && pData.persons && pData.persons[0];
+          if (pItem) {
+            var d = pItem.display || {};
+            var pName = d.name;
+            if (!pName && pItem.names && pItem.names[0] && pItem.names[0].nameForms && pItem.names[0].nameForms[0]) {
+              pName = pItem.names[0].nameForms[0].fullText;
+            }
+            return [{
+              id: pItem.id || trimmed.toUpperCase(),
+              name: pName || trimmed.toUpperCase(),
+              lifespan: d.lifespan || '',
+              gender: d.gender || ''
+            }];
           }
         }
-      } catch (tagErr) {
-        console.warn('Persona tag creation notice:', tagErr);
+      } catch (e) {
+        console.warn('Direct PID lookup notice:', e);
       }
     }
-  }
 
-  // 5. Fallback link of memory to targetPersonId if no personas could be linked
-  if (targetPersonId && memoryId && linkedPersonas.length === 0) {
+    // 3. Search Family Tree REST API
     try {
-      var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId);
-      var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
-      await fetch(updatePersonUrl, {
-        method: 'POST',
+      var searchParams = new URLSearchParams();
+      var parts = trimmed.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) {
+        searchParams.set('q.surname', parts[0]);
+      } else {
+        searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
+        searchParams.set('q.surname', parts[parts.length - 1]);
+      }
+      searchParams.set('count', '8');
+
+      var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
         headers: {
           'Authorization': 'Bearer ' + token.accessToken,
-          'Content-Type': 'application/x-fs-v1+json',
-          'Accept': 'application/x-fs-v1+json, application/json'
-        },
-        body: JSON.stringify({
-          persons: [
-            {
-              id: targetPersonId,
-              evidence: [{ resource: memoryUri }]
-            }
-          ]
-        })
+          'Accept': 'application/x-gedcomx-atom+json'
+        }
       });
-    } catch (fallbackLinkErr) {
-      console.warn('Fallback tree evidence link notice:', fallbackLinkErr);
-    }
-  }
 
-  var memoryWebUrl = memoryId ? WEB_BASE + '/memories/memory/' + memoryId : WEB_BASE + '/memories/gallery';
-  var personMemoriesUrl = targetPersonId ? WEB_BASE + '/en/tree/person/memories/' + targetPersonId : null;
+      if (searchRes.ok) {
+        var sData = await searchRes.json();
+        var entries = sData.entries || [];
+        var serverResults = entries.map(function (e) {
+          var g = e.content && e.content.gedcomx;
+          var pers = g && g.persons && g.persons[0];
+          var disp = pers && pers.display || {};
+          var id = pers && pers.id || (e.id ? e.id.split('/').pop() : null);
+          var name = disp.name || (pers && pers.names && pers.names[0] && pers.names[0].nameForms && pers.names[0].nameForms[0] && pers.names[0].nameForms[0].fullText) || e.title;
+          return {
+            id: id,
+            name: name,
+            lifespan: disp.lifespan || '',
+            gender: disp.gender || ''
+          };
+        }).filter(function (r) { return Boolean(r.id); });
 
-  onProgress({ step: 'done', message: '✓ Memory saved to FamilySearch Beta!' });
-
-  return {
-    success: true,
-    memoryId: memoryId,
-    memoryUrl: memoryWebUrl,
-    personMemoriesUrl: personMemoriesUrl,
-    targetPersonId: targetPersonId,
-    title: title
-  };
-}
-
-/**
- * Delete an existing memory from FamilySearch Beta
- */
-async function deleteMemory(memoryId) {
-  var token = getStoredToken();
-  if (!token) {
-    throw new Error('Not signed in to FamilySearch.');
-  }
-  if (!memoryId) return false;
-
-  try {
-    var res = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
-      method: 'DELETE',
-      headers: {
-        'Authorization': 'Bearer ' + token.accessToken
+        var seen = new Set();
+        var combined = [];
+        localMatches.forEach(function (m) { seen.add(m.id); combined.push(m); });
+        serverResults.forEach(function (r) {
+          if (!seen.has(r.id)) {
+            seen.add(r.id);
+            combined.push(r);
+          }
+        });
+        return combined;
       }
-    });
-    if (res.status === 204 || res.ok) {
-      return true;
+    } catch (searchErr) {
+      console.warn('FamilySearch tree search notice:', searchErr);
     }
-    if (res.status === 404) {
-      return true;
-    }
-    var errText = await res.text();
-    console.warn('FamilySearch deleteMemory notice (' + res.status + '):', errText);
-    return false;
-  } catch (e) {
-    console.warn('FamilySearch deleteMemory error:', e);
-    return false;
-  }
-}
 
-var KNOWN_FAMILY = [
-  { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'gill', 'mom', 'patricia gill', 'patricia josephine gill'] },
-  { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'viola', 'jeff viola', 'jeffrey alan viola'] },
-  { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'baber', 'rayna baber'] },
-  { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'viola', 'brittany viola'] },
-  { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'viola', 'kourtnie viola'] },
-  { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'viola', 'makinzie viola'] }
-];
-
-async function searchPersons(query) {
-  if (!query || !query.trim()) return [];
-  var trimmed = query.trim();
-  var lower = trimmed.toLowerCase();
-
-  // 1. Check local seeds
-  var localMatches = KNOWN_FAMILY.filter(function (f) {
-    if (f.id.toLowerCase() === lower) return true;
-    if (f.name.toLowerCase().includes(lower) || lower.includes(f.name.toLowerCase())) return true;
-    if (f.aliases && f.aliases.some(function (a) { return lower.includes(a) || a.includes(lower); })) return true;
-    return false;
-  });
-
-  var token = getStoredToken();
-  if (!token) {
     return localMatches;
   }
 
-  // 2. Direct PID lookup
-  var isPid = /^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed);
-  if (isPid) {
-    try {
-      var pidRes = await fetch(API_BASE + '/platform/tree/persons/' + trimmed.toUpperCase(), {
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-gedcomx-v1+json'
-        }
-      });
-      if (pidRes.ok) {
-        var pData = await pidRes.json();
-        var pItem = pData && pData.persons && pData.persons[0];
-        if (pItem) {
-          var d = pItem.display || {};
-          var pName = d.name;
-          if (!pName && pItem.names && pItem.names[0] && pItem.names[0].nameForms && pItem.names[0].nameForms[0]) {
-            pName = pItem.names[0].nameForms[0].fullText;
-          }
-          return [{
-            id: pItem.id || trimmed.toUpperCase(),
-            name: pName || trimmed.toUpperCase(),
-            lifespan: d.lifespan || '',
-            gender: d.gender || ''
-          }];
-        }
-      }
-    } catch (e) {
-      console.warn('Direct PID lookup notice:', e);
-    }
-  }
-
-  // 3. Search Family Tree REST API
-  try {
-    var searchParams = new URLSearchParams();
-    var parts = trimmed.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) {
-      searchParams.set('q.surname', parts[0]);
-    } else {
-      searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
-      searchParams.set('q.surname', parts[parts.length - 1]);
-    }
-    searchParams.set('count', '8');
-
-    var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
-      headers: {
-        'Authorization': 'Bearer ' + token.accessToken,
-        'Accept': 'application/x-gedcomx-atom+json'
-      }
-    });
-
-    if (searchRes.ok) {
-      var sData = await searchRes.json();
-      var entries = sData.entries || [];
-      var serverResults = entries.map(function (e) {
-        var g = e.content && e.content.gedcomx;
-        var pers = g && g.persons && g.persons[0];
-        var disp = pers && pers.display || {};
-        var id = pers && pers.id || (e.id ? e.id.split('/').pop() : null);
-        var name = disp.name || (pers && pers.names && pers.names[0] && pers.names[0].nameForms && pers.names[0].nameForms[0] && pers.names[0].nameForms[0].fullText) || e.title;
-        return {
-          id: id,
-          name: name,
-          lifespan: disp.lifespan || '',
-          gender: disp.gender || ''
-        };
-      }).filter(function (r) { return Boolean(r.id); });
-
-      var seen = new Set();
-      var combined = [];
-      localMatches.forEach(function (m) { seen.add(m.id); combined.push(m); });
-      serverResults.forEach(function (r) {
-        if (!seen.has(r.id)) {
-          seen.add(r.id);
-          combined.push(r);
-        }
-      });
-      return combined;
-    }
-  } catch (searchErr) {
-    console.warn('FamilySearch tree search notice:', searchErr);
-  }
-
-  return localMatches;
-}
-
-global.FamilySearchClient = {
-  getClientId: getClientId,
-  setClientId: setClientId,
-  getRedirectUri: getRedirectUri,
-  setRedirectUri: setRedirectUri,
-  showConnectionDialog: showConnectionDialog,
-  getStoredToken: getStoredToken,
-  saveToken: saveToken,
-  clearToken: clearToken,
-  startLogin: startLogin,
-  handleCallbackCode: handleCallbackCode,
-  getCurrentUser: getCurrentUser,
-  uploadMemory: uploadMemory,
-  deleteMemory: deleteMemory,
-  searchPersons: searchPersons,
-  AUTH_URL: AUTH_URL,
-  API_BASE: API_BASE,
-  WEB_BASE: WEB_BASE
-};
-}) (typeof window !== 'undefined' ? window : this);
+  global.FamilySearchClient = {
+    getClientId: getClientId,
+    setClientId: setClientId,
+    getRedirectUri: getRedirectUri,
+    setRedirectUri: setRedirectUri,
+    showConnectionDialog: showConnectionDialog,
+    getStoredToken: getStoredToken,
+    saveToken: saveToken,
+    clearToken: clearToken,
+    startLogin: startLogin,
+    handleCallbackCode: handleCallbackCode,
+    getCurrentUser: getCurrentUser,
+    uploadMemory: uploadMemory,
+    deleteMemory: deleteMemory,
+    searchPersons: searchPersons,
+    AUTH_URL: AUTH_URL,
+    API_BASE: API_BASE,
+    WEB_BASE: WEB_BASE
+  };
+})(typeof window !== 'undefined' ? window : this);
