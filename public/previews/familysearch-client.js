@@ -603,83 +603,111 @@ async function uploadMemory(options) {
       var normalizedDate = formatNormalizedDate(isoDate);
       var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
 
-      // In FamilySearch Memories, temporal coverage uses the normalized date string in original
+      // In FamilySearch Memories GEDCOM X schema:
+      // - spatial is a PlaceReference with 'original' text only (no latitude/longitude properties)
+      // - temporal is a Date with 'normalized' text, 'original', and 'formal'
       var coverageEntry = {};
       if (isoDate) {
         coverageEntry.temporal = {
+          normalized: normalizedDate,
           original: normalizedDate || isoDate,
-          formal: formalDate,
-          normalized: normalizedDate
+          formal: formalDate
         };
       }
       if (place) {
         coverageEntry.spatial = {
           original: place
         };
-        if (photo && typeof photo.lat === 'number' && typeof photo.lng === 'number') {
-          coverageEntry.spatial.latitude = photo.lat;
-          coverageEntry.spatial.longitude = photo.lng;
-        }
       }
 
-      // Query live source description ID from FamilySearch if possible
-      var sdid = memoryId;
+      // Query live source description from FamilySearch to ensure exact schema match
+      var liveSd = null;
       try {
-        var sdRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '?sourceDescriptions=true', {
+        var memRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
           headers: {
             'Authorization': 'Bearer ' + token.accessToken,
             'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
           }
         });
-        if (sdRes.ok) {
-          var sdData = await sdRes.json();
-          if (sdData && sdData.sourceDescriptions && sdData.sourceDescriptions[0] && sdData.sourceDescriptions[0].id) {
-            sdid = sdData.sourceDescriptions[0].id;
+        if (memRes.ok) {
+          var memData = await memRes.json();
+          if (memData && memData.sourceDescriptions && memData.sourceDescriptions[0]) {
+            liveSd = memData.sourceDescriptions[0];
           }
         }
-      } catch (sdFetchErr) {
-        console.warn('Could not read existing sourceDescription id:', sdFetchErr);
+      } catch (getErr) {
+        console.warn('Could not read existing memory description:', getErr);
       }
 
-      var updatePayload1 = {
-        sourceDescriptions: [
-          {
-            id: sdid,
-            about: API_BASE + '/platform/memories/memories/' + memoryId,
-            resourceType: 'http://gedcomx.org/DigitalArtifact',
-            titles: [{ value: title }],
-            descriptions: fullDescription ? [{ value: fullDescription }] : [],
-            coverage: [coverageEntry]
-          }
-        ]
-      };
+      var payloadsToTry = [];
+      if (liveSd) {
+        var baseSd = Object.assign({}, liveSd);
+        delete baseSd.links;
+        delete baseSd.sources;
+        baseSd.coverage = coverageEntry;
+        if (title) baseSd.titles = [{ value: title }];
+        if (fullDescription) baseSd.descriptions = [{ value: fullDescription }];
+        payloadsToTry.push({ sourceDescriptions: [baseSd] });
+      }
 
-      var updatePayload2 = {
+      // Documented FamilySearch Memories update schema with id: "1"
+      payloadsToTry.push({
         sourceDescriptions: [
           {
-            id: sdid,
+            id: '1',
             about: API_BASE + '/platform/memories/memories/' + memoryId,
             resourceType: 'http://gedcomx.org/DigitalArtifact',
-            titles: [{ value: title }],
-            descriptions: fullDescription ? [{ value: fullDescription }] : [],
+            titles: title ? [{ value: title }] : undefined,
+            descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
             coverage: coverageEntry
           }
         ]
-      };
+      });
 
+      // Canonical payload with id: memoryId
+      payloadsToTry.push({
+        sourceDescriptions: [
+          {
+            id: memoryId,
+            about: API_BASE + '/platform/memories/memories/' + memoryId,
+            resourceType: 'http://gedcomx.org/DigitalArtifact',
+            titles: title ? [{ value: title }] : undefined,
+            descriptions: fullDescription ? [{ value: fullDescription }] : undefined,
+            coverage: coverageEntry
+          }
+        ]
+      });
+
+      // Fallback with coverage as array
+      payloadsToTry.push({
+        sourceDescriptions: [
+          {
+            id: '1',
+            about: API_BASE + '/platform/memories/memories/' + memoryId,
+            coverage: [coverageEntry]
+          }
+        ]
+      });
+
+      // Endpoints ordered from standard primary memory endpoint to sub-resource endpoints
       var endpoints = [
-        API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(sdid),
         API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId),
         API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0',
-        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage',
         API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description',
-        API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(memoryId)
+        API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage'
       ];
 
       var covSaved = false;
       for (var epIdx = 0; epIdx < endpoints.length && !covSaved; epIdx++) {
         var epUrl = endpoints[epIdx];
-        for (var pVar of [updatePayload1, updatePayload2]) {
+        var isCoverageSubEndpoint = epUrl.endsWith('/coverage');
+
+        var currentPayloads = isCoverageSubEndpoint
+          ? [{ coverage: coverageEntry }, coverageEntry]
+          : payloadsToTry;
+
+        for (var pIdx = 0; pIdx < currentPayloads.length && !covSaved; pIdx++) {
+          var pVar = currentPayloads[pIdx];
           try {
             var postRes = await fetch(epUrl, {
               method: 'POST',
@@ -690,10 +718,13 @@ async function uploadMemory(options) {
               },
               body: JSON.stringify(pVar)
             });
+
             if (postRes.ok || postRes.status === 204) {
               covSaved = true;
+              console.log('✓ FamilySearch Memory coverage saved successfully to', epUrl);
               break;
             } else {
+              // Retry with GEDCOM X header
               var postRes2 = await fetch(epUrl, {
                 method: 'POST',
                 headers: {
@@ -703,12 +734,19 @@ async function uploadMemory(options) {
                 },
                 body: JSON.stringify(pVar)
               });
+
               if (postRes2.ok || postRes2.status === 204) {
                 covSaved = true;
+                console.log('✓ FamilySearch Memory coverage saved via gedcomx to', epUrl);
                 break;
+              } else {
+                var errTxt = await postRes.text();
+                console.warn('Coverage attempt returned', postRes.status, 'for', epUrl, errTxt);
               }
             }
-          } catch (epErr) {}
+          } catch (epErr) {
+            console.warn('Coverage attempt network error for', epUrl, epErr);
+          }
         }
       }
     } catch (covErr) {
