@@ -2400,10 +2400,10 @@
       </div>
 
       <div class="folder-picker-box">
-        <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick up to 5 photos from your photo gallery">
+        <button class="btn primary folder-pick-btn btn-pick-1-5 mob-only" type="button" id="btn-pick-1-5" title="Pick up to 5 photos from your photo gallery">
           <span data-icon="grid"></span><span>Pick Photos (1–5)...</span>
         </button>
-        <button class="btn sm folder-pick-btn folder-pick-secondary desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
+        <button class="btn primary folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
@@ -2472,7 +2472,7 @@
           </div>
         </div>
         <div class="top-right">
-          <button class="btn sm primary" type="button" id="btn-top-pick-photos" title="Pick up to 5 photos from your photo gallery">
+          <button class="btn sm primary mob-only" type="button" id="btn-top-pick-photos" title="Pick up to 5 photos from your photo gallery">
             <span data-icon="grid"></span><span>Pick Photos (1–5)</span>
           </button>
           <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
@@ -3606,18 +3606,26 @@
                   <div style="width:60px;height:60px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">
                     🖼️
                   </div>
-                  <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Pick Photos from Gallery</h2>
-                  <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
-                    Select up to 5 photos from your phone gallery or camera roll to tag family members, set dates &amp; places, fix in Photo Lab, and share or sync with FamilySearch.
-                  </p>
+                  <div class="mob-only" style="flex-direction:column;align-items:center;">
+                    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Pick Photos from Gallery</h2>
+                    <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
+                      Select up to 5 photos from your phone gallery or camera roll to tag family members, set dates &amp; places, fix in Photo Lab, and share or sync with FamilySearch.
+                    </p>
+                  </div>
+                  <div class="desktop-only" style="flex-direction:column;align-items:center;">
+                    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Open Photo Folder</h2>
+                    <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
+                      Scan a folder of photos from your computer to catalog metadata, detect faces, restore in Photo Lab, and export or sync with FamilySearch.
+                    </p>
+                  </div>
                   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn primary" type="button" id="btn-empty-pick" style="padding:12px 20px;font-weight:600;">
+                    <button class="btn primary mob-only" type="button" id="btn-empty-pick" style="padding:12px 20px;font-weight:600;">
                       <span data-icon="grid"></span> Pick Up to 5 Photos...
                     </button>
                     <button class="btn mob-only" type="button" id="btn-empty-camera">
                       📷 Camera
                     </button>
-                    <button class="btn desktop-only" type="button" id="btn-empty-choose">
+                    <button class="btn primary desktop-only" type="button" id="btn-empty-choose" style="padding:12px 20px;font-weight:600;">
                       <span data-icon="folder"></span> Scan Entire Folder...
                     </button>
                     <button class="btn sm" type="button" id="btn-empty-reload-demo">
@@ -4191,11 +4199,12 @@
             if (!p) {
               box.innerHTML = `
                 <div style="padding:32px 16px;text-align:center;">
-                  <p class="muted" style="font-size:13px;line-height:1.5;">No photo selected. Pick 1 to 5 photos or scan a folder.</p>
-                  <button class="btn sm primary" type="button" style="margin-top:12px;width:100%;" id="insp-pick-empty">
+                  <p class="muted mob-only" style="font-size:13px;line-height:1.5;">No photo selected. Pick 1 to 5 photos from gallery.</p>
+                  <p class="muted desktop-only" style="font-size:13px;line-height:1.5;">No photo selected. Choose a photo from the ledger or scan a folder.</p>
+                  <button class="btn sm primary mob-only" type="button" style="margin-top:12px;width:100%;" id="insp-pick-empty">
                     <span data-icon="grid"></span> Pick 1–5 Photos...
                   </button>
-                  <button class="btn sm desktop-only" type="button" style="margin-top:6px;width:100%;" id="insp-choose-empty">
+                  <button class="btn sm primary desktop-only" type="button" style="margin-top:12px;width:100%;" id="insp-choose-empty">
                     <span data-icon="folder"></span> Scan Entire Folder...
                   </button>
                 </div>`;
@@ -4816,9 +4825,10 @@
             vp.innerHTML = `
               <div class="panel" style="padding:48px 24px;text-align:center;max-width:560px;margin:32px auto;background:#1a1a1a;color:#fff;border-radius:12px;">
                 <p style="font-weight:600;font-size:16px;">Photo Lab is empty</p>
-                <p class="muted" style="font-size:13px;margin:8px 0 20px;color:#999;">Pick 1 to 5 photos to repair, or reload demo photos.</p>
-                <button class="btn primary" type="button" id="btn-lab-empty-pick">Pick 1–5 Photos...</button>
-                <button class="btn desktop-only" type="button" id="btn-lab-empty-choose" style="margin-left:8px;background:#333;color:#fff;border-color:#555;">Scan Entire Folder...</button>
+                <p class="muted mob-only" style="font-size:13px;margin:8px 0 20px;color:#999;">Pick 1 to 5 photos to repair, or reload demo photos.</p>
+                <p class="muted desktop-only" style="font-size:13px;margin:8px 0 20px;color:#999;">Choose a photo from the ledger to repair, or reload demo photos.</p>
+                <button class="btn primary mob-only" type="button" id="btn-lab-empty-pick">Pick 1–5 Photos...</button>
+                <button class="btn primary desktop-only" type="button" id="btn-lab-empty-choose">Scan Entire Folder...</button>
                 <button class="btn" type="button" id="btn-lab-empty-demo" style="margin-left:8px;background:#333;color:#fff;border-color:#555;">Reload Demo Photos</button>
               </div>`;
             mountIcons(vp);
