@@ -665,19 +665,36 @@
     }
 
     .insp-preview {
-      aspect-ratio: 4 / 3;
-      border-radius: 6px;
+      width: 100%;
+      border-radius: 8px;
       overflow: hidden;
-      background: #141414;
+      background: #0f172a;
       border: 1px solid var(--border);
       margin-bottom: 10px;
       position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 160px;
+    }
+
+    .insp-preview-wrap {
+      position: relative;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      max-width: 100%;
+      line-height: 0;
     }
 
     .insp-preview img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+      max-width: 100%;
+      max-height: 48vh;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto;
     }
 
     /* Compact Repair Strip directly beneath inspector preview */
@@ -1540,6 +1557,33 @@
 
       .inspector.mobile-open {
         transform: translateY(0) !important;
+      }
+
+      .insp-preview {
+        max-height: 44vh !important;
+        min-height: 120px !important;
+        aspect-ratio: auto !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 4px !important;
+        background: #0f172a !important;
+      }
+
+      .insp-preview-wrap {
+        max-width: 100% !important;
+        max-height: 44vh !important;
+        display: inline-flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+      }
+
+      .insp-preview img {
+        max-width: 100% !important;
+        max-height: 44vh !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
       }
 
       .mob-sheet-handle {
@@ -3334,7 +3378,7 @@
           parts.push('url(#lab-svg-fx)');
         }
 
-        const baseScale = p.scale || 1.05;
+        const baseScale = (typeof p.scale === 'number' && p.scale > 0) ? p.scale : 1;
         const tilt = p.straighten || 0;
         const tiltGuard = tilt !== 0 ? 1 + Math.min(0.18, Math.abs(tilt) * 0.014) : 1;
         const scale = baseScale * extraZoom * tiltGuard;
@@ -3348,7 +3392,7 @@
       }
 
       function beforeStyle(p, extraZoom = 1, inLab = false) {
-        const scale = (p.origScale || p.scale || 1.05) * extraZoom;
+        const scale = ((typeof p.origScale === 'number' && p.origScale > 0) ? p.origScale : ((typeof p.scale === 'number' && p.scale > 0) ? p.scale : 1)) * extraZoom;
         const rawCrop = p.origCrop || p.crop || '50% 50%';
         const rawFilter = p.filter === 'none' ? 'sepia(0.24) contrast(0.92) brightness(0.97)' : p.filter;
         const tx = inLab && extraZoom > 1 ? panX : 0;
@@ -4134,9 +4178,9 @@
             <span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>
           </div>
 
-          <div class="insp-preview" style="position:relative;display:flex;justify-content:center;align-items:center;background:#18181b;border-radius:8px;overflow:hidden;">
-            <div style="position:relative;display:inline-block;max-width:100%;line-height:0;">
-              <img id="insp-active-img" src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)};max-width:100%;height:auto;display:block;">
+          <div class="insp-preview">
+            <div class="insp-preview-wrap">
+              <img id="insp-active-img" src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)}">
               <div id="insp-face-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
                 ${renderFaceBoxes(p)}
               </div>
