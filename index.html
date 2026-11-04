@@ -2311,8 +2311,8 @@
       </div>
 
       <div class="folder-picker-box">
-        <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick 1 to 5 photos from your device to tag, repair &amp; sync">
-          <span data-icon="grid"></span><span>Pick 1–5 Photos...</span>
+        <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick up to 5 photos from your photo gallery">
+          <span data-icon="grid"></span><span>Pick Photos (1–5)...</span>
         </button>
         <button class="btn sm folder-pick-btn folder-pick-secondary desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
@@ -2322,7 +2322,7 @@
         </button>
         <div class="folder-current">
           <span class="mono muted folder-current-name" id="sidebar-folder-name"
-            title="Active photo folder">Gill_Costello_Archive</span>
+            title="Active photo source">Gill_Costello_Archive</span>
           <button class="link-btn" type="button" id="btn-reset-sample" hidden>Reload Demo</button>
         </div>
       </div>
@@ -2383,8 +2383,8 @@
           </div>
         </div>
         <div class="top-right">
-          <button class="btn sm primary" type="button" id="btn-top-pick-photos" title="Pick 1 to 5 photos from your device to tag, repair &amp; sync">
-            <span data-icon="grid"></span><span>Pick 1–5 Photos</span>
+          <button class="btn sm primary" type="button" id="btn-top-pick-photos" title="Pick up to 5 photos from your photo gallery">
+            <span data-icon="grid"></span><span>Pick Photos (1–5)</span>
           </button>
           <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
             <span>📷 Camera</span>
@@ -2616,6 +2616,10 @@
     <button type="button" class="mob-nav-btn active" data-mob-tab="photos" id="mob-tab-photos">
       <span class="mob-nav-icon" data-icon="grid"></span>
       <span class="mob-nav-label">Photos</span>
+    </button>
+    <button type="button" class="mob-nav-btn" data-mob-tab="pick" id="mob-tab-pick" title="Pick up to 5 photos from gallery">
+      <span class="mob-nav-icon">🖼️</span>
+      <span class="mob-nav-label">Pick (1–5)</span>
     </button>
     <button type="button" class="mob-nav-btn" data-mob-tab="map" id="mob-tab-map">
       <span class="mob-nav-icon" data-icon="map"></span>
@@ -3110,6 +3114,9 @@
 
       async function loadArchiveFromDb() {
         try {
+          if (isMobile()) {
+            return null;
+          }
           const db = await openArchiveDb();
           if (!db) return null;
           const tx = db.transaction([DB_STORE, DB_META], 'readonly');
@@ -3125,6 +3132,19 @@
           const isCustom = await getMeta('isCustom');
           if (!isCustom) return null;
 
+          const count = await new Promise((resolve) => {
+            const req = store.count();
+            req.onsuccess = () => resolve(req.result || 0);
+            req.onerror = () => resolve(0);
+          });
+
+          if (count === 0 || count > 5) {
+            if (count > 5) {
+              await clearArchiveFromDb();
+            }
+            return null;
+          }
+
           const folder = await getMeta('folder');
 
           const getPhotos = new Promise((resolve) => {
@@ -3138,13 +3158,17 @@
 
           photos.forEach((p) => {
             if (p._file) {
-              p.src = URL.createObjectURL(p._file);
+              try {
+                p.src = URL.createObjectURL(p._file);
+              } catch {
+                p.src = 'sample.jpg';
+              }
             } else {
               p.src = 'sample.jpg';
             }
           });
 
-          return { items: photos, folderName: folder || 'Imported_Archive' };
+          return { items: photos.slice(0, 5), folderName: folder || 'Photo_Gallery' };
         } catch (e) {
           console.warn('Could not load archive from IndexedDB:', e);
           return null;
@@ -3489,31 +3513,44 @@
             /* Empty state when demo prints are cleared */
             if (items.length === 0) {
               host.innerHTML = `
-                <div class="panel" style="padding:48px 24px;text-align:center;max-width:620px;margin:28px auto;">
-                  <div style="width:56px;height:56px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
-                    <span data-icon="folder" style="font-size:24px;"></span>
+                <div class="panel" style="padding:40px 20px;text-align:center;max-width:540px;margin:24px auto;">
+                  <div style="width:60px;height:60px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">
+                    🖼️
                   </div>
-                  <h2 style="font-size:19px;font-weight:600;margin-bottom:8px;">Ready for Your Family Photos</h2>
-                  <p class="muted" style="font-size:13px;line-height:1.5;margin-bottom:20px;">
-                    Demo photos have been removed. Select a local photo folder or family scan archive from your computer to organize memories, repair old photos with AI, and sync with FamilySearch.
+                  <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Pick Photos from Gallery</h2>
+                  <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
+                    Select up to 5 photos from your phone gallery or camera roll to tag family members, set dates &amp; places, fix in Photo Lab, and share or sync with FamilySearch.
                   </p>
-                  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn primary" type="button" id="btn-empty-pick">
-                      <span data-icon="grid"></span> Pick 1–5 Photos...
+                  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                    <button class="btn primary" type="button" id="btn-empty-pick" style="padding:12px 20px;font-weight:600;">
+                      <span data-icon="grid"></span> Pick Up to 5 Photos...
+                    </button>
+                    <button class="btn mob-only" type="button" id="btn-empty-camera">
+                      📷 Camera
                     </button>
                     <button class="btn desktop-only" type="button" id="btn-empty-choose">
                       <span data-icon="folder"></span> Scan Entire Folder...
                     </button>
-                    <button class="btn" type="button" id="btn-empty-reload-demo">
-                      ↺ Reload Demo Photos
+                    <button class="btn sm" type="button" id="btn-empty-reload-demo">
+                      ↺ Load Sample Photos
                     </button>
                   </div>
-                  <p class="mono muted" style="font-size:11px;margin-top:16px;">
-                    100% private: All scans, metadata and edits stay in your browser on your device.
+                  <p class="mono muted" style="font-size:11px;margin-top:18px;">
+                    🔒 100% private: All scans, metadata and edits stay on your device.
                   </p>
                 </div>`;
               mountIcons(host);
               host.querySelector('#btn-empty-pick').onclick = pickIndividualPhotos;
+              const emptyCamBtn = host.querySelector('#btn-empty-camera');
+              if (emptyCamBtn) {
+                emptyCamBtn.onclick = () => {
+                  const cam = document.getElementById('mobile-camera-input');
+                  if (cam) {
+                    cam.setAttribute('capture', 'environment');
+                    cam.click();
+                  }
+                };
+              }
               const emptyChooseBtn = host.querySelector('#btn-empty-choose');
               if (emptyChooseBtn) emptyChooseBtn.onclick = pickPhotoFolder;
               host.querySelector('#btn-empty-reload-demo').onclick = resetToSampleArchive;
@@ -7216,6 +7253,10 @@
 
       /* Native local folder chooser (with live chunked progress meter & persistent IndexedDB cache) */
       function pickPhotoFolder() {
+        if (isMobile()) {
+          pickIndividualPhotos();
+          return;
+        }
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
@@ -7581,8 +7622,11 @@
           return;
         }
 
-        // Limit to 10 max so mobile devices and desktop browsers remain fast and never crash
-        const selectedFiles = imgFiles.slice(0, 10);
+        // Limit strictly to up to 5 photos at a time
+        const selectedFiles = imgFiles.slice(0, 5);
+        if (imgFiles.length > 5) {
+          notify('Loaded the first 5 photos (up to 5 at a time ensures fast performance & prevents crashes).');
+        }
         await clearArchiveFromDb();
         isCustomFolder = true;
         rootFolderName = sourceLabel;
@@ -7684,7 +7728,7 @@
         input.multiple = true;
         input.accept = 'image/*';
         input.onchange = () => {
-          handleSelectedFiles(Array.from(input.files || []), 'Selected_Photos');
+          handleSelectedFiles(Array.from(input.files || []), 'Photo_Gallery');
         };
         input.click();
       }
@@ -7694,6 +7738,9 @@
 
       const topPickPhotosBtn = document.getElementById('btn-top-pick-photos');
       if (topPickPhotosBtn) topPickPhotosBtn.onclick = pickIndividualPhotos;
+
+      const mobPickTabBtn = document.getElementById('mob-tab-pick');
+      if (mobPickTabBtn) mobPickTabBtn.onclick = pickIndividualPhotos;
 
       const mobCameraBtn = document.getElementById('btn-mob-camera');
       const mobCameraInput = document.getElementById('mobile-camera-input');
@@ -7955,29 +8002,24 @@
 
       // Check if user previously imported a custom archive into persistent IndexedDB
       try {
-        if (params.get('reset') === '1' || params.get('clear') === '1') {
+        if (params.get('reset') === '1' || params.get('clear') === '1' || isMobile()) {
           await clearArchiveFromDb();
-          items = makeSampleItems();
-          isCustomFolder = false;
+          if (isMobile()) {
+            items = [];
+            isCustomFolder = true;
+            rootFolderName = '(Photo Gallery)';
+            selectedId = null;
+          } else {
+            items = makeSampleItems();
+            isCustomFolder = false;
+          }
         } else {
           const savedArchive = await loadArchiveFromDb();
-          if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
-            if (isMobile() && savedArchive.items.length > 20) {
-              console.log('Mobile device detected with large historical archive (' + savedArchive.items.length + ' photos). Purging heavy cache.');
-              await clearArchiveFromDb();
-              items = [];
-              isCustomFolder = true;
-              rootFolderName = '(Clean mobile queue)';
-              selectedId = null;
-              setTimeout(() => {
-                notify('Cleared previous 1,000+ photo backlog to optimize mobile speed! Tap "Pick 1–5 Photos" to begin.');
-              }, 400);
-            } else {
-              items = savedArchive.items;
-              rootFolderName = savedArchive.folderName;
-              isCustomFolder = true;
-              selectedId = items[0] ? items[0].id : null;
-            }
+          if (savedArchive && savedArchive.items && savedArchive.items.length > 0 && savedArchive.items.length <= 5) {
+            items = savedArchive.items;
+            rootFolderName = savedArchive.folderName;
+            isCustomFolder = true;
+            selectedId = items[0] ? items[0].id : null;
           }
         }
       } catch (dbErr) {
