@@ -2389,14 +2389,14 @@
       <div class="sidebar-head mob-only">
         <div class="brand brand-reset">
           <span class="brand-mark">FH</span>
-          <span class="brand-title">Family History</span>
+          <span class="brand-title">Family History Photos</span>
         </div>
         <button type="button" class="btn sm btn-close-sidebar" id="btn-close-sidebar" aria-label="Close sidebar">✕</button>
       </div>
 
       <div class="brand desktop-only">
         <span class="brand-mark">FH</span>
-        <span class="brand-title">Family History</span>
+        <span class="brand-title">Family History Photos</span>
       </div>
 
       <div class="folder-picker-box">
@@ -2464,7 +2464,7 @@
           <button class="btn sm menu-toggle" type="button" id="btn-menu" aria-label="Open navigation menu">
             <span>☰</span><span class="desktop-only menu-label-gap">Menu</span>
           </button>
-          <span class="brand-title brand-title-mob mob-only">Family History</span>
+          <span class="brand-title brand-title-mob mob-only">Family History Photos</span>
           <div class="top-search desktop-only">
             <span data-icon="search"></span>
             <input type="search" id="search-input" placeholder="Search relatives, places, filenames, FamilySearch IDs..."
@@ -2508,9 +2508,8 @@
     <main class="sheet">
       <div class="title-row">
         <div>
-          <h1 id="page-heading">Genealogist's Ledger &amp; Light Table</h1>
-          <p class="title-sub" id="page-sub">Click any row or print to catalog metadata on the right, or open it in the
-            5-tool Photo Lab.</p>
+          <h1 id="page-heading">Family Photo Ledger</h1>
+          <p class="title-sub" id="page-sub">Review and organize your family photos. Select any photo to tag relatives and edit details on the right, or open Photo Lab to restore and enhance.</p>
         </div>
 
         <div class="header-controls">
@@ -4097,7 +4096,7 @@
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <button class="btn sm primary" type="button" id="popup-lab-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;">Open Lab</button>
-              <button class="btn sm" type="button" id="popup-insp-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;" title="Inspect this record in the Genealogist's Ledger">Inspect in Ledger</button>
+              <button class="btn sm" type="button" id="popup-insp-${p.id}" style="width:100%;padding:4px 6px;font-size:11px;" title="Inspect this record in the Family Photo Ledger">Inspect in Ledger</button>
             </div>
           `;
 
@@ -7044,12 +7043,16 @@
 
         const p = currentPhoto();
         if (isCatalog) {
-          document.getElementById('page-heading').textContent = layout === 'ledger'
-            ? "Genealogist's Ledger & Light Table"
-            : (layout === 'map' ? "Global Family History Map & Light Table" : "Archivist's Contact Sheet & Light Table");
-          document.getElementById('page-sub').textContent = layout === 'map'
-            ? "Interactive world map with pins where each family photo was taken · Click any pin to open Photo Lab or view relatives."
-            : 'Single-click to catalog metadata on the right · Click Open Lab (or double-click) for all 6 photo restoration engines.';
+          if (layout === 'ledger') {
+            document.getElementById('page-heading').textContent = "Family Photo Ledger";
+            document.getElementById('page-sub').textContent = "Review and organize your family photos. Select any photo to tag relatives and edit details on the right, or open Photo Lab to restore and enhance.";
+          } else if (layout === 'map') {
+            document.getElementById('page-heading').textContent = "Family History Photo Map";
+            document.getElementById('page-sub').textContent = "Geographic map of where family photos were taken. Click any map pin to inspect photos, view relatives, or open Photo Lab.";
+          } else {
+            document.getElementById('page-heading').textContent = "Family Photo Contact Sheet";
+            document.getElementById('page-sub').textContent = "Visual grid of your family photos. Click any photo to view details, tag relatives, or open Photo Lab.";
+          }
           document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-layout') === layout ? 'true' : 'false'));
           renderCharts();
           renderCatalogCenter();
