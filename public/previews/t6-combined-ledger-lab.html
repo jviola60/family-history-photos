@@ -2605,7 +2605,7 @@
           <div class="panel">
             <div class="panel-head">
               <h2>Prints by family branch</h2>
-              <span class="mono muted">Gill · Costello · Russo</span>
+              <span class="mono muted" id="chart-branches-subtitle">Gill · Costello · Russo</span>
             </div>
             <div id="chart-branches"></div>
           </div>
@@ -2849,30 +2849,101 @@
         'Spouse / Partner',
         'Mother',
         'Father',
-        'Grandmother',
-        'Grandfather',
-        'Great-Grandmother',
-        'Great-Grandfather',
-        'Sister',
-        'Brother',
         'Daughter',
         'Son',
+        'Sister',
+        'Brother',
+        'Grandmother',
+        'Grandfather',
         'Granddaughter',
         'Grandson',
+        'Great-Grandmother',
+        'Great-Grandfather',
         'Great-Granddaughter',
         'Great-Grandson',
         'Aunt',
         'Uncle',
         'Great-Aunt',
         'Great-Uncle',
+        'Niece',
+        'Nephew',
+        'Great-Niece',
+        'Great-Nephew',
+        'First Cousin',
+        'Second Cousin',
         'Cousin',
-        'Niece / Nephew',
-        'Son-in-Law / Daughter-in-Law',
-        'In-Law (Brother / Sister)',
-        'In-Law (Parent)',
+        'Mother-in-Law',
+        'Father-in-Law',
+        'Sister-in-Law',
+        'Brother-in-Law',
+        'Daughter-in-Law',
+        'Son-in-Law',
+        'Step-Mother',
+        'Step-Father',
+        'Step-Daughter',
+        'Step-Son',
+        'Step-Sister',
+        'Step-Brother',
+        'Godmother',
+        'Godfather',
         'Close Family Friend',
         'Relative'
       ];
+
+      const PASTEL_PALETTE = [
+        { bg: '#eef1f8', ink: '#1e3a6d' }, // Sky/Slate
+        { bg: '#e8f3f1', ink: '#144943' }, // Sage/Pine
+        { bg: '#f6ecf0', ink: '#61213b' }, // Rose/Plum
+        { bg: '#fbf3e6', ink: '#734110' }, // Amber/Honey
+        { bg: '#f2edf8', ink: '#4b2a6d' }, // Lavender/Violet
+        { bg: '#eaf4ee', ink: '#18522b' }, // Mint/Forest
+        { bg: '#faecec', ink: '#752424' }, // Coral/Brick
+        { bg: '#e9f3f7', ink: '#1b4b66' }, // Ocean/Teal
+        { bg: '#f5f0e6', ink: '#5c451b' }, // Sand/Sepia
+        { bg: '#eceef4', ink: '#29385c' }, // Indigo
+      ];
+
+      function getBranchStyle(b) {
+        if (!b || b === 'No branch') return { bg: '#f0efec', ink: '#575653' };
+        if (branches && branches[b]) return branches[b];
+        let hash = 0;
+        for (let i = 0; i < b.length; i++) {
+          hash = (hash << 5) - hash + b.charCodeAt(i);
+          hash |= 0;
+        }
+        const idx = Math.abs(hash) % PASTEL_PALETTE.length;
+        return PASTEL_PALETTE[idx];
+      }
+
+      function getAllUserBranches() {
+        const fromPhotos = (items || []).flatMap((p) => [
+          p.branch,
+          ...(p.people ? p.people.map((pr) => pr.branch) : [])
+        ]).filter(Boolean);
+        let saved = [];
+        try {
+          saved = JSON.parse(localStorage.getItem('fhp_user_branches') || '[]');
+        } catch (e) {}
+        return Array.from(new Set([...fromPhotos, ...saved]))
+          .filter((b) => b && b !== 'No branch')
+          .sort();
+      }
+
+      function recordUserBranch(b) {
+        if (!b || b === 'No branch') return;
+        const trimmed = b.trim();
+        if (!trimmed) return;
+        let current = [];
+        try {
+          current = JSON.parse(localStorage.getItem('fhp_user_branches') || '[]');
+        } catch (e) {}
+        if (!current.includes(trimmed)) {
+          current.push(trimmed);
+          try {
+            localStorage.setItem('fhp_user_branches', JSON.stringify(current));
+          } catch (e) {}
+        }
+      }
 
       const GEO_PLACES = {
         'Swallow Cliff Woods, Palos Park, IL': [41.6706, -87.8631],
@@ -2946,6 +3017,9 @@
       let items = makeSampleItems();
       let rootFolderName = 'Gill_Costello_Archive';
       let isCustomFolder = false;
+      let activeFolderImageFiles = [];
+      let activeFolderBatchIndex = 0;
+      let FOLDER_BATCH_SIZE = 50;
 
       let mode = 'catalog';        // 'catalog' | 'lab' | 'sync'
       let layout = (window.innerWidth <= 768) ? 'sheet' : 'ledger';       // 'ledger' | 'sheet' | 'map'
@@ -3048,6 +3122,13 @@
           }
         }
 
+        const photoBranchEl = box.querySelector('#f-branch');
+        if (photoBranchEl) {
+          const pb = photoBranchEl.value.trim();
+          p.branch = pb;
+          if (pb) recordUserBranch(pb);
+        }
+
         const placeEl = box.querySelector('#f-place');
         if (placeEl) {
           const val = placeEl.value.trim();
@@ -3076,8 +3157,9 @@
         const branchEl = box.querySelector('#f-person-branch');
         if (nameEl && nameEl.value.trim()) {
           const name = nameEl.value.trim();
-          const rel = (relEl && relEl.value) ? relEl.value : 'Relative';
-          const branch = (branchEl && branchEl.value) ? branchEl.value : (p.branch || 'Gill');
+          const rel = (relEl && relEl.value) ? relEl.value.trim() : 'Relative';
+          const branch = (branchEl && branchEl.value) ? branchEl.value.trim() : (p.branch || '');
+          if (branch) recordUserBranch(branch);
           if (!p.people) p.people = [];
           if (!p.people.some(pr => pr.name.toLowerCase() === name.toLowerCase())) {
             p.people.push({ name, rel, branch });
@@ -3228,9 +3310,6 @@
 
       async function loadArchiveFromDb() {
         try {
-          if (isMobile()) {
-            return null;
-          }
           const db = await openArchiveDb();
           if (!db) return null;
           const tx = db.transaction([DB_STORE, DB_META], 'readonly');
@@ -3252,10 +3331,7 @@
             req.onerror = () => resolve(0);
           });
 
-          if (count === 0 || count > 5) {
-            if (count > 5) {
-              await clearArchiveFromDb();
-            }
+          if (count === 0) {
             return null;
           }
 
@@ -3282,7 +3358,7 @@
             }
           });
 
-          return { items: photos.slice(0, 5), folderName: folder || 'Photo_Gallery' };
+          return { items: photos, folderName: folder || 'Photo_Folder' };
         } catch (e) {
           console.warn('Could not load archive from IndexedDB:', e);
           return null;
@@ -3611,13 +3687,24 @@
               height: 156
             });
 
-            const brData = ['Gill', 'Costello', 'Russo'].map((b) => {
+            const userBranches = getAllUserBranches();
+            const branchesToDisplay = userBranches.length > 0 ? userBranches : ['Gill', 'Costello', 'Russo'];
+            const brData = branchesToDisplay.map((b) => {
               const stories = active.filter((p) => p.branch === b && p.story).length;
               return {
                 label: `${b} branch (${stories} ${stories === 1 ? 'story' : 'stories'})`,
                 value: active.filter((p) => p.branch === b).length
               };
             });
+            const unassigned = active.filter((p) => !p.branch);
+            if (unassigned.length > 0 && userBranches.length > 0) {
+              brData.push({
+                label: `No branch set (${unassigned.filter((p) => p.story).length} stories)`,
+                value: unassigned.length
+              });
+            }
+            const brSub = document.getElementById('chart-branches-subtitle');
+            if (brSub) brSub.textContent = branchesToDisplay.join(' · ');
             window.Charts.barList(document.getElementById('chart-branches'), brData);
           }
 
@@ -3762,9 +3849,44 @@
                 <button class="btn sm" type="button" id="btn-page-next" ${catalogPage >= totalPages ? 'disabled' : ''}>Next →</button>
               </div>` : '';
 
+            /* Batch navigator toolbar for local folders with many photos */
+            const hasFolderBatches = Boolean(activeFolderImageFiles && activeFolderImageFiles.length > FOLDER_BATCH_SIZE);
+            const totalBatches = hasFolderBatches ? Math.max(1, Math.ceil(activeFolderImageFiles.length / FOLDER_BATCH_SIZE)) : 1;
+            const batchStart = activeFolderBatchIndex * FOLDER_BATCH_SIZE;
+            const batchEnd = hasFolderBatches ? Math.min(batchStart + items.length, activeFolderImageFiles.length) : items.length;
+
+            const folderBatchNavHtml = hasFolderBatches ? `
+              <div class="folder-batch-nav" id="folder-batch-nav" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="font-size:16px;">📁</span>
+                  <span style="font-size:13px;color:var(--text);">
+                    Folder: <strong>${esc(rootFolderName)}</strong> · Photos <strong>${(batchStart + 1).toLocaleString()}–${batchEnd.toLocaleString()}</strong> of <strong>${activeFolderImageFiles.length.toLocaleString()}</strong>
+                  </span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <button class="btn sm" type="button" id="btn-batch-prev" ${activeFolderBatchIndex <= 0 ? 'disabled' : ''} title="Pull previous photos from folder">
+                    ◀ Previous ${FOLDER_BATCH_SIZE}
+                  </button>
+                  <span class="mono" style="font-size:12px;font-weight:600;padding:3px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;">
+                    Batch ${activeFolderBatchIndex + 1} of ${totalBatches.toLocaleString()}
+                  </span>
+                  <button class="btn sm primary" type="button" id="btn-batch-next" ${activeFolderBatchIndex >= totalBatches - 1 ? 'disabled' : ''} title="Pull next photos from folder">
+                    Next ${FOLDER_BATCH_SIZE} Photos ▶
+                  </button>
+                  <button class="btn sm" type="button" id="btn-batch-jump" title="Jump to specific photo or batch">
+                    Jump to...
+                  </button>
+                  <select id="select-batch-size" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);" title="Photos per batch">
+                    <option value="25" ${FOLDER_BATCH_SIZE === 25 ? 'selected' : ''}>25 / batch</option>
+                    <option value="50" ${FOLDER_BATCH_SIZE === 50 ? 'selected' : ''}>50 / batch</option>
+                    <option value="100" ${FOLDER_BATCH_SIZE === 100 ? 'selected' : ''}>100 / batch</option>
+                  </select>
+                </div>
+              </div>` : '';
+
             /* #4 GENEALOGIST'S LEDGER TABLE */
             if (layout === 'ledger') {
-              host.innerHTML = `
+              host.innerHTML = `${folderBatchNavHtml}
             <div class="table-wrap">
               <table>
                 <thead>
@@ -3835,9 +3957,7 @@
                       <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Filter Map:</span>
                       <div class="segmented" id="map-branch-filter" role="group" aria-label="Branch filter">
                         <button type="button" data-map-branch="all" class="map-filter-btn ${mapBranchFilter === 'all' ? 'active' : ''}">All (${active.length})</button>
-                        <button type="button" data-map-branch="Costello" class="map-filter-btn ${mapBranchFilter === 'Costello' ? 'active' : ''}">Costello</button>
-                        <button type="button" data-map-branch="Gill" class="map-filter-btn ${mapBranchFilter === 'Gill' ? 'active' : ''}">Gill</button>
-                        <button type="button" data-map-branch="Russo" class="map-filter-btn ${mapBranchFilter === 'Russo' ? 'active' : ''}">Russo</button>
+                        ${getAllUserBranches().map((b) => `<button type="button" data-map-branch="${esc(b)}" class="map-filter-btn ${mapBranchFilter === b ? 'active' : ''}">${esc(b)}</button>`).join('')}
                       </div>
                       <select id="map-decade-filter" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--ground);color:var(--text);">
                         <option value="all" ${mapDecadeFilter === 'all' ? 'selected' : ''}>All Decades</option>
@@ -3866,7 +3986,7 @@
             }
 
             /* #2 CONTACT SHEET SPECIMEN GRID */
-            host.innerHTML = `
+            host.innerHTML = `${folderBatchNavHtml}
             <div class="contact-grid">
               ${pagedList.map((p) => {
                 const low = isLowRes(p);
@@ -3938,6 +4058,41 @@
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }
               });
+            }
+
+            if (hasFolderBatches) {
+              const prevBatchBtn = host.querySelector('#btn-batch-prev');
+              if (prevBatchBtn) prevBatchBtn.onclick = () => loadFolderBatch(activeFolderBatchIndex - 1);
+              const nextBatchBtn = host.querySelector('#btn-batch-next');
+              if (nextBatchBtn) nextBatchBtn.onclick = () => loadFolderBatch(activeFolderBatchIndex + 1);
+              const jumpBtn = host.querySelector('#btn-batch-jump');
+              if (jumpBtn) {
+                jumpBtn.onclick = () => {
+                  const val = prompt(`Jump to photo # (1 to ${activeFolderImageFiles.length.toLocaleString()}) or batch # (1 to ${totalBatches.toLocaleString()}):`);
+                  if (!val) return;
+                  const num = parseInt(val.replace(/[^0-9]/g, ''), 10);
+                  if (isNaN(num) || num <= 0) return;
+                  let targetBatch = 0;
+                  if (num <= totalBatches && !val.toLowerCase().includes('photo')) {
+                    targetBatch = num - 1;
+                  } else {
+                    targetBatch = Math.floor((num - 1) / FOLDER_BATCH_SIZE);
+                  }
+                  loadFolderBatch(targetBatch);
+                };
+              }
+              const sizeSelect = host.querySelector('#select-batch-size');
+              if (sizeSelect) {
+                sizeSelect.onchange = () => {
+                  const newSize = parseInt(sizeSelect.value, 10);
+                  if (newSize > 0) {
+                    const currentPhotoNum = activeFolderBatchIndex * FOLDER_BATCH_SIZE;
+                    FOLDER_BATCH_SIZE = newSize;
+                    const newBatchIdx = Math.floor(currentPhotoNum / FOLDER_BATCH_SIZE);
+                    loadFolderBatch(newBatchIdx);
+                  }
+                };
+              }
             }
           }
 
@@ -4240,7 +4395,7 @@
               return;
             }
 
-            const bStyle = branches[p.branch] || branches.Gill;
+            const bStyle = getBranchStyle(p.branch);
 
             box.innerHTML = `
           <div class="mob-only" style="width:100%;flex-direction:column;">
@@ -4254,7 +4409,7 @@
 
           <div class="insp-top desktop-only">
             <span class="mono" style="font-weight:500;">${esc(p.id)} · ${p.width}×${p.height}</span>
-            <span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>
+            ${p.branch ? `<span class="pill" style="background:${bStyle.bg};color:${bStyle.ink};">${esc(p.branch)} branch</span>` : `<span class="pill muted" style="background:var(--raised);color:var(--muted);">No branch set</span>`}
           </div>
 
           <div class="insp-preview ${inspFitMode === 'fit' ? 'fit-mode' : ''}" title="Tap photo to toggle between Fill and Fit">
@@ -4293,6 +4448,14 @@
               <span id="insp-autosave-badge" class="insp-autosave-badge">✓ Autosaved</span>
             </div>
             <input id="f-title" type="text" value="${esc(p.title)}">
+          </div>
+
+          <div class="field">
+            <label for="f-branch">Family Branch / Line</label>
+            <input id="f-branch" type="text" list="branches-datalist" placeholder="e.g. Viola, Smith, Johnson (optional)" value="${esc(p.branch || '')}">
+            <datalist id="branches-datalist">
+              ${getAllUserBranches().map((b) => `<option value="${esc(b)}">`).join('')}
+            </datalist>
           </div>
 
           <div class="two-col">
@@ -4352,9 +4515,11 @@
                     <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(person.name)}</div>
                     <div style="display:flex;gap:4px;align-items:center;margin-top:2px;">
                       <select class="person-rel-select" data-idx="${idx}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--ground);color:var(--text);" title="Change relationship to me">
+                        ${(!COMMON_RELATIONSHIPS.includes(person.rel) && person.rel) ? `<option value="${esc(person.rel)}" selected>${esc(person.rel)}</option>` : ''}
                         ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}" ${person.rel === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}
+                        <option value="__custom__">+ Enter custom relationship...</option>
                       </select>
-                      ${person.branch ? `<span class="pill" style="font-size:10px;padding:1px 5px;background:${(branches[person.branch]||branches.Gill).bg};color:${(branches[person.branch]||branches.Gill).ink};">${esc(person.branch)}</span>` : ''}
+                      ${person.branch ? `<span class="pill" style="font-size:10px;padding:1px 5px;background:${getBranchStyle(person.branch).bg};color:${getBranchStyle(person.branch).ink};">${esc(person.branch)}</span>` : ''}
                     </div>
                   </div>
                   <button type="button" class="btn-del-person" data-idx="${idx}" title="Remove tag for ${esc(person.name)}">✕</button>
@@ -4370,16 +4535,11 @@
                 ${Array.from(new Set(items.flatMap(x => x.people ? x.people.map(pr => pr.name) : []))).filter(Boolean).sort().map(name => `<option value="${esc(name)}">`).join('')}
               </datalist>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                <select id="f-person-rel" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
-                  <option value="">Relationship to me...</option>
-                  ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
-                </select>
-                <select id="f-person-branch" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
-                  <option value="Gill" ${p.branch === 'Gill' ? 'selected' : ''}>Gill branch</option>
-                  <option value="Costello" ${p.branch === 'Costello' ? 'selected' : ''}>Costello branch</option>
-                  <option value="Russo" ${p.branch === 'Russo' ? 'selected' : ''}>Russo branch</option>
-                  <option value="">No branch</option>
-                </select>
+                <input id="f-person-rel" type="text" list="relationships-datalist" placeholder="Relationship (e.g. Great-Niece)..." style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                <datalist id="relationships-datalist">
+                  ${COMMON_RELATIONSHIPS.map(r => `<option value="${esc(r)}">`).join('')}
+                </datalist>
+                <input id="f-person-branch" type="text" list="branches-datalist" placeholder="Family branch (optional)..." value="${esc(p.branch || '')}" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
               </div>
               <button class="btn sm primary" type="button" id="btn-tag-person" style="width:100%;margin-top:2px;">
                 + Tag Relative &amp; Relationship
@@ -4610,8 +4770,21 @@
             box.querySelectorAll('.person-rel-select').forEach((sel) => {
               sel.addEventListener('change', (e) => {
                 const idx = parseInt(sel.getAttribute('data-idx'), 10);
+                if (sel.value === '__custom__') {
+                  const customRel = prompt(`Enter custom relationship for ${p.people[idx]?.name || 'relative'}:`, p.people[idx]?.rel || '');
+                  if (customRel && customRel.trim()) {
+                    p.people[idx].rel = customRel.trim();
+                    saveItemMetadata(p);
+                    notify(`Updated ${p.people[idx].name}'s relationship to "${customRel.trim()}".`);
+                    render();
+                  } else {
+                    renderInspector();
+                  }
+                  return;
+                }
                 if (p.people[idx]) {
                   p.people[idx].rel = sel.value;
+                  saveItemMetadata(p);
                   notify(`Updated ${p.people[idx].name}'s relationship to "${sel.value}".`);
                   renderSidebarCounts();
                   renderCatalogCenter();
@@ -4666,8 +4839,9 @@
             box.querySelector('#btn-tag-person').onclick = async () => {
               const name = nameInput ? nameInput.value.trim() : '';
               if (!name) return;
-              const rel = (relInput && relInput.value) ? relInput.value : 'Relative';
-              const branch = (branchInput && branchInput.value) ? branchInput.value : (p.branch || 'Gill');
+              const rel = (relInput && relInput.value.trim()) ? relInput.value.trim() : 'Relative';
+              const branch = (branchInput && branchInput.value.trim()) ? branchInput.value.trim() : (p.branch || '');
+              if (branch) recordUserBranch(branch);
               p.people.push({ name, rel, branch });
               if (p.faces && p.faces.length > 0) {
                 const unassigned = p.faces.find(f => !f.name);
@@ -4675,7 +4849,7 @@
               }
               if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
               saveItemMetadata(p);
-              notify(`Tagged ${name} (${rel}) on ${p.id}. Querying FamilySearch Tree...`);
+              notify(`Tagged ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Querying FamilySearch Tree...`);
               render();
 
               // Auto-sync PID from FamilySearch
@@ -7400,7 +7574,120 @@
         processNextBatch();
       }
 
-      /* Native local folder chooser (with live chunked progress meter & persistent IndexedDB cache) */
+      async function loadFolderBatch(batchIdx) {
+        if (!activeFolderImageFiles || !activeFolderImageFiles.length) return;
+        const totalBatches = Math.ceil(activeFolderImageFiles.length / FOLDER_BATCH_SIZE);
+        if (batchIdx < 0) batchIdx = 0;
+        if (batchIdx >= totalBatches) batchIdx = totalBatches - 1;
+        activeFolderBatchIndex = batchIdx;
+
+        // Revoke previous blob URLs to prevent older machines from running out of memory
+        if (items && items.length) {
+          items.forEach((p) => {
+            if (p.src && p.src.startsWith('blob:')) {
+              try { URL.revokeObjectURL(p.src); } catch (e) {}
+            }
+          });
+        }
+
+        const start = batchIdx * FOLDER_BATCH_SIZE;
+        const end = Math.min(start + FOLDER_BATCH_SIZE, activeFolderImageFiles.length);
+
+        showImportProgress(
+          'Loading Batch',
+          `Preparing photos ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${activeFolderImageFiles.length.toLocaleString()}...`,
+          35,
+          `Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()}`
+        );
+        await new Promise((r) => setTimeout(r, 10));
+
+        const newItems = [];
+        for (let i = start; i < end; i++) {
+          const file = activeFolderImageFiles[i];
+          const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+          const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
+          const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+          const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
+          const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+          const isoDate = dateMatch
+            ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+            : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+          const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+          const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
+          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
+          const url = URL.createObjectURL(file);
+
+          newItems.push({
+            id: `FH-${String(i + 1).padStart(5, '0')}`,
+            file: file.name,
+            subfolder,
+            title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
+            isoDate,
+            decade,
+            place: '',
+            branch: '',
+            people: [],
+            unnamedFaces: 0,
+            width: 1200,
+            height: 900,
+            origWidth: 1200,
+            origHeight: 900,
+            origCrop: '50% 50%',
+            origScale: 1,
+            origRestored4k: false,
+            kb: Math.max(1, Math.round(file.size / 1024)),
+            restored4k: false,
+            fsId: '',
+            fsSynced: false,
+            fsMemoryId: '',
+            inReview: false,
+            screenshot: /screen|capture|snap/i.test(file.name),
+            crop: '50% 50%',
+            scale: 1,
+            filter: 'none',
+            story: '',
+            src: url,
+            workingSrc: null,
+            _file: file,
+            edits: [],
+            rotation: 0,
+            straighten: 0,
+            flipH: false,
+            cropRatio: 'Original',
+            cropBox: { x: 8, y: 8, w: 84, h: 84 },
+            tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
+            color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
+            model: 'codeformer',
+            fidelity: 75,
+            scratchesFixed: true,
+            descreen: false,
+            deglare: false,
+            blemishesErased: 0,
+            redEyesFixed: 0,
+            eyePins: [],
+            history: []
+          });
+        }
+
+        items = newItems;
+        restoreCatalogMetadata(items);
+        selectedId = items[0] ? items[0].id : null;
+        catalogPage = 1;
+
+        updateImportProgress('Saving current batch...', 85, 'Writing IndexedDB...');
+        await new Promise((r) => setTimeout(r, 10));
+        await saveArchiveToDb(items, rootFolderName);
+
+        updateImportProgress('Batch Ready!', 100, `${items.length} photos in memory`);
+        await new Promise((r) => setTimeout(r, 100));
+        hideImportProgress();
+
+        notify(`Loaded Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()} (Photos ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${activeFolderImageFiles.length.toLocaleString()}).`);
+        render();
+        scheduleMetadataExtraction(items);
+      }
+
+      /* Native local folder chooser (with non-blocking chunked scan for massive archives & persistent IndexedDB cache) */
       function pickPhotoFolder() {
         if (isMobile()) {
           pickIndividualPhotos();
@@ -7413,22 +7700,23 @@
         input.setAttribute('webkitdirectory', '');
         input.setAttribute('directory', '');
         input.onchange = async () => {
-          const allFiles = Array.from(input.files || []);
-          if (!allFiles.length) return;
+          const fileCount = (input.files && input.files.length) || 0;
+          if (!fileCount) return;
 
-          showImportProgress('Importing Photo Archive', `Scanning ${allFiles.length.toLocaleString()} files in folder...`, 10, `0 / ${allFiles.length.toLocaleString()}`);
+          showImportProgress('Importing Photo Archive', `Scanning ${fileCount.toLocaleString()} files in folder...`, 10, `0 / ${fileCount.toLocaleString()}`);
 
           const imgFiles = [];
-          const CHUNK_SIZE = 2000;
-          for (let i = 0; i < allFiles.length; i += CHUNK_SIZE) {
-            const chunk = allFiles.slice(i, i + CHUNK_SIZE);
-            for (const f of chunk) {
+          const CHUNK_SIZE = 5000;
+          for (let i = 0; i < fileCount; i += CHUNK_SIZE) {
+            const end = Math.min(i + CHUNK_SIZE, fileCount);
+            for (let j = i; j < end; j++) {
+              const f = input.files[j];
               if (/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/'))) {
                 imgFiles.push(f);
               }
             }
-            const pct = Math.min(50, Math.round(10 + (i / allFiles.length) * 40));
-            updateImportProgress(`Scanning files (${imgFiles.length.toLocaleString()} photos found)...`, pct, `${Math.min(i + CHUNK_SIZE, allFiles.length).toLocaleString()} / ${allFiles.length.toLocaleString()}`);
+            const pct = Math.min(50, Math.round(10 + (end / fileCount) * 40));
+            updateImportProgress(`Scanning files (${imgFiles.length.toLocaleString()} photos found)...`, pct, `${end.toLocaleString()} / ${fileCount.toLocaleString()}`);
             await new Promise((r) => setTimeout(r, 0));
           }
 
@@ -7449,129 +7737,26 @@
           const searchInput = document.getElementById('search-input');
           if (searchInput) searchInput.value = '';
 
-          const maxToLoad = Math.min(imgFiles.length, 1000);
-          updateImportProgress(`Indexing ${maxToLoad.toLocaleString()} photo records...`, 60, `0 / ${maxToLoad.toLocaleString()}`);
-          await new Promise((r) => setTimeout(r, 20));
+          // Remember that user has imported real photos so demo data is never restored on reload
+          try {
+            localStorage.setItem('fhp_demo_cleared', '1');
+          } catch (e) {}
 
-          const branchCycle = ['Gill', 'Costello', 'Russo'];
-          const newItems = [];
+          activeFolderImageFiles = imgFiles;
+          activeFolderBatchIndex = 0;
 
-          for (let i = 0; i < maxToLoad; i++) {
-            const file = imgFiles[i];
-            const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
-            const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
-            // Support dates formatted with hyphens, underscores, or spaces (e.g. '2003 03 02')
-            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
-            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-            const isoDate = dateMatch
-              ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
-              : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
-            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-            const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
-            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
-            const url = URL.createObjectURL(file);
-
-            newItems.push({
-              id: `FH-${String(i + 1).padStart(3, '0')}`,
-              file: file.name,
-              subfolder,
-              title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
-              isoDate,
-              decade,
-              place: '',
-              branch: branchCycle[i % branchCycle.length],
-              people: [],
-              unnamedFaces: 0,
-              width: 1200,
-              height: 900,
-              origWidth: 1200,
-              origHeight: 900,
-              origCrop: '50% 50%',
-              origScale: 1,
-              origRestored4k: false,
-              kb: Math.max(1, Math.round(file.size / 1024)),
-              restored4k: false,
-              fsId: '',
-              fsSynced: false,
-              fsMemoryId: '',
-              inReview: false,
-              screenshot: /screen|capture|snap/i.test(file.name),
-              crop: '50% 50%',
-              scale: 1,
-              filter: 'none',
-              story: '',
-              src: url,
-              workingSrc: null,
-              _file: file,
-              edits: [],
-              rotation: 0,
-              straighten: 0,
-              flipH: false,
-              cropRatio: 'Original',
-              cropBox: { x: 8, y: 8, w: 84, h: 84 },
-              tone: {
-                brightness: 100,
-                contrast: 100,
-                shadows: 0,
-                highlights: 0,
-                sharpen: 0,
-                smooth: 0,
-                vignette: 0,
-                defade: false
-              },
-              color: {
-                warmth: 0,
-                tint: 0,
-                saturation: 100,
-                sepia: 0,
-                bw: false,
-                colorizeStrength: 82
-              },
-              model: 'codeformer',
-              fidelity: 75,
-              scratchesFixed: true,
-              descreen: false,
-              deglare: false,
-              blemishesErased: 0,
-              redEyesFixed: 0,
-              eyePins: [],
-              history: []
-            });
-
-            if (i % 250 === 0 && i > 0) {
-              const p = Math.min(80, Math.round(60 + (i / maxToLoad) * 20));
-              updateImportProgress(`Indexing prints (${i} of ${maxToLoad})...`, p, `${i} / ${maxToLoad}`);
-              await new Promise((r) => setTimeout(r, 0));
-            }
-          }
-
-          items = newItems;
-
-          updateImportProgress('Saving archive to persistent database...', 85, 'Writing IndexedDB...');
-          await new Promise((r) => setTimeout(r, 20));
-          await saveArchiveToDb(items, rootFolderName);
-
-          updateImportProgress('Import complete!', 100, `${items.length} photos ready`);
-          await new Promise((r) => setTimeout(r, 200));
-          hideImportProgress();
-
-          restoreCatalogMetadata(items);
-          selectedId = items[0].id;
-          mode = 'catalog';
-          const side = document.getElementById('sidebar');
-          if (side) side.classList.remove('open');
-          notify(`Loaded ${items.length.toLocaleString()} photo(s) from "${rootFolderName}" (persisted locally).`);
-          render();
-
-          // Lazy background dimension and EXIF extraction
-          scheduleMetadataExtraction(items);
+          await loadFolderBatch(0);
         };
         input.click();
       }
 
       async function resetToSampleArchive() {
         await clearArchiveFromDb();
+        try {
+          localStorage.removeItem('fhp_demo_cleared');
+        } catch (e) {}
+        activeFolderImageFiles = [];
+        activeFolderBatchIndex = 0;
         items = makeSampleItems();
         rootFolderName = 'Gill_Costello_Archive';
         isCustomFolder = false;
@@ -7585,6 +7770,11 @@
 
       async function clearAllPhotos() {
         await clearArchiveFromDb();
+        try {
+          localStorage.setItem('fhp_demo_cleared', '1');
+        } catch (e) {}
+        activeFolderImageFiles = [];
+        activeFolderBatchIndex = 0;
         items = [];
         rootFolderName = '(No folder opened)';
         isCustomFolder = true;
@@ -7782,6 +7972,11 @@
           notify('Loaded the first 5 photos (up to 5 at a time ensures fast performance & prevents crashes).');
         }
         await clearArchiveFromDb();
+        try {
+          localStorage.setItem('fhp_demo_cleared', '1');
+        } catch (e) {}
+        activeFolderImageFiles = [];
+        activeFolderBatchIndex = 0;
         isCustomFolder = true;
         rootFolderName = sourceLabel;
         activeFolder = null;
@@ -7791,7 +7986,6 @@
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
 
-        const branchCycle = ['Gill', 'Costello', 'Russo'];
         const newItems = [];
 
         for (let i = 0; i < selectedFiles.length; i++) {
@@ -7818,7 +8012,7 @@
             year,
             date: isoDate,
             place: '',
-            branch: branchCycle[i % branchCycle.length],
+            branch: '',
             people: [],
             unnamedFaces: 0,
             width: 1200,
@@ -7867,6 +8061,13 @@
         mode = 'catalog';
         const side = document.getElementById('sidebar');
         if (side) side.classList.remove('open');
+
+        // Persist gallery photos so they survive browser refreshes
+        try {
+          await saveArchiveToDb(items, rootFolderName);
+        } catch (e) {
+          console.warn('Could not persist gallery photos:', e);
+        }
 
         notify(`Loaded ${items.length} photo${items.length > 1 ? 's' : ''} ready for metadata, Photo Lab fixes & sharing!`);
         render();
@@ -8154,26 +8355,36 @@
         document.getElementById('btn-toggle-charts').setAttribute('aria-pressed', 'true');
       }
 
-      // Check if user previously imported a custom archive into persistent IndexedDB
+      // Check if user previously imported a custom archive into persistent IndexedDB or explicitly cleared demo
+      const isDemoCleared = (localStorage.getItem('fhp_demo_cleared') === '1');
       try {
-        if (params.get('reset') === '1' || params.get('clear') === '1' || isMobile()) {
+        if (params.get('reset') === '1') {
           await clearArchiveFromDb();
-          if (isMobile()) {
-            items = [];
+          try { localStorage.removeItem('fhp_demo_cleared'); } catch (e) {}
+          items = makeSampleItems();
+          isCustomFolder = false;
+        } else if (params.get('clear') === '1') {
+          await clearArchiveFromDb();
+          try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (e) {}
+          items = [];
+          rootFolderName = '(No folder opened)';
+          isCustomFolder = true;
+          selectedId = null;
+        } else {
+          const savedArchive = await loadArchiveFromDb();
+          if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
+            items = savedArchive.items;
+            rootFolderName = savedArchive.folderName || 'Saved_Photos';
             isCustomFolder = true;
-            rootFolderName = '(Photo Gallery)';
+            selectedId = items[0] ? items[0].id : null;
+          } else if (isDemoCleared || isMobile()) {
+            items = [];
+            rootFolderName = isMobile() ? '(Photo Gallery)' : '(No folder opened)';
+            isCustomFolder = true;
             selectedId = null;
           } else {
             items = makeSampleItems();
             isCustomFolder = false;
-          }
-        } else {
-          const savedArchive = await loadArchiveFromDb();
-          if (savedArchive && savedArchive.items && savedArchive.items.length > 0 && savedArchive.items.length <= 5) {
-            items = savedArchive.items;
-            rootFolderName = savedArchive.folderName;
-            isCustomFolder = true;
-            selectedId = items[0] ? items[0].id : null;
           }
         }
       } catch (dbErr) {
