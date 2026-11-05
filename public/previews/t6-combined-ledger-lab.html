@@ -344,6 +344,18 @@
       font-size: 12px;
     }
 
+    .btn.danger {
+      background: #fdf2f2;
+      color: var(--negative);
+      border-color: #f8c8c8;
+    }
+
+    .btn.danger:hover {
+      background: #fee2e2;
+      color: #991b1b;
+      border-color: #fca5a5;
+    }
+
     .btn.menu-toggle {
       display: none;
     }
@@ -2463,7 +2475,7 @@
         <span data-icon="clean"></span><span>Clean screenshots</span><span class="nav-count" id="q-junk">1</span>
       </button>
       <button class="nav-item" type="button" data-queue="review">
-        <span data-icon="folder"></span><span>_Duplicates_Review</span><span class="nav-count" id="q-review">2</span>
+        <span data-icon="folder"></span><span>Review &amp; Cleanup</span><span class="nav-count" id="q-review">1</span>
       </button>
 
       <div class="group-label">Subfolders on Disk</div>
@@ -2574,7 +2586,7 @@
           <div class="kpi">
             <div class="kpi-label">Active album prints</div>
             <div class="kpi-val" id="kpi-active">10</div>
-            <div class="kpi-sub" id="kpi-review-note">2 staged in _Duplicates_Review</div>
+            <div class="kpi-sub" id="kpi-review-note">1 staged in Review &amp; Cleanup</div>
           </div>
           <div class="kpi">
             <div class="kpi-label">Unnamed detected faces</div>
@@ -2841,7 +2853,8 @@
         map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>',
         pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
         table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>',
-        share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
+        share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
       };
 
       const COMMON_RELATIONSHIPS = [
@@ -3573,7 +3586,115 @@
         }
       }
 
-          function isLowRes(p) {
+      async function stagePhotoForReview(id) {
+        const p = items.find((x) => x.id === id);
+        if (!p) return;
+        p.inReview = true;
+        saveItemMetadata(p);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Moved ${p.id} to Review & Cleanup.`);
+        render();
+      }
+
+      async function restorePhotoFromReview(id) {
+        const p = items.find((x) => x.id === id);
+        if (!p) return;
+        p.inReview = false;
+        saveItemMetadata(p);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Restored ${p.id} back into active album.`);
+        render();
+      }
+
+      async function deletePhoto(id, askConfirm = true) {
+        const p = items.find((x) => x.id === id);
+        if (!p) return;
+        if (askConfirm) {
+          const ok = confirm(`Permanently delete "${p.title}" (${p.file})?\n\nThis will remove the photo from your album.`);
+          if (!ok) return;
+        }
+        if (p.src && p.src.startsWith('blob:')) {
+          try { URL.revokeObjectURL(p.src); } catch (_) {}
+        }
+        const idx = items.indexOf(p);
+        if (idx !== -1) items.splice(idx, 1);
+        if (selectedId === id) {
+          const remaining = filteredItems();
+          selectedId = remaining[0] ? remaining[0].id : (items[0] ? items[0].id : null);
+        }
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Permanently deleted ${p.id} (${p.file}).`);
+        render();
+      }
+
+      async function stageAllScreenshots() {
+        const screenshots = items.filter((p) => p.screenshot && !p.inReview);
+        if (!screenshots.length) {
+          notify('No screenshots to move.');
+          return;
+        }
+        screenshots.forEach((p) => { p.inReview = true; saveItemMetadata(p); });
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Moved ${screenshots.length} screenshot(s) to Review & Cleanup.`);
+        activeQueue = 'review';
+        render();
+      }
+
+      async function deleteAllScreenshots() {
+        const screenshots = items.filter((p) => p.screenshot);
+        if (!screenshots.length) {
+          notify('No screenshots to delete.');
+          return;
+        }
+        const ok = confirm(`Permanently delete all ${screenshots.length} screenshot(s)?\n\nThis will remove them from your album.`);
+        if (!ok) return;
+        screenshots.forEach((p) => {
+          if (p.src && p.src.startsWith('blob:')) {
+            try { URL.revokeObjectURL(p.src); } catch (_) {}
+          }
+        });
+        items = items.filter((p) => !p.screenshot);
+        const remaining = filteredItems();
+        selectedId = remaining[0] ? remaining[0].id : (items[0] ? items[0].id : null);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Permanently deleted ${screenshots.length} screenshot(s).`);
+        render();
+      }
+
+      async function restoreAllReview() {
+        const staged = items.filter((p) => p.inReview);
+        if (!staged.length) {
+          notify('No staged photos to restore.');
+          return;
+        }
+        staged.forEach((p) => { p.inReview = false; saveItemMetadata(p); });
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Restored all ${staged.length} photos back into active albums.`);
+        render();
+      }
+
+      async function emptyReviewQueue() {
+        const staged = items.filter((p) => p.inReview);
+        if (!staged.length) {
+          notify('Review & Cleanup is already empty.');
+          return;
+        }
+        const ok = confirm(`Permanently delete all ${staged.length} photo(s) currently staged in Review & Cleanup?\n\nThis cannot be undone.`);
+        if (!ok) return;
+        staged.forEach((p) => {
+          if (p.src && p.src.startsWith('blob:')) {
+            try { URL.revokeObjectURL(p.src); } catch (_) {}
+          }
+        });
+        items = items.filter((p) => !p.inReview);
+        const remaining = filteredItems();
+        selectedId = remaining[0] ? remaining[0].id : (items[0] ? items[0].id : null);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Emptied Review & Cleanup. Permanently deleted ${staged.length} photo(s).`);
+        render();
+      }
+
+      function isLowRes(p) {
             return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
           }
 
@@ -3583,7 +3704,7 @@
                 if (p.subfolder !== activeFolder) return false;
               } else {
                 if (activeQueue === 'review') return p.inReview;
-                if (activeQueue === 'screenshots') return p.screenshot;
+                if (activeQueue === 'screenshots') return p.screenshot && !p.inReview;
                 if (p.inReview && activeQueue !== 'duplicates') return false;
                 if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
                 if (activeQueue === 'unsynced' && p.fsSynced) return false;
@@ -3630,11 +3751,11 @@
             document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
             document.getElementById('q-lowres').textContent = s.lowResCount;
             document.getElementById('q-dups').textContent = (duplicateResolved || isCustomFolder) ? '0' : '1';
-            document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot).length;
+            document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot && !p.inReview).length;
             document.getElementById('q-review').textContent = s.reviewCount;
 
             document.getElementById('kpi-active').textContent = s.activeCount;
-            document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in _Duplicates_Review`;
+            document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in Review & Cleanup`;
             document.getElementById('kpi-faces').textContent = s.unnamedFacesTotal;
             document.getElementById('kpi-faces-note').textContent = `Across ${s.unnamedPhotoCount} prints`;
             const totalNeedOrDone = s.restoredCount + s.lowResCount;
@@ -3774,7 +3895,7 @@
                 host.innerHTML = `
               <div class="panel" style="padding:28px;text-align:center;">
                 <p style="font-weight:600;">No duplicate pairs pending review</p>
-                <p class="muted" style="font-size:13px;margin-top:4px;">Smaller copies are safely held in _Duplicates_Review until you empty it.</p>
+                <p class="muted" style="font-size:13px;margin-top:4px;">Smaller copies are safely held in Review &amp; Cleanup until you empty it.</p>
                 <button class="btn sm" type="button" style="margin-top:12px;" id="btn-see-all">Return to all prints</button>
               </div>`;
                 host.querySelector('#btn-see-all').onclick = () => { activeQueue = 'all'; render(); };
@@ -3784,7 +3905,7 @@
             <div class="panel">
               <div class="panel-head">
                 <h2>Duplicate pair 1 of 1 — 98% visual match</h2>
-                <span class="pill warn">Safe staging to _Duplicates_Review</span>
+                <span class="pill warn">Safe staging to Review &amp; Cleanup</span>
               </div>
               <div class="dup-pair">
                 <div class="dup-card">
@@ -3814,7 +3935,7 @@
               host.querySelector('#btn-keep-master').onclick = () => {
                 copy.inReview = true;
                 duplicateResolved = true;
-                notify('Kept FH-001 master; FH-008 safely staged in _Duplicates_Review.');
+                notify('Kept FH-001 master; FH-008 safely staged in Review & Cleanup.');
                 render();
               };
               host.querySelector('#btn-ignore-dup').onclick = () => {
@@ -3831,6 +3952,39 @@
             }
 
             if (list.length === 0) {
+              if (activeQueue === 'screenshots') {
+                host.innerHTML = `
+                  <div class="panel" style="padding:32px 20px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:8px;">✨</div>
+                    <p style="font-weight:600;font-size:16px;">All Screenshots Cleaned!</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
+                      No phone captures or screenshots remain in your active album. Any staged items are safely held in <strong>Review &amp; Cleanup</strong>.
+                    </p>
+                    <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                      <button class="btn sm" type="button" id="btn-clean-see-all">Return to all prints</button>
+                      <button class="btn sm" type="button" id="btn-clean-see-review">View Review &amp; Cleanup (${items.filter(p => p.inReview).length})</button>
+                    </div>
+                  </div>`;
+                const seeAllBtn = host.querySelector('#btn-clean-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
+                const seeReviewBtn = host.querySelector('#btn-clean-see-review');
+                if (seeReviewBtn) seeReviewBtn.onclick = () => { activeQueue = 'review'; render(); };
+                return;
+              }
+              if (activeQueue === 'review') {
+                host.innerHTML = `
+                  <div class="panel" style="padding:32px 20px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:8px;">🗂️</div>
+                    <p style="font-weight:600;font-size:16px;">Review &amp; Cleanup is Empty</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
+                      No photos are currently staged for review. You can safely move duplicates, screenshots, or unwanted files here before permanently deleting them.
+                    </p>
+                    <button class="btn sm" type="button" style="margin-top:16px;" id="btn-review-see-all">Return to all prints</button>
+                  </div>`;
+                const seeAllBtn = host.querySelector('#btn-review-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
+                return;
+              }
               host.innerHTML = `<div class="panel" style="padding:28px;text-align:center;"><p style="font-weight:500;">No matching prints in this queue</p><p class="muted" style="font-size:13px;margin-top:4px;">Clear search or pick All album prints on the left.</p></div>`;
               return;
             }
@@ -3847,6 +4001,43 @@
                 <button class="btn sm" type="button" id="btn-page-prev" ${catalogPage <= 1 ? 'disabled' : ''}>← Previous</button>
                 <span class="mono" style="font-size:12px;color:var(--text);">Page ${catalogPage} of ${totalPages} (${list.length} photos)</span>
                 <button class="btn sm" type="button" id="btn-page-next" ${catalogPage >= totalPages ? 'disabled' : ''}>Next →</button>
+              </div>` : '';
+
+            /* Top action banner for screenshots and review staging queues */
+            const queueActionBannerHtml = (activeQueue === 'screenshots') ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:22px;">📱</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Clean Screenshots (${list.length} detected)</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Phone screenshots and screen captures that clutter family albums. Move them to Review &amp; Cleanup or delete them below.</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn sm" type="button" id="btn-stage-all-screenshots" title="Move all detected screenshots into Review &amp; Cleanup">
+                    Move All to Review &amp; Cleanup
+                  </button>
+                  <button class="btn sm danger" type="button" id="btn-delete-all-screenshots" title="Permanently delete all detected screenshots">
+                    <span data-icon="trash"></span> Delete All Screenshots
+                  </button>
+                </div>
+              </div>` : (activeQueue === 'review') ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:22px;">🗂️</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Review &amp; Cleanup (${list.length} staged)</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Safely holding duplicates, screenshots, and unwanted files. Nothing is permanently deleted until you click Empty Review.</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn sm primary" type="button" id="btn-restore-all-review" title="Restore all staged photos back into your active albums">
+                    ✓ Restore All to Album
+                  </button>
+                  <button class="btn sm danger" type="button" id="btn-empty-review" title="Permanently delete all staged photos">
+                    <span data-icon="trash"></span> Empty Review &amp; Delete All
+                  </button>
+                </div>
               </div>` : '';
 
             /* Batch navigator toolbar for local folders with many photos */
@@ -3886,7 +4077,7 @@
 
             /* #4 GENEALOGIST'S LEDGER TABLE */
             if (layout === 'ledger') {
-              host.innerHTML = `${folderBatchNavHtml}
+              host.innerHTML = `${queueActionBannerHtml}${folderBatchNavHtml}
             <div class="table-wrap">
               <table>
                 <thead>
@@ -3896,7 +4087,7 @@
                     <th>Date</th>
                     <th>Scan &amp; repairs</th>
                     <th>FamilySearch</th>
-                    <th class="n">Photo Lab</th>
+                    <th class="n">${activeQueue === 'screenshots' ? 'Clean &amp; Actions' : (activeQueue === 'review' ? 'Review &amp; Actions' : 'Photo Lab')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3937,8 +4128,18 @@
                         <td class="mono" style="white-space:nowrap;">
                           ${p.fsSynced ? `<span class="pill pos">${esc(p.fsId)}</span>` : `<span class="pill neu">Pending</span>`}
                         </td>
-                        <td class="n">
-                          <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Open Lab</button>
+                        <td class="n" style="white-space:nowrap;">
+                          ${activeQueue === 'screenshots' ? `
+                            <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Move to Review &amp; Cleanup">Move to Review</button>
+                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Delete screenshot">Delete</button>
+                            <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Lab</button>
+                          ` : activeQueue === 'review' ? `
+                            <button class="btn sm primary" type="button" data-restore-review="${esc(p.id)}" title="Restore back to active album">✓ Restore</button>
+                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete">Delete</button>
+                          ` : `
+                            <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Safely move to Review &amp; Cleanup">Review</button>
+                            <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Open Lab</button>
+                          `}
                         </td>
                       </tr>
                     `;
@@ -3986,7 +4187,7 @@
             }
 
             /* #2 CONTACT SHEET SPECIMEN GRID */
-            host.innerHTML = `${folderBatchNavHtml}
+            host.innerHTML = `${queueActionBannerHtml}${folderBatchNavHtml}
             <div class="contact-grid">
               ${pagedList.map((p) => {
                 const low = isLowRes(p);
@@ -4004,9 +4205,19 @@
                       <img src="${esc(afterSrc(p))}" alt="${esc(p.title)}" style="${afterStyle(p)}">
                     </div>
                     <div class="spec-title">${esc(p.title)}</div>
-                    <div class="spec-foot">
+                    <div class="spec-foot" style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap;">
                       <span class="muted" style="font-size:12px;">${p.isoDate ? esc(p.isoDate) : 'Undated'}</span>
-                      <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Photo Lab</button>
+                      <div style="display:flex;gap:4px;">
+                        ${activeQueue === 'screenshots' ? `
+                          <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Move to Review &amp; Cleanup">Review</button>
+                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Delete screenshot">Delete</button>
+                        ` : activeQueue === 'review' ? `
+                          <button class="btn sm primary" type="button" data-restore-review="${esc(p.id)}" title="Restore to album">✓ Restore</button>
+                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete">Delete</button>
+                        ` : `
+                          <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Photo Lab</button>
+                        `}
+                      </div>
                     </div>
                   </article>
                 `;
@@ -4016,7 +4227,7 @@
 
             host.querySelectorAll('[data-row]').forEach((el) => {
               el.addEventListener('click', (e) => {
-                if (e.target.closest('[data-open-lab]')) return;
+                if (e.target.closest('[data-open-lab]') || e.target.closest('[data-stage-review]') || e.target.closest('[data-restore-review]') || e.target.closest('[data-delete-photo]')) return;
                 commitInspectorInputs(currentPhoto(), false);
                 selectedId = el.getAttribute('data-row');
                 renderCatalogCenter();
@@ -4038,6 +4249,39 @@
                 openPhotoLab(id, isLowRes(target) ? 'restore' : 'tone');
               });
             });
+
+            host.querySelectorAll('[data-stage-review]').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                stagePhotoForReview(btn.getAttribute('data-stage-review'));
+              });
+            });
+
+            host.querySelectorAll('[data-restore-review]').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                restorePhotoFromReview(btn.getAttribute('data-restore-review'));
+              });
+            });
+
+            host.querySelectorAll('[data-delete-photo]').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deletePhoto(btn.getAttribute('data-delete-photo'));
+              });
+            });
+
+            const stageAllScreenshotsBtn = host.querySelector('#btn-stage-all-screenshots');
+            if (stageAllScreenshotsBtn) stageAllScreenshotsBtn.onclick = stageAllScreenshots;
+            const deleteAllScreenshotsBtn = host.querySelector('#btn-delete-all-screenshots');
+            if (deleteAllScreenshotsBtn) deleteAllScreenshotsBtn.onclick = deleteAllScreenshots;
+
+            const restoreAllReviewBtn = host.querySelector('#btn-restore-all-review');
+            if (restoreAllReviewBtn) restoreAllReviewBtn.onclick = restoreAllReview;
+            const emptyReviewBtn = host.querySelector('#btn-empty-review');
+            if (emptyReviewBtn) emptyReviewBtn.onclick = emptyReviewQueue;
+
+            mountIcons(host);
 
             const btnPrev = host.querySelector('#btn-page-prev');
             if (btnPrev) {
@@ -4547,6 +4791,13 @@
             </div>
           </div>
 
+          ${p.screenshot ? `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+              <span style="font-size:12px;color:var(--text);">📱 Flagged as screenshot</span>
+              <button class="link-btn" type="button" id="btn-unflag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">Keep as family photo</button>
+            </div>
+          ` : ''}
+
           <div class="field">
             <label for="f-story">Back-of-print memory</label>
             <textarea id="f-story" placeholder="Write who is here, what happened, or transcribe pencil notes from the back...">${esc(p.story)}</textarea>
@@ -4562,7 +4813,12 @@
             <button class="btn insp-btn-export" type="button" id="btn-download-file" title="Export and download a standalone JPEG copy with embedded EXIF &amp; IPTC tags to your computer">
               <span data-icon="download"></span><span>Export JPEG</span>
             </button>
-            ${p.inReview ? `<button class="btn" type="button" id="btn-restore-review">Restore</button>` : ''}
+            ${p.inReview
+              ? `<button class="btn primary" type="button" id="btn-restore-review" title="Restore this photo back to active album">✓ Restore to Album</button>`
+              : `<button class="btn" type="button" id="btn-stage-review" title="Safely move to Review &amp; Cleanup">Move to Review</button>`}
+            <button class="btn danger" type="button" id="btn-delete-photo" title="Permanently delete this photo from the catalog">
+              <span data-icon="trash"></span><span>Delete</span>
+            </button>
           </div>
 
           <div class="insp-sync-actions">
@@ -5003,12 +5259,24 @@
             box.querySelector('#btn-insp-cite').onclick = () => {
               copyCitation(p);
             };
+            const stageReviewBtn = box.querySelector('#btn-stage-review');
+            if (stageReviewBtn) {
+              stageReviewBtn.onclick = () => stagePhotoForReview(p.id);
+            }
             const restoreBtn = box.querySelector('#btn-restore-review');
             if (restoreBtn) {
-              restoreBtn.onclick = () => {
-                p.inReview = false;
-                p.subfolder = '2003 Gill Reunion';
-                notify(`Restored ${p.id} back into active album.`);
+              restoreBtn.onclick = () => restorePhotoFromReview(p.id);
+            }
+            const deleteBtn = box.querySelector('#btn-delete-photo');
+            if (deleteBtn) {
+              deleteBtn.onclick = () => deletePhoto(p.id);
+            }
+            const unflagBtn = box.querySelector('#btn-unflag-screenshot');
+            if (unflagBtn) {
+              unflagBtn.onclick = () => {
+                p.screenshot = false;
+                saveItemMetadata(p);
+                notify(`Unflagged ${p.id} as screenshot; kept as active family photo.`);
                 render();
               };
             }

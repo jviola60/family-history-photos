@@ -83,7 +83,7 @@
       story: ''
     },
     {
-      id: 'FH-008', file: '2003-07-19_gill-reunion-copy2.jpg', subfolder: '_Duplicates_Review',
+      id: 'FH-008', file: '2003-07-19_gill-reunion-copy2.jpg', subfolder: 'Review & Cleanup',
       title: 'Near-duplicate print of picnic bench',
       people: [{ name: 'Josephine Helen Costello', rel: 'Grandmother', branch: 'Costello' }],
       unnamedFaces: 0, branch: 'Costello', decade: '2000s', isoDate: '2003-07-19',
@@ -91,7 +91,7 @@
       width: 1200, height: 900, kb: 312, aspect: '4 / 3',
       restored4k: false, inReview: true, screenshot: false, fsSynced: false, fsId: '',
       crop: '68% 36%', scale: 1.04, filter: 'brightness(0.98)',
-      story: 'Smaller Walgreens CD copy moved safely to _Duplicates_Review.'
+      story: 'Smaller Walgreens CD copy safely staged in Review & Cleanup.'
     },
     {
       id: 'FH-009', file: '1993-08-15_golden-anniversary.jpg', subfolder: '1993 Anniversary',
@@ -130,15 +130,15 @@
       story: 'Bisnonno insisted on slicing the bread himself before anyone sat down.'
     },
     {
-      id: 'FH-012', file: 'IMG_4410_scanner-settings.png', subfolder: '_Duplicates_Review',
+      id: 'FH-012', file: 'IMG_4410_scanner-settings.png', subfolder: 'Review & Cleanup',
       title: 'Epson Scan dialog screenshot',
       people: [],
       unnamedFaces: 0, branch: 'Gill', decade: '2000s', isoDate: '2003-07-20',
       place: '', lat: null, lng: null,
       width: 1024, height: 768, kb: 142, aspect: '4 / 3',
-      restored4k: false, inReview: true, screenshot: true, fsSynced: false, fsId: '',
+      restored4k: false, inReview: false, screenshot: true, fsSynced: false, fsId: '',
       crop: '45% 75%', scale: 1.7, filter: 'grayscale(0.6) contrast(1.2)',
-      story: 'Desktop screenshot flagged by Junk Cleaner and staged in _Duplicates_Review.'
+      story: 'Desktop screenshot flagged for cleanup. Move to Review & Cleanup or delete.'
     }
   ];
 
