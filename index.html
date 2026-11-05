@@ -3060,6 +3060,7 @@
       let eyeColor = 'Auto natural';
       let redEyeCrosshair = true;
       let duplicateResolved = false;
+      let ignoredDupPairKeys = new Set();
       let currentMaskCanvas = null;
       let hasPaintedMask = false;
       let leafletMap = null;
@@ -3698,59 +3699,149 @@
             return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
           }
 
-          function filteredItems() {
-            return items.filter((p) => {
-              if (activeFolder) {
-                if (p.subfolder !== activeFolder) return false;
-              } else {
-                if (activeQueue === 'review') return p.inReview;
-                if (activeQueue === 'screenshots') return p.screenshot && !p.inReview;
-                if (p.inReview && activeQueue !== 'duplicates') return false;
-                if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
-                if (activeQueue === 'unsynced' && p.fsSynced) return false;
-                if (activeQueue === 'lowres' && !isLowRes(p)) return false;
-              }
-              if (search) {
-                const hay = `${p.id} ${p.file} ${p.title} ${p.place} ${p.fsId} ${p.people.map((x) => x.name).join(' ')}`.toLowerCase();
-                if (!hay.includes(search)) return false;
-              }
-              return true;
+      function normalizeFileNameForDup(name) {
+        if (!name) return '';
+        return name
+          .toLowerCase()
+          .replace(/\.[^.]+$/, '')
+          .replace(/[-_\s]*(copy\d*|\(\d+\)|_dup\d*)$/i, '')
+          .trim();
+      }
+
+      function findDuplicatePairs(list = items) {
+        const pairs = [];
+        const ignored = ignoredDupPairKeys || new Set();
+
+        // 1. Sample demo archive pairing (only applies to original Gill demo photos)
+        if (!isCustomFolder && !duplicateResolved) {
+          const orig = (list || []).find((p) => p.file === '2003-07-19_gill-reunion.jpg');
+          const copy = (list || []).find((p) => p.file === '2003-07-19_gill-reunion-copy2.jpg');
+          if (orig && copy && !copy.inReview && !ignored.has(orig.id + '_' + copy.id)) {
+            pairs.push({
+              orig,
+              copy,
+              reason: 'Visual & filename near-duplicate (Walgreens Photo CD scan)',
+              matchPct: 98,
+              pairKey: orig.id + '_' + copy.id
             });
           }
+          return pairs;
+        }
 
-          function openPhotoLab(id, tool) {
-            if (id) selectedId = id;
-            if (tool) activeTool = tool;
-            panX = 0;
-            panY = 0;
-            mode = 'lab';
-            render();
-          }
+        // 2. Real duplicate detection across user photos
+        const active = (list || []).filter((p) => !p.inReview);
+        const pairedIds = new Set();
 
-          function renderSidebarCounts() {
-            document.getElementById('sidebar-folder-name').textContent = rootFolderName;
-            document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
-            document.getElementById('btn-reset-sample').hidden = !isCustomFolder;
+        for (let i = 0; i < active.length; i++) {
+          const pA = active[i];
+          if (pairedIds.has(pA.id)) continue;
+          const normA = normalizeFileNameForDup(pA.file);
 
-            const toggleDemoBtn = document.getElementById('btn-toggle-demo');
-            const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
-            if (items.length === 0) {
-              if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
-              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
-            } else if (isCustomFolder) {
-              if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
-              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
-            } else {
-              if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Demo Photos';
-              if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Demo';
+          for (let j = i + 1; j < active.length; j++) {
+            const pB = active[j];
+            if (pairedIds.has(pB.id)) continue;
+            const pairKey = pA.id < pB.id ? `${pA.id}_${pB.id}` : `${pB.id}_${pA.id}`;
+            if (ignored.has(pairKey)) continue;
+
+            const normB = normalizeFileNameForDup(pB.file);
+            let isDup = false;
+            let matchPct = 0;
+            let reason = '';
+
+            // Exact same file size and dimensions
+            if (pA.kb === pB.kb && pA.width === pB.width && pA.height === pB.height && pA.kb > 0 && pA.width > 0) {
+              isDup = true;
+              matchPct = 99;
+              reason = `Identical file size (${pA.kb} KB) and dimensions (${pA.width}×${pA.height})`;
+            }
+            // Same normalized filename (e.g. photo.jpg vs photo (1).jpg)
+            else if (normA && normA.length > 3 && normA === normB) {
+              isDup = true;
+              matchPct = 95;
+              reason = `Matching filename variant ("${pA.file}" vs "${pB.file}")`;
+            }
+            // Matching camera timestamp and title
+            else if (pA.isoDate && pA.isoDate === pB.isoDate && pA.title && pA.title.toLowerCase() === pB.title.toLowerCase() && pA.title.length > 5) {
+              isDup = true;
+              matchPct = 90;
+              reason = `Matching date (${pA.isoDate}) and catalog title`;
             }
 
-            const s = stats(items);
-            document.getElementById('q-all').textContent = s.activeCount;
-            document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
-            document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
-            document.getElementById('q-lowres').textContent = s.lowResCount;
-            document.getElementById('q-dups').textContent = (duplicateResolved || isCustomFolder) ? '0' : '1';
+            if (isDup) {
+              const aScore = (pA.width * pA.height) + (pA.kb * 100) + (pA.people ? pA.people.length * 1000 : 0);
+              const bScore = (pB.width * pB.height) + (pB.kb * 100) + (pB.people ? pB.people.length * 1000 : 0);
+              const master = aScore >= bScore ? pA : pB;
+              const duplicate = aScore >= bScore ? pB : pA;
+
+              pairs.push({
+                orig: master,
+                copy: duplicate,
+                reason,
+                matchPct,
+                pairKey
+              });
+              pairedIds.add(duplicate.id);
+              break;
+            }
+          }
+        }
+
+        return pairs;
+      }
+
+      function filteredItems() {
+        return items.filter((p) => {
+          if (activeFolder) {
+            if (p.subfolder !== activeFolder) return false;
+          } else {
+            if (activeQueue === 'review') return p.inReview;
+            if (activeQueue === 'screenshots') return p.screenshot && !p.inReview;
+            if (p.inReview && activeQueue !== 'duplicates') return false;
+            if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
+            if (activeQueue === 'unsynced' && p.fsSynced) return false;
+            if (activeQueue === 'lowres' && !isLowRes(p)) return false;
+          }
+          if (search) {
+            const hay = `${p.id} ${p.file} ${p.title} ${p.place} ${p.fsId} ${p.people.map((x) => x.name).join(' ')}`.toLowerCase();
+            if (!hay.includes(search)) return false;
+          }
+          return true;
+        });
+      }
+
+      function openPhotoLab(id, tool) {
+        if (id) selectedId = id;
+        if (tool) activeTool = tool;
+        panX = 0;
+        panY = 0;
+        mode = 'lab';
+        render();
+      }
+
+      function renderSidebarCounts() {
+        document.getElementById('sidebar-folder-name').textContent = rootFolderName;
+        document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
+        document.getElementById('btn-reset-sample').hidden = !isCustomFolder;
+
+        const toggleDemoBtn = document.getElementById('btn-toggle-demo');
+        const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
+        if (items.length === 0) {
+          if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
+          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
+        } else if (isCustomFolder) {
+          if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
+          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
+        } else {
+          if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Demo Photos';
+          if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Demo';
+        }
+
+        const s = stats(items);
+        document.getElementById('q-all').textContent = s.activeCount;
+        document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
+        document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
+        document.getElementById('q-lowres').textContent = s.lowResCount;
+        document.getElementById('q-dups').textContent = findDuplicatePairs(items).length;
             document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot && !p.inReview).length;
             document.getElementById('q-review').textContent = s.reviewCount;
 
@@ -3889,22 +3980,35 @@
 
             /* Special Batch Queue: Find Duplicates side-by-side comparison */
             if (!activeFolder && activeQueue === 'duplicates') {
-              const orig = items.find((p) => p.id === 'FH-001');
-              const copy = items.find((p) => p.id === 'FH-008');
-              if (duplicateResolved || !orig || !copy) {
+              const dupPairs = findDuplicatePairs(items);
+              if (!dupPairs.length) {
                 host.innerHTML = `
-              <div class="panel" style="padding:28px;text-align:center;">
-                <p style="font-weight:600;">No duplicate pairs pending review</p>
-                <p class="muted" style="font-size:13px;margin-top:4px;">Smaller copies are safely held in Review &amp; Cleanup until you empty it.</p>
-                <button class="btn sm" type="button" style="margin-top:12px;" id="btn-see-all">Return to all prints</button>
-              </div>`;
-                host.querySelector('#btn-see-all').onclick = () => { activeQueue = 'all'; render(); };
+                  <div class="panel" style="padding:48px 24px;text-align:center;max-width:540px;margin:24px auto;">
+                    <div style="font-size:36px;margin-bottom:12px;">🔍</div>
+                    <h2 style="font-size:18px;font-weight:600;margin-bottom:8px;">No Duplicates Found</h2>
+                    <p class="muted" style="font-size:13px;line-height:1.5;">
+                      Scanned all ${items.length} photos in your current collection. Every photo appears to be a unique print with no duplicate or twin copies detected.
+                    </p>
+                    <div style="margin-top:20px;">
+                      <button class="btn primary sm" type="button" id="btn-see-all">Return to All Photos</button>
+                    </div>
+                  </div>`;
+                const seeAllBtn = host.querySelector('#btn-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
                 return;
               }
+
+              const pair = dupPairs[0];
+              const orig = pair.orig;
+              const copy = pair.copy;
+
               host.innerHTML = `
             <div class="panel">
               <div class="panel-head">
-                <h2>Duplicate pair 1 of 1 — 98% visual match</h2>
+                <div>
+                  <h2 style="margin:0;">Duplicate pair 1 of ${dupPairs.length} — ${pair.matchPct}% match</h2>
+                  <p class="muted" style="font-size:12px;margin-top:3px;">${esc(pair.reason)}</p>
+                </div>
                 <span class="pill warn">Safe staging to Review &amp; Cleanup</span>
               </div>
               <div class="dup-pair">
@@ -3915,32 +4019,35 @@
                     <span class="pill pos">Recommended master</span>
                   </div>
                   <p style="font-weight:500;margin-top:6px;">${esc(orig.file)}</p>
-                  <p class="muted" style="font-size:12px;margin-top:2px;">${orig.kb} KB · Synced to FamilySearch (${orig.fsId})</p>
+                  <p class="muted" style="font-size:12px;margin-top:2px;">${orig.kb} KB ${orig.fsId ? `· Synced to FamilySearch (${esc(orig.fsId)})` : ''}</p>
                 </div>
                 <div class="dup-card">
                   <div class="spec-frame"><img src="${esc(afterSrc(copy))}" alt="${esc(copy.title)}" style="${afterStyle(copy)}"></div>
                   <div style="display:flex;justify-content:space-between;align-items:center;">
                     <span class="mono">${esc(copy.id)} · ${copy.width}×${copy.height}</span>
-                    <span class="pill neu">Lower-res copy</span>
+                    <span class="pill neu">Lower-res / duplicate copy</span>
                   </div>
                   <p style="font-weight:500;margin-top:6px;">${esc(copy.file)}</p>
-                  <p class="muted" style="font-size:12px;margin-top:2px;">${copy.kb} KB · Walgreens photo CD duplicate</p>
+                  <p class="muted" style="font-size:12px;margin-top:2px;">${copy.kb} KB · Duplicate copy</p>
                 </div>
               </div>
               <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
-                <button class="btn primary" type="button" id="btn-keep-master">Keep 2400×1800 master &amp; stage copy</button>
-                <button class="btn" type="button" id="btn-ignore-dup">Keep both prints</button>
+                <button class="btn primary" type="button" id="btn-keep-master">Keep ${orig.width}×${orig.height} master &amp; stage copy in Review</button>
+                <button class="btn" type="button" id="btn-ignore-dup">Keep both prints as distinct</button>
               </div>
             </div>`;
               host.querySelector('#btn-keep-master').onclick = () => {
                 copy.inReview = true;
-                duplicateResolved = true;
-                notify('Kept FH-001 master; FH-008 safely staged in Review & Cleanup.');
+                saveItemMetadata(copy);
+                try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
+                notify(`Kept ${orig.id} master; moved ${copy.id} to Review & Cleanup.`);
                 render();
               };
               host.querySelector('#btn-ignore-dup').onclick = () => {
+                if (!ignoredDupPairKeys) ignoredDupPairKeys = new Set();
+                ignoredDupPairKeys.add(pair.pairKey || `${orig.id}_${copy.id}`);
                 duplicateResolved = true;
-                notify('Marked pair as distinct prints to keep.');
+                notify(`Marked ${orig.id} and ${copy.id} as distinct prints.`);
                 render();
               };
               return;
@@ -7848,6 +7955,8 @@
         if (batchIdx < 0) batchIdx = 0;
         if (batchIdx >= totalBatches) batchIdx = totalBatches - 1;
         activeFolderBatchIndex = batchIdx;
+        duplicateResolved = false;
+        ignoredDupPairKeys = new Set();
 
         // Revoke previous blob URLs to prevent older machines from running out of memory
         if (items && items.length) {
@@ -8012,6 +8121,8 @@
 
           activeFolderImageFiles = imgFiles;
           activeFolderBatchIndex = 0;
+          duplicateResolved = false;
+          ignoredDupPairKeys = new Set();
 
           await loadFolderBatch(0);
         };
@@ -8025,6 +8136,8 @@
         } catch (e) {}
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
+        duplicateResolved = false;
+        ignoredDupPairKeys = new Set();
         items = makeSampleItems();
         rootFolderName = 'Gill_Costello_Archive';
         isCustomFolder = false;
@@ -8043,6 +8156,8 @@
         } catch (e) {}
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
+        duplicateResolved = false;
+        ignoredDupPairKeys = new Set();
         items = [];
         rootFolderName = '(No folder opened)';
         isCustomFolder = true;
@@ -8245,6 +8360,8 @@
         } catch (e) {}
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
+        duplicateResolved = false;
+        ignoredDupPairKeys = new Set();
         isCustomFolder = true;
         rootFolderName = sourceLabel;
         activeFolder = null;
