@@ -1294,6 +1294,42 @@
     { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'viola', 'makinzie viola'] }
   ];
 
+  function rankMatches(candidates, query) {
+    if (!candidates || candidates.length === 0) return [];
+    var q = query.trim().toLowerCase();
+    var qParts = q.split(/\s+/).filter(Boolean);
+    var qGiven = qParts[0] || '';
+    var qSur = qParts.length > 1 ? qParts[qParts.length - 1] : '';
+
+    var scored = candidates.map(function (c) {
+      var cName = (c.name || '').toLowerCase();
+      var cParts = cName.split(/\s+/).filter(Boolean);
+      var cGiven = cParts[0] || '';
+      var cSur = cParts.length > 1 ? cParts[cParts.length - 1] : '';
+
+      var score = 0;
+      if (c.id && c.id.toLowerCase() === q) score += 100;
+      if (cName === q) score += 100;
+      else if (cName.startsWith(q) || q.startsWith(cName)) score += 90;
+      else if (cName.includes(q) || q.includes(cName)) score += 80;
+      else {
+        if (qGiven && cGiven && (qGiven === cGiven || cGiven.startsWith(qGiven) || qGiven.startsWith(cGiven))) score += 40;
+        if (qSur && cSur && qSur === cSur) score += 30;
+        if (c.aliases && c.aliases.some(function (a) { return a.toLowerCase() === q; })) score += 60;
+        else if (c.aliases && c.aliases.some(function (a) { return qGiven && a.toLowerCase() === qGiven; })) score += 35;
+      }
+      return { candidate: c, score: score };
+    });
+
+    var hasStrong = scored.some(function (item) { return item.score >= 60; });
+    var minCutoff = hasStrong ? 45 : 25;
+
+    return scored
+      .filter(function (item) { return item.score >= minCutoff; })
+      .sort(function (a, b) { return b.score - a.score; })
+      .map(function (item) { return item.candidate; });
+  }
+
   async function searchPersons(query) {
     if (!query || !query.trim()) return [];
     var trimmed = query.trim();
@@ -1318,13 +1354,8 @@
       }
     }
 
-    // 1. Check local seeds
-    var localMatches = KNOWN_FAMILY.filter(function (f) {
-      if (f.id.toLowerCase() === lower) return true;
-      if (f.name.toLowerCase().includes(lower) || lower.includes(f.name.toLowerCase())) return true;
-      if (f.aliases && f.aliases.some(function (a) { return lower.includes(a) || a.includes(lower); })) return true;
-      return false;
-    });
+    // 1. Check local seeds with intelligent ranking
+    var localMatches = rankMatches(KNOWN_FAMILY, query);
 
     var token = getStoredToken();
     if (!token) {
@@ -1408,7 +1439,7 @@
             combined.push(r);
           }
         });
-        return combined;
+        return rankMatches(combined, query);
       }
     } catch (searchErr) {
       console.warn('FamilySearch tree search notice:', searchErr);
