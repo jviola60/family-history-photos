@@ -5141,7 +5141,7 @@
             <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs">
               ${p.fsSynced
                 ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
-                : (p.fsId ? `Upload to FamilySearch (${esc(p.fsId)})` : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
+                : (p.fsId ? (p.fsId.includes(',') ? `Upload to FamilySearch (${p.fsId.split(',').length} Relatives)` : `Upload to FamilySearch (${esc(p.fsId)})`) : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
             </button>
             <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
               Copy citation
@@ -7547,29 +7547,28 @@
                                       p.fsMemoryId = result.memoryId;
                                       saveItemMetadata(p);
 
+                                      const linkedCount = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.length : (p.people && p.people.length > 0 ? p.people.length : 1);
+                                      const pidSummary = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.join(', ') : (p.fsId || '');
+
                                       if (oldMemoryId && oldMemoryId !== result.memoryId && window.FamilySearchClient.deleteMemory) {
                                         notify(`Deleting older photo (Memory #${oldMemoryId}) from FamilySearch...`);
                                         try {
                                           await window.FamilySearchClient.deleteMemory(oldMemoryId);
-                                          notify(`✓ Replaced older photo! New Memory #${result.memoryId} is active on FamilySearch.`);
+                                          notify(`✓ Replaced older photo! New Memory #${result.memoryId} is active and linked to all ${linkedCount} relatives.`);
                                         } catch (delErr) {
                                           console.warn('Could not delete older memory:', delErr);
                                         }
                                       } else {
-                                        notify(`✓ Uploaded "${p.title}" to FamilySearch Beta Memories! (Memory #${result.memoryId})`);
+                                        notify(`✓ Uploaded 1 photo (Memory #${result.memoryId}) & linked to all ${linkedCount} relatives (${pidSummary})!`);
                                       }
                                       
                                       setTimeout(() => {
-                                        if (result.personMemoriesUrl) {
-                                          const openTab = confirm(`✓ Memory #${result.memoryId} successfully attached to ${targetPid} on FamilySearch!\n\nOpen ${targetPid} Memories tab in beta.familysearch.org now?`);
-                                          if (openTab) {
-                                            window.open(result.personMemoriesUrl, '_blank');
-                                          }
-                                        } else if (result.memoryUrl) {
-                                          const openTab = confirm(`✓ Memory #${result.memoryId} created!\n\nOpen memory in beta.familysearch.org now?`);
-                                          if (openTab) {
-                                            window.open(result.memoryUrl, '_blank');
-                                          }
+                                        const msg = linkedCount > 1
+                                          ? `✓ Photo uploaded ONCE (Memory #${result.memoryId}) and linked to all ${linkedCount} relatives on FamilySearch (${pidSummary})!\n\nNo matter which person you view on FamilySearch, this single photo is attached to their Memories.\n\nOpen photo on FamilySearch now?`
+                                          : `✓ Memory #${result.memoryId} successfully attached to ${pidSummary || 'FamilySearch'}!\n\nOpen photo on FamilySearch now?`;
+                                        const openTab = confirm(msg);
+                                        if (openTab) {
+                                          window.open(result.memoryUrl || `https://beta.familysearch.org/memories/memory/${result.memoryId}`, '_blank');
                                         }
                                       }, 300);
                                     }

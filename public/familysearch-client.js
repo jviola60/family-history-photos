@@ -922,16 +922,32 @@
         var personName = typeof person === 'string' ? person : person.name;
         if (!personName) continue;
 
-        var personPid = (targetPersonId && (pIdx === 0 || peopleList.length === 1))
-          ? targetPersonId
-          : (person.fsId || null);
+        var personPid = null;
+        if (person && person.fsId) {
+          var directPidMatch = String(person.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+          if (directPidMatch) personPid = directPidMatch[0].toUpperCase();
+        }
+
+        if (!personPid && faces && faces.length > 0) {
+          var fMatch = faces.find(function (f) {
+            return f.name && f.name.toLowerCase() === personName.toLowerCase() && f.fsId;
+          });
+          if (fMatch && fMatch.fsId) {
+            var facePidMatch = String(fMatch.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+            if (facePidMatch) personPid = facePidMatch[0].toUpperCase();
+          }
+        }
 
         if (!personPid) {
-          var kfMatch = KNOWN_FAMILY.find(function (kf) {
-            return kf.name.toLowerCase() === personName.toLowerCase() ||
-              (kf.aliases && kf.aliases.some(function (a) { return personName.toLowerCase().includes(a); }));
-          });
-          if (kfMatch) personPid = kfMatch.id;
+          var kfMatches = rankMatches(KNOWN_FAMILY, personName);
+          if (kfMatches && kfMatches.length > 0) {
+            personPid = kfMatches[0].id.toUpperCase();
+          }
+        }
+
+        if (!personPid && targetPersonId && (pIdx === 0 || peopleList.length === 1)) {
+          var targetPidMatch = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+          if (targetPidMatch) personPid = targetPidMatch[0].toUpperCase();
         }
 
         try {
@@ -1212,42 +1228,101 @@
       }
     }
 
-    // 5. Fallback link of memory to targetPersonId if no personas could be linked
-    if (targetPersonId && memoryId && linkedPersonas.length === 0) {
-      try {
-        var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId);
-        var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
-        await fetch(updatePersonUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Content-Type': 'application/x-fs-v1+json',
-            'Accept': 'application/x-fs-v1+json, application/json'
-          },
-          body: JSON.stringify({
-            persons: [
-              {
-                id: targetPersonId,
-                evidence: [{ resource: memoryUri }]
-              }
-            ]
-          })
-        });
-      } catch (fallbackLinkErr) {
-        console.warn('Fallback tree evidence link notice:', fallbackLinkErr);
+    // 5. Ensure EVERY person PID associated with this photo is linked to the single memory artifact
+    var allUniquePids = new Set();
+    if (peopleList) {
+      peopleList.forEach(function (pr) {
+        var pid = pr.fsId;
+        if (!pid && pr.name) {
+          var ranked = rankMatches(KNOWN_FAMILY, pr.name);
+          if (ranked && ranked.length > 0) pid = ranked[0].id;
+        }
+        if (pid) {
+          var matched = String(pid).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
+          if (matched) matched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
+        }
+      });
+    }
+    if (linkedPersonas && linkedPersonas.length > 0) {
+      linkedPersonas.forEach(function (lp) {
+        if (lp.personPid) {
+          var matched = String(lp.personPid).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
+          if (matched) matched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
+        }
+      });
+    }
+    if (targetPersonId) {
+      var tMatched = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
+      if (tMatched) tMatched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
+    }
+    if (photo && photo.fsId) {
+      var pMatched = String(photo.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
+      if (pMatched) pMatched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
+    }
+
+    if (memoryId && allUniquePids.size > 0) {
+      onProgress({ step: 'linking', message: 'Linking memory to ' + allUniquePids.size + ' family member(s) in Family Tree...' });
+      var memoryUri = API_BASE + '/platform/memories/memories/' + memoryId;
+
+      for (var treePid of allUniquePids) {
+        // 1. Link memory directly via memory-references on Tree Person
+        try {
+          await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(treePid) + '/memory-references', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Content-Type': 'application/x-gedcomx-v1+json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              persons: [
+                {
+                  evidence: [{ resource: memoryUri }]
+                }
+              ]
+            })
+          });
+        } catch (refErr) {
+          console.warn('Memory reference link for ' + treePid + ' notice:', refErr);
+        }
+
+        // 2. Link memory as evidence on Tree Person
+        try {
+          var updatePersonUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(treePid);
+          await fetch(updatePersonUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Content-Type': 'application/x-fs-v1+json',
+              'Accept': 'application/x-fs-v1+json, application/json'
+            },
+            body: JSON.stringify({
+              persons: [
+                {
+                  id: treePid,
+                  evidence: [{ resource: memoryUri }]
+                }
+              ]
+            })
+          });
+        } catch (evErr) {
+          console.warn('Tree person evidence link for ' + treePid + ' notice:', evErr);
+        }
       }
     }
 
     var memoryWebUrl = memoryId ? WEB_BASE + '/memories/memory/' + memoryId : WEB_BASE + '/memories/gallery';
-    var personMemoriesUrl = targetPersonId ? WEB_BASE + '/en/tree/person/memories/' + targetPersonId : null;
+    var primaryPid = Array.from(allUniquePids)[0] || targetPersonId;
+    var personMemoriesUrl = primaryPid ? WEB_BASE + '/en/tree/person/memories/' + primaryPid : null;
 
-    onProgress({ step: 'done', message: '✓ Memory saved to FamilySearch Beta!' });
+    onProgress({ step: 'done', message: '✓ 1 memory saved & linked to ' + (allUniquePids.size || 1) + ' relative(s) on FamilySearch Beta!' });
 
     return {
       success: true,
       memoryId: memoryId,
       memoryUrl: memoryWebUrl,
       personMemoriesUrl: personMemoriesUrl,
+      linkedPids: Array.from(allUniquePids),
       targetPersonId: targetPersonId,
       title: title
     };
