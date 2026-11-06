@@ -138,9 +138,9 @@ export async function handleFamilySearchCallback() {
     throw new Error('Missing PKCE code verifier. Please try signing in again.');
   }
 
-  if (state && savedState && state !== savedState) {
+  if (!savedState || !state || state !== savedState) {
     cleanupUrlParams();
-    throw new Error('OAuth state mismatch detected.');
+    throw new Error('OAuth state validation failed: missing or invalid state parameter. Authentication aborted for security.');
   }
 
   const config = getFamilySearchConfig();

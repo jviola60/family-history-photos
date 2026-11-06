@@ -151,8 +151,11 @@
         continue;
       }
 
+      if (pos + 4 > uint8Array.length) break;
       var segLen = view.getUint16(pos + 2, false);
+      if (segLen < 2) break;
       var segEnd = pos + 2 + segLen;
+      if (segEnd > uint8Array.length) break;
 
       var skip = false;
       if (marker === 0xE1 && segLen >= 31) {

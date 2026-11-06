@@ -280,12 +280,14 @@
     window.location.href = authUrl;
   }
 
-  async function handleCallbackCode(code) {
+  async function handleCallbackCode(code, state) {
     var codeVerifier = null;
     var activeRedirect = null;
+    var savedState = null;
     try {
       codeVerifier = sessionStorage.getItem(FS_VERIFIER_KEY) || localStorage.getItem(FS_VERIFIER_KEY);
       activeRedirect = sessionStorage.getItem(FS_REDIRECT_KEY) || localStorage.getItem(FS_REDIRECT_KEY);
+      savedState = sessionStorage.getItem(FS_STATE_KEY) || localStorage.getItem(FS_STATE_KEY);
       sessionStorage.removeItem(FS_VERIFIER_KEY);
       localStorage.removeItem(FS_VERIFIER_KEY);
       sessionStorage.removeItem(FS_STATE_KEY);
@@ -296,6 +298,10 @@
 
     if (!codeVerifier) {
       throw new Error('Missing PKCE code verifier in session. Please sign in again.');
+    }
+
+    if (!savedState || !state || state !== savedState) {
+      throw new Error('OAuth state mismatch or missing state parameter. Authentication aborted for security.');
     }
 
     var redirectUriToUse = activeRedirect || getRedirectUri();

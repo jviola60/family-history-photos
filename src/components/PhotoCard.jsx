@@ -30,13 +30,14 @@ export default function PhotoCard({
       return;
     }
 
+    let createdUrl = null;
+
     // Lazy load from handle if available
     if (photo.handle && typeof photo.handle.getFile === 'function') {
       photo.handle.getFile().then((file) => {
         if (active) {
-          const url = URL.createObjectURL(file);
-          photo.objectUrl = url;
-          setImgSrc(url);
+          createdUrl = URL.createObjectURL(file);
+          setImgSrc(createdUrl);
           setImgFailed(false);
         }
       }).catch(() => {
@@ -47,9 +48,8 @@ export default function PhotoCard({
       getFileFromPath(rootDirHandle, photo.relativePath).then((file) => {
         if (!active) return;
         if (file) {
-          const url = URL.createObjectURL(file);
-          photo.objectUrl = url;
-          setImgSrc(url);
+          createdUrl = URL.createObjectURL(file);
+          setImgSrc(createdUrl);
           setImgFailed(false);
         } else {
           setImgFailed(true);
@@ -61,6 +61,9 @@ export default function PhotoCard({
 
     return () => {
       active = false;
+      if (createdUrl) {
+        try { URL.revokeObjectURL(createdUrl); } catch {}
+      }
     };
   }, [photo.id, photo.enhancedUrl, photo.objectUrl, photo.handle, rootDirHandle]);
 

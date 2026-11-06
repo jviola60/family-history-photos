@@ -313,8 +313,11 @@ export function embedXmpInJpeg(uint8Array, rawMetadata) {
       continue;
     }
 
+    if (pos + 4 > uint8Array.length) break;
     const segLen = view.getUint16(pos + 2, false);
+    if (segLen < 2) break;
     const segEnd = pos + 2 + segLen;
+    if (segEnd > uint8Array.length) break;
 
     let skip = false;
     if (marker === 0xE1 && segLen >= 31) {

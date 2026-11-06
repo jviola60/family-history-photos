@@ -11,6 +11,10 @@ const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'h
  * @param {Function} onProgress - Progress callback (current, total, filename)
  * @returns {Promise<Array<File>>} Array of File objects
  */
+const MAX_ZIP_FILES = 1000;
+const MAX_ENTRY_BYTES = 100 * 1024 * 1024; // 100 MB per image
+const MAX_TOTAL_EXTRACTED_BYTES = 500 * 1024 * 1024; // 500 MB max per zip
+
 export async function extractPhotosFromZip(zipBlob, onProgress = null) {
   const zip = new JSZip();
   const loadedZip = await zip.loadAsync(zipBlob);
@@ -21,18 +25,26 @@ export async function extractPhotosFromZip(zipBlob, onProgress = null) {
     // Skip Mac OSX hidden files
     if (relativePath.includes('__MACOSX') || relativePath.startsWith('._')) return;
 
+    // Prevent directory traversal
+    if (relativePath.includes('..')) return;
+
     const ext = relativePath.split('.').pop().toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
-      imageEntries.push({ relativePath, entry, ext });
+      if (imageEntries.length < MAX_ZIP_FILES) {
+        imageEntries.push({ relativePath, entry, ext });
+      }
     }
   });
 
   const files = [];
   const total = imageEntries.length;
+  let totalExtractedBytes = 0;
 
   for (let i = 0; i < total; i++) {
     const { relativePath, entry, ext } = imageEntries[i];
-    const filename = relativePath.split('/').pop();
+    // Strip all directory path segments (both / and \) to prevent Zip Slip path traversal
+    const rawFilename = relativePath.split(/[/\\]/).pop() || `photo_${i + 1}.${ext}`;
+    const filename = rawFilename.replace(/[^a-zA-Z0-9._\-]/g, '_');
 
     if (onProgress) {
       onProgress(i + 1, total, filename);
@@ -45,6 +57,16 @@ export async function extractPhotosFromZip(zipBlob, onProgress = null) {
     else if (ext === 'bmp') mimeType = 'image/bmp';
 
     const blob = await entry.async('blob');
+    if (blob.size > MAX_ENTRY_BYTES) {
+      console.warn(`Skipping zip entry ${filename}: file size (${blob.size} bytes) exceeds limit`);
+      continue;
+    }
+    totalExtractedBytes += blob.size;
+    if (totalExtractedBytes > MAX_TOTAL_EXTRACTED_BYTES) {
+      console.warn('Zip extraction stopped: total unpacked size exceeded safety limit');
+      break;
+    }
+
     const file = new File([blob], filename, {
       type: mimeType,
       lastModified: entry.date ? entry.date.getTime() : Date.now()
@@ -176,9 +198,26 @@ export async function launchOneDrivePicker({ clientId, onFilesPicked, onError, o
           for (const item of response.values) {
             const downloadUrl = item['@microsoft.graph.downloadUrl'];
             if (downloadUrl) {
+              try {
+                const parsed = new URL(downloadUrl);
+                const host = parsed.hostname.toLowerCase();
+                const isTrustedHost = host.endsWith('.sharepoint.com') ||
+                  host.endsWith('.1drv.ms') ||
+                  host.endsWith('.live.com') ||
+                  host.endsWith('.microsoft.com') ||
+                  host === '1drv.ms';
+                if (parsed.protocol !== 'https:' || !isTrustedHost) {
+                  console.warn('Rejected untrusted OneDrive download URL:', downloadUrl);
+                  continue;
+                }
+              } catch {
+                continue;
+              }
+
               const res = await fetch(downloadUrl);
               const blob = await res.blob();
-              const file = new File([blob], item.name, {
+              const safeName = (item.name || 'onedrive_photo.jpg').replace(/[^a-zA-Z0-9._\-]/g, '_');
+              const file = new File([blob], safeName, {
                 type: blob.type || 'image/jpeg',
                 lastModified: item.fileSystemInfo?.lastModifiedDateTime 
                   ? new Date(item.fileSystemInfo.lastModifiedDateTime).getTime() 

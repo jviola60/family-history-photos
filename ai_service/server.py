@@ -9,11 +9,23 @@ import io
 import json
 import base64
 import time
+import math
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import numpy as np
 from PIL import Image, ImageFilter
-import onnxruntime as ort
-import cv2
+try:
+    import onnxruntime as ort
+except ImportError:
+    ort = None
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+# Mitigate DecompressionBomb Denial-of-Service attacks
+Image.MAX_IMAGE_PIXELS = 25000000
+
 
 # Ensure clean UTF-8 output on Windows terminal
 if hasattr(sys.stdout, "reconfigure"):
@@ -35,8 +47,9 @@ print("Initializing Local AI Restoration Engine (100% Offline)...")
 print(f"Loading models from: {MODELS_DIR}")
 
 # Load ONNX sessions with CPU Execution Provider
-opts = ort.SessionOptions()
-opts.intra_op_num_threads = max(2, os.cpu_count() // 2)
+opts = ort.SessionOptions() if ort else None
+if opts:
+    opts.intra_op_num_threads = max(2, os.cpu_count() // 2)
 
 try:
     lama_session = ort.InferenceSession(LAMA_PATH, sess_options=opts, providers=['CPUExecutionProvider'])
@@ -293,8 +306,9 @@ def run_realesrgan_tile(pil_img, tile_size=384, overlap=28):
     out_arr = np.zeros((out_h, out_w, 3), dtype=np.float32)
     weight_arr = np.zeros((out_h, out_w, 3), dtype=np.float32)
 
-    for y in range(0, h, tile_size - overlap):
-        for x in range(0, w, tile_size - overlap):
+    step = max(1, tile_size - overlap)
+    for y in range(0, h, step):
+        for x in range(0, w, step):
             x_end = min(x + tile_size, w)
             y_end = min(y + tile_size, h)
             x_start = max(0, x_end - tile_size)
@@ -340,12 +354,37 @@ ALLOWED_ORIGINS = {
     "http://localhost:4173",
     "http://127.0.0.1:4173",
 }
+ALLOWED_HOSTS = {
+    "localhost:8008",
+    "127.0.0.1:8008",
+    "localhost",
+    "127.0.0.1",
+}
 MAX_BODY_BYTES = 60 * 1024 * 1024  # 60 MB cap to prevent memory exhaustion
+MAX_IMAGE_DIM = 8192  # Maximum dimension in either width or height
+
+
+def _clamp_float(val, default, min_val=0.0, max_val=1.0):
+    try:
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return max(min_val, min(max_val, f))
+    except (ValueError, TypeError):
+        return default
 
 
 class AIRestorationHandler(BaseHTTPRequestHandler):
+    def _host_allowed(self):
+        host = self.headers.get("Host", "").strip().lower()
+        return host in ALLOWED_HOSTS
+
     def _origin_allowed(self):
-        return self.headers.get("Origin", "") in ALLOWED_ORIGINS
+        origin = self.headers.get("Origin", "")
+        # Allow requests with no Origin only if Host is valid (e.g., local CLI curl/scripts)
+        if not origin:
+            return self._host_allowed()
+        return origin in ALLOWED_ORIGINS
 
     def _send_cors_headers(self):
         origin = self.headers.get("Origin", "")
@@ -357,11 +396,24 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
+        if not self._host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
         self.send_response(204 if self._origin_allowed() else 403)
         self._send_cors_headers()
         self.end_headers()
 
     def do_GET(self):
+        if not self._host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
+        if not self._origin_allowed():
+            self.send_response(403)
+            self.end_headers()
+            return
+
         if self.path == "/health":
             self.send_response(200)
             self._send_cors_headers()
@@ -383,11 +435,18 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        # Validate Host to mitigate DNS rebinding attacks
+        if not self._host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
+
         # Block cross-site requests from untrusted web pages
         if not self._origin_allowed():
             self.send_response(403)
             self.end_headers()
             return
+
         try:
             content_length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -414,6 +473,14 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             data_url = req.get("image", "")
             mask_url = req.get("mask", "")
 
+            if not data_url or not mask_url:
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Missing image or mask payload"}).encode("utf-8"))
+                return
+
             if "," in data_url:
                 data_url = data_url.split(",", 1)[1]
             if "," in mask_url:
@@ -422,6 +489,14 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             orig_img = Image.open(io.BytesIO(base64.b64decode(data_url))).convert("RGB")
             mask_img = Image.open(io.BytesIO(base64.b64decode(mask_url))).convert("L")
             w, h = orig_img.size
+
+            if w > MAX_IMAGE_DIM or h > MAX_IMAGE_DIM or w <= 0 or h <= 0:
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": f"Image dimensions exceed limit ({MAX_IMAGE_DIM}px)"}).encode("utf-8"))
+                return
 
             if lama_session is not None:
                 # 1. State-of-the-Art LaMa Neural Inpainting
@@ -479,15 +554,35 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
         try:
             req = json.loads(post_data.decode("utf-8"))
             data_url = req.get("image", "")
-            face_model = req.get("face_model", "codeformer")  # 'codeformer' | 'gfpgan' | 'none'
-            fidelity = float(req.get("fidelity", 0.75))
-            face_box = req.get("face_box", None)
+            if not data_url:
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": "Missing image payload"}).encode("utf-8"))
+                return
+
+            raw_model = str(req.get("face_model", "codeformer")).lower()
+            face_model = raw_model if raw_model in {"codeformer", "gfpgan", "none"} else "codeformer"
+            fidelity = _clamp_float(req.get("fidelity", 0.75), 0.75)
+
+            raw_box = req.get("face_box", None)
+            face_box = None
+            if isinstance(raw_box, dict):
+                try:
+                    bx = _clamp_float(raw_box.get("x", 0), 0.0)
+                    by = _clamp_float(raw_box.get("y", 0), 0.0)
+                    bw = _clamp_float(raw_box.get("width", 0), 0.0)
+                    bh = _clamp_float(raw_box.get("height", 0), 0.0)
+                    face_box = {"x": bx, "y": by, "width": bw, "height": bh}
+                except Exception:
+                    face_box = None
             
             repair_scratches = bool(req.get("repair_scratches", True))
-            scratch_strength = float(req.get("scratch_strength", 0.75))
+            scratch_strength = _clamp_float(req.get("scratch_strength", 0.75), 0.75)
             
             restore_color = bool(req.get("restore_color", True))
-            defade_strength = float(req.get("defade_strength", 0.70))
+            defade_strength = _clamp_float(req.get("defade_strength", 0.70), 0.70)
             
             upscale = bool(req.get("upscale", True))
 
@@ -499,6 +594,14 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
             img_bytes = base64.b64decode(base64_data)
             current_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
             w, h = current_img.size
+
+            if w > MAX_IMAGE_DIM or h > MAX_IMAGE_DIM or w <= 0 or h <= 0:
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": f"Image dimensions exceed limit ({MAX_IMAGE_DIM}px)"}).encode("utf-8"))
+                return
 
             t0 = time.time()
             print(f"\n[AI Pipeline] Processing photo ({w}x{h})...")
@@ -583,7 +686,8 @@ class AIRestorationHandler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps({"success": False, "error": str(err)}).encode("utf-8"))
+        # Return generic error to client to avoid leaking server environment details
+        self.wfile.write(json.dumps({"success": False, "error": "Internal image processing error"}).encode("utf-8"))
 
 
 def main():

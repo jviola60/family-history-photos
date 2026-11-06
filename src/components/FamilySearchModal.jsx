@@ -20,6 +20,7 @@ import {
 import { 
   startFamilySearchLogin, 
   clearFamilySearchToken, 
+  getStoredFamilySearchToken,
   getFamilySearchCurrentUser,
   getFamilySearchConfig,
   setStoredRedirectUriOverride
