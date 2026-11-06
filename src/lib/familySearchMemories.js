@@ -367,6 +367,23 @@ export async function attachMemoryToFamilySearchPerson(personId, memoryId, perso
   return true;
 }
 
+export function isNameMatch(a, b) {
+  if (!a || !b) return false;
+  const s1 = a.trim().toLowerCase();
+  const s2 = b.trim().toLowerCase();
+  if (s1 === s2) return true;
+  if (s1.includes(s2) || s2.includes(s1)) return true;
+  const p1 = s1.split(/\s+/).filter(Boolean);
+  const p2 = s2.split(/\s+/).filter(Boolean);
+  if (p1.length >= 2 && p2.length >= 2) {
+    if (p1[0] === p2[0] && p1[p1.length - 1] === p2[p2.length - 1]) return true;
+  }
+  const k1 = resolvePersonMapping(s1, KNOWN_SEEDS);
+  const k2 = resolvePersonMapping(s2, KNOWN_SEEDS);
+  if (k1 && k2 && k1.id === k2.id) return true;
+  return false;
+}
+
 /**
  * Creates or updates memory personas with face bounding box coordinates and attaches them to Tree persons.
  * @param {string} memoryId - FamilySearch Memory ID
@@ -396,6 +413,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
     console.warn('Could not list existing personas on memory:', listErr);
   }
 
+  const claimedPersonaIds = new Set();
   const results = [];
 
   for (let i = 0; i < tags.length; i++) {
@@ -410,18 +428,23 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
     }
 
     try {
-      // Find if an existing persona on the photo matches this tag name or treePersonId
-      const matchedExisting = existingPersonas.find(p => {
+      // Find if an unclaimed existing persona on the photo matches this tag name or treePersonId
+      let matchedExisting = existingPersonas.find(p => {
+        if (!p.id || claimedPersonaIds.has(p.id)) return false;
         if (tag.treePersonId && p.identifiers?.['http://familysearch.org/v1/FamilyTreePerson']) {
           const arkList = p.identifiers['http://familysearch.org/v1/FamilyTreePerson'];
           if (Array.isArray(arkList) && arkList.some(ark => ark.includes(tag.treePersonId))) {
             return true;
           }
         }
-        const pName = p.names?.[0]?.nameForms?.[0]?.fullText?.trim().toLowerCase();
-        const tName = tag.name?.trim().toLowerCase();
-        return pName && tName && (pName === tName || pName.includes(tName) || tName.includes(pName));
+        const pName = p.names?.[0]?.nameForms?.[0]?.fullText?.trim();
+        return pName && tag.name && isNameMatch(pName, tag.name);
       });
+
+      // ONLY for the first target (i === 0), if there is an unclaimed initial placeholder persona on the memory, we can adopt it
+      if (!matchedExisting && i === 0 && existingPersonas.length > 0 && !claimedPersonaIds.has(existingPersonas[0].id)) {
+        matchedExisting = existingPersonas[0];
+      }
 
       // Prepare standard identifiers map per FamilySearch GEDCOM X schema (Map, NOT array)
       const identifiers = {};
@@ -442,9 +465,11 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
         const regionStr = `${x},${y},${w},${h}`;
         media = [
           {
-            description: `${config.apiBase}/platform/memories/artifacts/${memoryId}/description`,
+            resource: `${config.apiBase}/platform/memories/memories/${memoryId}`,
+            description: 'http://gedcomx.org/Photograph',
             qualifiers: [
-              { name: 'http://gedcomx.org/RectangleRegion', value: regionStr }
+              { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
+              { name: 'http://familysearch.org/v1/RectangleRegion', value: regionStr }
             ]
           }
         ];
@@ -482,6 +507,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
         if (updateRes.ok || updateRes.status === 204) {
           opSuccess = true;
           personaId = matchedExisting.id;
+          claimedPersonaIds.add(matchedExisting.id);
         } else {
           const errText = await updateRes.text();
           console.warn(`Update existing persona ${matchedExisting.id} notice (${updateRes.status}): ${errText}`);
@@ -538,6 +564,7 @@ export async function attachPersonTagsToMemory(memoryId, tags, onProgress = null
           const entityId = personaRes.headers.get('X-entity-id');
           const location = personaRes.headers.get('Location') || '';
           personaId = entityId || (location ? location.split('/').pop() : null);
+          if (personaId) claimedPersonaIds.add(personaId);
         } else {
           const errText = await personaRes.text();
           throw new Error(`FamilySearch persona creation failed (${personaRes.status}): ${errText}`);

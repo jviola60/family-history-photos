@@ -438,21 +438,21 @@
   }
 
   /**
-   * Convert normalized box ({x, y, width, height}) into GEDCOM X RectangleRegion string
-   * Format: "x1,y1,x2,y2" where all values are 0.0 - 1.0
+   * Convert normalized box ({x, y, width, height}) into FamilySearch / GEDCOM X RectangleRegion string
+   * Format: "x,y,width,height" where all values are 0.0 - 1.0 floats
    */
   function toGedcomXRegion(box) {
     if (!box) return null;
-    var x1 = Math.max(0, Math.min(1, box.x || 0));
-    var y1 = Math.max(0, Math.min(1, box.y || 0));
-    var x2 = Math.max(x1, Math.min(1, (box.x || 0) + (box.width || 0.2)));
-    var y2 = Math.max(y1, Math.min(1, (box.y || 0) + (box.height || 0.2)));
+    var x = Math.max(0, Math.min(0.99, box.x !== undefined ? Number(box.x) : (box.left !== undefined ? Number(box.left) : 0)));
+    var y = Math.max(0, Math.min(0.99, box.y !== undefined ? Number(box.y) : (box.top !== undefined ? Number(box.top) : 0)));
+    var w = Math.max(0.01, Math.min(1 - x, box.width !== undefined ? Number(box.width) : (box.w !== undefined ? Number(box.w) : 0.15)));
+    var h = Math.max(0.01, Math.min(1 - y, box.height !== undefined ? Number(box.height) : (box.h !== undefined ? Number(box.h) : 0.15)));
 
     return [
-      x1.toFixed(4),
-      y1.toFixed(4),
-      x2.toFixed(4),
-      y2.toFixed(4)
+      x.toFixed(4),
+      y.toFixed(4),
+      w.toFixed(4),
+      h.toFixed(4)
     ].join(',');
   }
 

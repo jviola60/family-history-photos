@@ -680,6 +680,29 @@
     return null;
   }
 
+  function isNameMatch(a, b) {
+    if (!a || !b) return false;
+    var s1 = a.trim().toLowerCase();
+    var s2 = b.trim().toLowerCase();
+    if (s1 === s2) return true;
+    if (s1.indexOf(s2) !== -1 || s2.indexOf(s1) !== -1) return true;
+    var p1 = s1.split(/\s+/).filter(Boolean);
+    var p2 = s2.split(/\s+/).filter(Boolean);
+    if (p1.length >= 2 && p2.length >= 2) {
+      if (p1[0] === p2[0] && p1[p1.length - 1] === p2[p2.length - 1]) return true;
+    }
+    if (typeof KNOWN_FAMILY !== 'undefined' && Array.isArray(KNOWN_FAMILY)) {
+      var k1 = KNOWN_FAMILY.find(function (k) {
+        return (k.name && k.name.toLowerCase() === s1) || (k.aliases && k.aliases.includes(s1));
+      });
+      var k2 = KNOWN_FAMILY.find(function (k) {
+        return (k.name && k.name.toLowerCase() === s2) || (k.aliases && k.aliases.includes(s2));
+      });
+      if (k1 && k2 && k1.id === k2.id) return true;
+    }
+    return false;
+  }
+
   /**
    * Upload an image to FamilySearch Beta Memories, link to Person, and attach persona tags
    */
@@ -1085,31 +1108,85 @@
 
     // 4. Attach Persona tags to the memory with face bounding box coordinates & link Tree persons
     var linkedPersonas = [];
-    if (memoryId && ((people && people.length > 0) || targetPersonId)) {
-      var peopleList = (people && people.length > 0)
-        ? people
-        : [{ name: title, fsId: targetPersonId }];
+    var tagTargets = [];
+    var seenTargetNames = new Set();
 
-      onProgress({ step: 'tagging', message: 'Tagging relatives and face positions on FamilySearch memory...' });
-      for (var pIdx = 0; pIdx < peopleList.length; pIdx++) {
-        var person = peopleList[pIdx];
-        var personName = typeof person === 'string' ? person : person.name;
+    // A. Add all faces that have names or box coordinates
+    if (faces && faces.length > 0) {
+      faces.forEach(function (f, fIdx) {
+        var fName = (f.name || '').trim();
+        if (!fName && people && people[fIdx]) {
+          fName = (typeof people[fIdx] === 'string' ? people[fIdx] : people[fIdx].name || '').trim();
+        }
+        if (fName) {
+          tagTargets.push({
+            name: fName,
+            fsId: f.fsId || (people && people[fIdx] && people[fIdx].fsId) || null,
+            box: f.box || (f.left !== undefined ? f : null),
+            faceIdx: fIdx
+          });
+          seenTargetNames.add(fName.toLowerCase());
+        }
+      });
+    }
+
+    // B. Add any relatives from the people list who aren't already represented in tagTargets
+    if (people && people.length > 0) {
+      people.forEach(function (pRel) {
+        var pName = (typeof pRel === 'string' ? pRel : pRel.name || '').trim();
+        if (!pName) return;
+        var existing = tagTargets.find(function (t) {
+          return isNameMatch(t.name, pName);
+        });
+        if (!existing) {
+          tagTargets.push({
+            name: pName,
+            fsId: (typeof pRel === 'object' ? pRel.fsId : null) || null,
+            box: null,
+            faceIdx: -1
+          });
+          seenTargetNames.add(pName.toLowerCase());
+        } else if (!existing.fsId && typeof pRel === 'object' && pRel.fsId) {
+          existing.fsId = pRel.fsId;
+        }
+      });
+    }
+
+    // C. Fallback: if no faces and no people, but targetPersonId is provided
+    if (tagTargets.length === 0 && targetPersonId) {
+      tagTargets.push({
+        name: title || 'Relative',
+        fsId: targetPersonId,
+        box: (faces && faces[0] && (faces[0].box || faces[0])) || null,
+        faceIdx: (faces && faces[0]) ? 0 : -1
+      });
+    }
+
+    // D. If still empty but faces exist without names, create numbered targets
+    if (tagTargets.length === 0 && faces && faces.length > 0) {
+      faces.forEach(function (f, fIdx) {
+        tagTargets.push({
+          name: title ? (title + ' (Person ' + (fIdx + 1) + ')') : ('Person ' + (fIdx + 1)),
+          fsId: (fIdx === 0 ? targetPersonId : null),
+          box: f.box || (f.left !== undefined ? f : null),
+          faceIdx: fIdx
+        });
+      });
+    }
+
+    if (memoryId && tagTargets.length > 0) {
+      var claimedPersonaIds = new Set();
+      onProgress({ step: 'tagging', message: 'Tagging ' + tagTargets.length + ' relative(s) and face positions on FamilySearch memory...' });
+
+      for (var tIdx = 0; tIdx < tagTargets.length; tIdx++) {
+        var target = tagTargets[tIdx];
+        var personName = target.name;
         if (!personName) continue;
 
         var personPid = null;
-        if (person && person.fsId) {
-          var directPidMatch = String(person.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+        if (target.fsId) {
+          var directPidMatch = String(target.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
           if (directPidMatch) personPid = directPidMatch[0].toUpperCase();
-        }
-
-        if (!personPid && faces && faces.length > 0) {
-          var fMatch = faces.find(function (f) {
-            return f.name && f.name.toLowerCase() === personName.toLowerCase() && f.fsId;
-          });
-          if (fMatch && fMatch.fsId) {
-            var facePidMatch = String(fMatch.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
-            if (facePidMatch) personPid = facePidMatch[0].toUpperCase();
-          }
         }
 
         if (!personPid) {
@@ -1119,72 +1196,49 @@
           }
         }
 
-        if (!personPid && targetPersonId && (pIdx === 0 || peopleList.length === 1)) {
+        if (!personPid && targetPersonId && (tIdx === 0 || tagTargets.length === 1)) {
           var targetPidMatch = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
           if (targetPidMatch) personPid = targetPidMatch[0].toUpperCase();
         }
 
         try {
-          var assignedFace = null;
-          if (faces && faces.length > 0) {
-            if (faces.length === 1 && peopleList.length === 1) {
-              assignedFace = faces[0];
-            } else {
-              assignedFace = faces.find(function (f) {
-                return f.name && personName && f.name.toLowerCase() === personName.toLowerCase();
-              }) || (pIdx === 0 ? faces[0] : null);
-            }
-          }
-
           var hasBox = false;
-          var regionStr = null;
           var regionBox = null;
-          var x1Str = '0.0000', y1Str = '0.0000', wStr = '0.2000', hStr = '0.2000';
+          var b = target.box;
 
-          if (assignedFace && assignedFace.box) {
-            var b = assignedFace.box;
+          if (b) {
             var bx = (b.x !== undefined) ? b.x : (b.left !== undefined ? b.left : 0);
             var by = (b.y !== undefined) ? b.y : (b.top !== undefined ? b.top : 0);
             var bw = (b.width !== undefined) ? b.width : (b.w !== undefined ? b.w : 0.2);
             var bh = (b.height !== undefined) ? b.height : (b.h !== undefined ? b.h : 0.2);
 
-            var x = Math.max(0, Math.min(1, Number(bx)));
-            var y = Math.max(0, Math.min(1, Number(by)));
-            var w = Math.max(0.01, Math.min(1 - x, Number(bw)));
-            var h = Math.max(0.01, Math.min(1 - y, Number(bh)));
+            if (typeof bx === 'string' && bx.includes('%')) bx = parseFloat(bx) / 100;
+            if (typeof by === 'string' && by.includes('%')) by = parseFloat(by) / 100;
+            if (typeof bw === 'string' && bw.includes('%')) bw = parseFloat(bw) / 100;
+            if (typeof bh === 'string' && bh.includes('%')) bh = parseFloat(bh) / 100;
+
+            var x = Math.max(0, Math.min(0.99, Number(bx) || 0));
+            var y = Math.max(0, Math.min(0.99, Number(by) || 0));
+            var w = Math.max(0.01, Math.min(1 - x, Number(bw) || 0.15));
+            var h = Math.max(0.01, Math.min(1 - y, Number(bh) || 0.15));
             hasBox = true;
 
-            x1Str = x.toFixed(4);
-            y1Str = y.toFixed(4);
-            var x2Str = Math.min(1, x + w).toFixed(4);
-            var y2Str = Math.min(1, y + h).toFixed(4);
-            wStr = w.toFixed(4);
-            hStr = h.toFixed(4);
-
-            // GEDCOM X standard: x1,y1,x2,y2
-            regionStr = x1Str + ',' + y1Str + ',' + x2Str + ',' + y2Str;
-            // FamilySearch standard: x,y,width,height
-            regionBox = x1Str + ',' + y1Str + ',' + wStr + ',' + hStr;
+            // FamilySearch Memories tag viewer expects x,y,width,height (0.0000 - 1.0000)
+            regionBox = x.toFixed(4) + ',' + y.toFixed(4) + ',' + w.toFixed(4) + ',' + h.toFixed(4);
           }
 
           var qualifiers = hasBox ? [
-            { name: 'http://gedcomx.org/RectangleRegion', value: regionStr },
-            { name: 'http://gedcomx.org/Box', value: regionStr },
-            { name: 'http://gedcomx.org/box', value: regionBox },
-            { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox },
-            { name: 'http://familysearch.org/v1/x', value: x1Str },
-            { name: 'http://familysearch.org/v1/y', value: y1Str },
-            { name: 'http://familysearch.org/v1/width', value: wStr },
-            { name: 'http://familysearch.org/v1/height', value: hStr }
+            { name: 'http://gedcomx.org/RectangleRegion', value: regionBox },
+            { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox }
           ] : undefined;
 
-          var media = hasBox ? [
+          var media = [
             {
               resource: API_BASE + '/platform/memories/memories/' + memoryId,
               description: 'http://gedcomx.org/Photograph',
               qualifiers: qualifiers
             }
-          ] : undefined;
+          ];
 
           var personNames = [
             {
@@ -1205,8 +1259,9 @@
           }
           var hasIdentifiers = Object.keys(identifiers).length > 0;
 
-          // Check if an existing persona on the memory matches this person
+          // Check if an unclaimed existing persona on the memory matches this person
           var matchedExisting = existingPersonas.find(function (p) {
+            if (!p.id || claimedPersonaIds.has(p.id)) return false;
             if (personPid && p.identifiers && p.identifiers['http://familysearch.org/v1/FamilyTreePerson']) {
               var arks = p.identifiers['http://familysearch.org/v1/FamilyTreePerson'];
               if (Array.isArray(arks) && arks.some(function (ark) { return ark.indexOf(personPid) !== -1; })) {
@@ -1222,13 +1277,16 @@
               (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText) ||
               (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText)
             );
-            if (pName && personName) {
-              var pLower = pName.trim().toLowerCase();
-              var tLower = personName.trim().toLowerCase();
-              return pLower === tLower || pLower.indexOf(tLower) !== -1 || tLower.indexOf(pLower) !== -1;
+            if (pName && isNameMatch(pName, personName)) {
+              return true;
             }
             return false;
-          }) || (existingPersonas.length === 1 ? existingPersonas[0] : null);
+          });
+
+          // ONLY for the first target (tIdx === 0), if there is an unclaimed initial placeholder persona on the memory, we can adopt it
+          if (!matchedExisting && tIdx === 0 && existingPersonas.length > 0 && !claimedPersonaIds.has(existingPersonas[0].id)) {
+            matchedExisting = existingPersonas[0];
+          }
 
           var personaId = matchedExisting ? matchedExisting.id : null;
           var opSuccess = false;
@@ -1256,6 +1314,7 @@
             if (updateRes.ok || updateRes.status === 204) {
               opSuccess = true;
               personaId = matchedExisting.id;
+              claimedPersonaIds.add(matchedExisting.id);
             } else {
               var updateRetry = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
                 method: 'POST',
@@ -1269,6 +1328,7 @@
               if (updateRetry.ok || updateRetry.status === 204) {
                 opSuccess = true;
                 personaId = matchedExisting.id;
+                claimedPersonaIds.add(matchedExisting.id);
               }
             }
           }
@@ -1314,6 +1374,7 @@
               var entId = personaRes.headers.get('X-entity-id');
               var loc = personaRes.headers.get('Location') || '';
               personaId = entId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null);
+              if (personaId) claimedPersonaIds.add(personaId);
               opSuccess = true;
             }
           }
@@ -1386,7 +1447,7 @@
                   persons: [
                     {
                       evidence: [
-                        { resource: API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + personaId }
+                        { resource: API_BASE + '/platform/memories/memories/' + memoryId }
                       ]
                     }
                   ]
@@ -1404,8 +1465,8 @@
 
     // 5. Ensure EVERY person PID associated with this photo is linked to the single memory artifact
     var allUniquePids = new Set();
-    if (peopleList) {
-      peopleList.forEach(function (pr) {
+    if (tagTargets && tagTargets.length > 0) {
+      tagTargets.forEach(function (pr) {
         var pid = pr.fsId;
         if (!pid && pr.name) {
           var ranked = rankMatches(KNOWN_FAMILY, pr.name);

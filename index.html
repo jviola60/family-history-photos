@@ -5304,12 +5304,19 @@
                   const val = choice.trim();
                   if (val.toLowerCase() === 'delete' || val.toLowerCase() === 'remove') {
                     p.faces.splice(fIdx, 1);
-                    p.unnamedFaces = Math.max(0, p.faces.length - (p.people ? p.people.length : 0));
+                    p.unnamedFaces = Math.max(0, (p.faces || []).filter(fc => !fc.name).length);
                     saveItemMetadata(p);
                     notify(`✕ Removed Face #${fIdx + 1}.`);
                     render();
                   } else {
                     f.name = val;
+                    if (val) {
+                      if (!p.people) p.people = [];
+                      if (!p.people.some(pr => (pr.name || '').toLowerCase() === val.toLowerCase())) {
+                        p.people.push({ name: val, rel: 'Relative', branch: p.branch || '' });
+                      }
+                    }
+                    p.unnamedFaces = Math.max(0, (p.faces || []).filter(fc => !fc.name).length);
                     saveItemMetadata(p);
                     notify(`Face #${fIdx + 1} assigned to ${f.name || 'unnamed'}.`);
                     render();
