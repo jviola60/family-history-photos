@@ -2967,7 +2967,14 @@
         'Elmwood Park, IL': [41.9214, -87.8170],
         'Martinique Banquet Hall, Evergreen Park, IL': [41.7206, -87.6978],
         'Kennedy Park, Chicago, IL': [41.6870, -87.6775],
-        'West Hubbard St, Chicago, IL': [41.8899, -87.6534]
+        'West Hubbard St, Chicago, IL': [41.8899, -87.6534],
+        'Bowling Green, OH': [41.3748, -83.6513],
+        'Bowling Green, Ohio': [41.3748, -83.6513],
+        'Bowling Green': [41.3748, -83.6513],
+        '1633 W Wooster St, Bowling Green, OH': [41.3735, -83.6670],
+        '1633 W. Wooster, Bowling Green': [41.3751, -83.6511],
+        '1633 W Wooster, Bowling Green': [41.3751, -83.6511],
+        '1633 W Wooster, Bowling Green, OH': [41.3735, -83.6670]
       };
       const ALL_ICONS = { ...ICONS, ...EXTRA_ICONS };
 
@@ -3146,8 +3153,9 @@
         const placeEl = box.querySelector('#f-place');
         if (placeEl) {
           const val = placeEl.value.trim();
+          const placeChanged = (val !== p.place);
           p.place = val;
-          if (val && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+          if (val && (placeChanged || typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
             geocodeAddress(val).then((geo) => {
               if (geo) {
                 p.lat = geo.lat;
@@ -3391,52 +3399,150 @@
         }
       }
 
-      function showFsPidSuggestions(p, matches) {
+      function showFsPidSuggestions(p, resultsByPerson) {
         const host = document.getElementById('fs-matches-host');
         if (!host) return;
-        if (!matches || matches.length === 0) {
+        if (!resultsByPerson || resultsByPerson.length === 0) {
           host.innerHTML = '';
           return;
         }
-        host.innerHTML = `
-          <div style="margin-top:6px;padding:6px 8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <span style="font-weight:600;font-size:11px;color:var(--text);">FamilySearch Tree Suggestions:</span>
+
+        // Backward compatibility if called with flat matches array
+        if (resultsByPerson[0] && resultsByPerson[0].id) {
+          resultsByPerson = [{
+            personName: (p.people && p.people[0] ? p.people[0].name : (p.title || 'Person')),
+            matches: resultsByPerson
+          }];
+        }
+
+        const totalMatches = resultsByPerson.reduce((acc, cur) => acc + (cur.matches ? cur.matches.length : 0), 0);
+        if (totalMatches === 0) {
+          host.innerHTML = `
+            <div style="margin-top:6px;padding:6px 8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+              <span class="muted" style="font-size:11px;">No tree matches found. You can type/paste PIDs into the field.</span>
               <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:11px;color:var(--muted);cursor:pointer;">✕</button>
             </div>
-            <div style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto;">
-              ${matches.map(m => `
-                <div class="fs-match-item" data-pid="${esc(m.id)}" style="cursor:pointer;padding:4px 6px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;background:${p.fsId === m.id ? 'rgba(37,99,235,0.12)' : 'var(--ground)'};border:1px solid ${p.fsId === m.id ? 'var(--accent)' : 'var(--border)'};" title="Click to use PID ${esc(m.id)}">
-                  <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                    <strong>${esc(m.name)}</strong>
-                    ${m.lifespan ? `<span class="muted" style="font-size:11px;"> · ${esc(m.lifespan)}</span>` : ''}
-                  </div>
-                  <span class="pill mono ${p.fsId === m.id ? 'pos' : 'neu'}" style="font-size:10px;margin-left:6px;">${esc(m.id)}</span>
-                </div>
-              `).join('')}
+          `;
+          const closeBtn = host.querySelector('#btn-close-fs-matches');
+          if (closeBtn) closeBtn.onclick = () => { host.innerHTML = ''; };
+          return;
+        }
+
+        host.innerHTML = `
+          <div style="margin-top:6px;padding:8px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-weight:600;font-size:11px;color:var(--text);display:flex;align-items:center;gap:4px;">
+                <span data-icon="users"></span> FamilySearch Tree Matches (${resultsByPerson.length} ${resultsByPerson.length === 1 ? 'person' : 'relatives in photo'}):
+              </span>
+              <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:12px;color:var(--muted);cursor:pointer;padding:0 4px;" title="Close suggestions">✕</button>
             </div>
-            <div style="font-size:10px;color:var(--muted);margin-top:4px;">
-              Click any person above to set PID, or type/paste in field.
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding-right:2px;">
+              ${resultsByPerson.map(group => {
+                const currentPerson = (p.people || []).find(x => x.name.toLowerCase() === group.personName.toLowerCase());
+                const linkedPid = currentPerson ? currentPerson.fsId : null;
+                return `
+                  <div style="background:var(--ground);border:1px solid var(--border);border-radius:5px;padding:5px 7px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                      <span style="font-weight:700;font-size:12px;color:var(--text);">${esc(group.personName)}</span>
+                      ${linkedPid
+                        ? `<span class="pill mono pos" style="font-size:10px;padding:1px 5px;">Linked: ${esc(linkedPid)}</span>`
+                        : `<span class="pill mono neu" style="font-size:10px;padding:1px 5px;">Unlinked</span>`}
+                    </div>
+                    ${(!group.matches || group.matches.length === 0)
+                      ? `<div class="muted" style="font-size:11px;font-style:italic;">No tree matches found.</div>`
+                      : group.matches.map(m => {
+                          const isSelected = (linkedPid === m.id) || (p.fsId && p.fsId.includes(m.id));
+                          return `
+                            <div class="fs-match-item" data-person-name="${esc(group.personName)}" data-pid="${esc(m.id)}" style="cursor:pointer;padding:4px 6px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;background:${isSelected ? 'rgba(37,99,235,0.12)' : 'var(--surface)'};border:1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};margin-bottom:2px;" title="Click to link ${esc(group.personName)} to FamilySearch PID ${esc(m.id)}">
+                              <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                <strong style="font-size:12px;">${esc(m.name)}</strong>
+                                ${m.lifespan ? `<span class="muted" style="font-size:11px;"> · ${esc(m.lifespan)}</span>` : ''}
+                              </div>
+                              <span class="pill mono ${isSelected ? 'pos' : 'neu'}" style="font-size:10px;margin-left:6px;">${esc(m.id)}</span>
+                            </div>
+                          `;
+                        }).join('')}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:6px;">
+              <button type="button" class="btn sm primary" id="btn-link-all-fs" style="flex:1;padding:3px 8px;font-size:11px;" title="Link all top matches to their corresponding relatives">
+                ✓ Link All Matched PIDs
+              </button>
             </div>
           </div>
         `;
+
         const closeBtn = host.querySelector('#btn-close-fs-matches');
         if (closeBtn) closeBtn.onclick = () => { host.innerHTML = ''; };
+
+        const linkAllBtn = host.querySelector('#btn-link-all-fs');
+        if (linkAllBtn) {
+          linkAllBtn.onclick = () => {
+            let linkedCount = 0;
+            const allPids = [];
+            resultsByPerson.forEach(group => {
+              if (group.matches && group.matches.length > 0) {
+                const topPid = group.matches[0].id;
+                allPids.push(topPid);
+                let personObj = (p.people || []).find(x => x.name.toLowerCase() === group.personName.toLowerCase());
+                if (!personObj) {
+                  personObj = { name: group.personName, rel: '', branch: p.branch || '', fsId: topPid };
+                  p.people.push(personObj);
+                } else {
+                  personObj.fsId = topPid;
+                }
+                if (p.faces) {
+                  const faceObj = p.faces.find(f => f.name && f.name.toLowerCase() === group.personName.toLowerCase());
+                  if (faceObj) faceObj.fsId = topPid;
+                }
+                linkedCount++;
+              }
+            });
+
+            if (allPids.length > 0) {
+              p.fsId = allPids.join(', ');
+              const fFs = document.getElementById('f-fs');
+              if (fFs) fFs.value = p.fsId;
+            }
+            saveItemMetadata(p);
+            notify(`✓ Linked ${linkedCount} FamilySearch PID${linkedCount > 1 ? 's' : ''} to photo & relatives!`);
+            showFsPidSuggestions(p, resultsByPerson);
+            renderSidebarCounts();
+            renderInspector();
+          };
+        }
 
         host.querySelectorAll('.fs-match-item').forEach(item => {
           item.onclick = () => {
             const selectedPid = item.getAttribute('data-pid');
-            p.fsId = selectedPid;
-            const fFs = document.getElementById('f-fs');
-            if (fFs) fFs.value = selectedPid;
-            saveItemMetadata(p);
-            notify(`Selected FamilySearch PID: ${selectedPid} for ${p.id}.`);
-            showFsPidSuggestions(p, matches);
-            renderSidebarCounts();
-            const btnFs = document.getElementById('btn-insp-fs');
-            if (btnFs) {
-              btnFs.textContent = p.fsSynced ? `✓ Synced (${p.fsMemoryId ? `Mem #${p.fsMemoryId}` : p.fsId})` : `Upload to FamilySearch (${p.fsId})`;
+            const personName = item.getAttribute('data-person-name');
+            let personObj = (p.people || []).find(x => x.name.toLowerCase() === personName.toLowerCase());
+            if (!personObj) {
+              personObj = { name: personName, rel: '', branch: p.branch || '', fsId: selectedPid };
+              p.people.push(personObj);
+            } else {
+              personObj.fsId = selectedPid;
             }
+            if (p.faces) {
+              const faceObj = p.faces.find(f => f.name && f.name.toLowerCase() === personName.toLowerCase());
+              if (faceObj) faceObj.fsId = selectedPid;
+            }
+            if (!p.fsId || !p.fsId.includes(',')) {
+              p.fsId = selectedPid;
+            } else {
+              const currentPids = p.fsId.split(',').map(s => s.trim()).filter(Boolean);
+              if (!currentPids.includes(selectedPid)) currentPids.push(selectedPid);
+              p.fsId = currentPids.join(', ');
+            }
+            const fFs = document.getElementById('f-fs');
+            if (fFs) fFs.value = p.fsId;
+            saveItemMetadata(p);
+            notify(`Linked ${personName} → PID ${selectedPid}.`);
+            showFsPidSuggestions(p, resultsByPerson);
+            renderSidebarCounts();
+            renderInspector();
           };
         });
       }
@@ -4452,18 +4558,41 @@
       async function geocodeAddress(query) {
         if (!query || !query.trim()) return null;
         const q = query.trim();
+        const normQ = q.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
-        // Check local dictionary first
-        if (typeof GEO_PLACES !== 'undefined' && GEO_PLACES[q]) {
-          return { lat: GEO_PLACES[q][0], lng: GEO_PLACES[q][1], displayName: q };
+        // 1. Check local dictionary with exact and normalized matching
+        if (typeof GEO_PLACES !== 'undefined') {
+          if (GEO_PLACES[q]) {
+            return { lat: GEO_PLACES[q][0], lng: GEO_PLACES[q][1], displayName: q };
+          }
+          for (const [k, coords] of Object.entries(GEO_PLACES)) {
+            const normK = k.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (normK === normQ || normQ.includes(normK) || normK.includes(normQ)) {
+              return { lat: coords[0], lng: coords[1], displayName: k };
+            }
+          }
         }
 
-        // Try OpenStreetMap Nominatim
+        // 2. Bias to USA if query contains US state abbreviations, US cities, or standard address markers
+        const isUS = /\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|Ohio|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|USA|United States|Bowling Green|Wooster|Chicago|Palos Park)\b/i.test(q);
+        const countryParam = isUS ? '&countrycodes=us' : '';
+
+        // 3. Try OpenStreetMap Nominatim with retry/fallback
         try {
-          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
-          const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-          if (!resp.ok) return null;
-          const data = await resp.json();
+          let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1${countryParam}`;
+          let resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          let data = resp.ok ? await resp.json() : null;
+
+          // If street level failed, try city/state part
+          if ((!data || data.length === 0) && q.includes(',')) {
+            const cityPart = q.split(',').slice(1).join(',').trim();
+            if (cityPart) {
+              const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityPart)}&limit=1${countryParam}`;
+              const fallbackResp = await fetch(fallbackUrl, { headers: { 'Accept': 'application/json' } });
+              if (fallbackResp.ok) data = await fallbackResp.json();
+            }
+          }
+
           if (Array.isArray(data) && data.length > 0) {
             const item = data[0];
             const lat = parseFloat(item.lat);
@@ -4876,7 +5005,10 @@
               ${p.people.map((person, idx) => `
                 <div class="person-tag-row">
                   <div style="flex:1;min-width:0;">
-                    <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(person.name)}</div>
+                    <div style="display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                      <span style="font-weight:600;font-size:13px;">${esc(person.name)}</span>
+                      ${person.fsId ? `<span class="pill mono pos" style="font-size:10px;padding:1px 5px;" title="FamilySearch Tree PID: ${esc(person.fsId)}">${esc(person.fsId)}</span>` : ''}
+                    </div>
                     <div style="display:flex;gap:4px;align-items:center;margin-top:2px;">
                       <select class="person-rel-select" data-idx="${idx}" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--ground);color:var(--text);" title="Change relationship to me">
                         ${(!COMMON_RELATIONSHIPS.includes(person.rel) && person.rel) ? `<option value="${esc(person.rel)}" selected>${esc(person.rel)}</option>` : ''}
@@ -5112,15 +5244,18 @@
             if (showMapBtn) {
               showMapBtn.onclick = async () => {
                 const placeVal = box.querySelector('#f-place').value.trim();
-                if (placeVal && (typeof p.lat !== 'number' || typeof p.lng !== 'number')) {
+                if (placeVal) {
                   showMapBtn.disabled = true;
                   showMapBtn.innerHTML = '<span>Locating...</span>';
                   const geo = await geocodeAddress(placeVal);
                   showMapBtn.disabled = false;
+                  showMapBtn.innerHTML = '<span data-icon="pin"></span><span>View Pin</span>';
+                  mountIcons(showMapBtn);
                   if (geo) {
                     p.lat = geo.lat;
                     p.lng = geo.lng;
                     p.place = placeVal;
+                    saveItemMetadata(p);
                     notify(`📍 Located "${placeVal}" at ${p.lat}°, ${p.lng}°!`);
                   } else {
                     notify(`Could not geocode "${placeVal}". Click anywhere on the map to place pin manually.`);
@@ -5133,6 +5268,26 @@
 
                 if (leafletMap && typeof p.lat === 'number' && typeof p.lng === 'number') {
                   leafletMap.setView([p.lat, p.lng], 14);
+                }
+              };
+            }
+
+            const placeInput = box.querySelector('#f-place');
+            if (placeInput) {
+              placeInput.onchange = async () => {
+                const val = placeInput.value.trim();
+                if (val && val !== p.place) {
+                  p.place = val;
+                  const geo = await geocodeAddress(val);
+                  if (geo) {
+                    p.lat = geo.lat;
+                    p.lng = geo.lng;
+                    saveItemMetadata(p);
+                    renderSidebarCounts();
+                    notify(`📍 Updated map pin for "${val}" [${p.lat}°, ${p.lng}°]`);
+                    renderInspector();
+                    if (layout === 'map') renderGlobalMap();
+                  }
                 }
               };
             }
@@ -5291,13 +5446,15 @@
                   const matches = await window.FamilySearchClient.searchPersons(name);
                   if (matches && matches.length > 0) {
                     const topMatch = matches[0];
+                    const pObj = p.people.find(x => x.name.toLowerCase() === name.toLowerCase());
+                    if (pObj) pObj.fsId = topMatch.id;
                     if (!p.fsId) {
                       p.fsId = topMatch.id;
-                      saveItemMetadata(p);
-                      notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
-                      render();
                     }
-                    showFsPidSuggestions(p, matches);
+                    saveItemMetadata(p);
+                    notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
+                    render();
+                    showFsPidSuggestions(p, [{ personName: name, matches }]);
                   }
                 } catch (e) {
                   console.warn('FamilySearch PID lookup failed:', e);
@@ -5308,21 +5465,55 @@
             const lookupBtn = box.querySelector('#btn-fs-lookup');
             if (lookupBtn) {
               lookupBtn.onclick = async () => {
-                const query = (p.people.length ? p.people[0].name : (p.title || '')).trim();
-                if (!query) {
-                  notify('Please tag a relative or enter a title first to search FamilySearch.');
+                const namesToSearch = [];
+                const seenNames = new Set();
+                function addName(n) {
+                  if (!n) return;
+                  const trimmed = n.trim();
+                  if (!trimmed || /^face\s*#?\d+/i.test(trimmed) || /^unidentified/i.test(trimmed)) return;
+                  const lower = trimmed.toLowerCase();
+                  if (!seenNames.has(lower)) {
+                    seenNames.add(lower);
+                    namesToSearch.push(trimmed);
+                  }
+                }
+                (p.people || []).forEach(x => addName(x.name));
+                (p.faces || []).forEach(f => addName(f.name));
+                if (namesToSearch.length === 0 && p.title && !/^\d{4}[\s_-]\d+/i.test(p.title)) {
+                  addName(p.title);
+                }
+
+                if (namesToSearch.length === 0) {
+                  notify('Please tag relatives or enter a title first to search FamilySearch.');
                   return;
                 }
-                notify(`Searching FamilySearch Tree for "${query}"...`);
+
+                lookupBtn.disabled = true;
+                lookupBtn.innerHTML = '<span>Searching...</span>';
+                notify(`Searching FamilySearch Tree for ${namesToSearch.length} relative${namesToSearch.length > 1 ? 's' : ''}...`);
+
                 if (window.FamilySearchClient) {
                   try {
-                    const matches = await window.FamilySearchClient.searchPersons(query);
-                    if (matches && matches.length) {
-                      showFsPidSuggestions(p, matches);
+                    const resultsByPerson = [];
+                    for (const personName of namesToSearch) {
+                      const matches = await window.FamilySearchClient.searchPersons(personName);
+                      resultsByPerson.push({
+                        personName: personName,
+                        matches: matches || []
+                      });
+                    }
+                    lookupBtn.disabled = false;
+                    lookupBtn.innerHTML = '🔍 Search Tree';
+                    const totalMatches = resultsByPerson.reduce((acc, cur) => acc + (cur.matches ? cur.matches.length : 0), 0);
+                    if (totalMatches > 0) {
+                      showFsPidSuggestions(p, resultsByPerson);
+                      notify(`✓ Found FamilySearch Tree matches for ${resultsByPerson.filter(r => r.matches && r.matches.length > 0).length} of ${namesToSearch.length} people!`);
                     } else {
-                      notify(`No FamilySearch Tree matches found for "${query}". You can type/paste the PID.`);
+                      notify(`No FamilySearch Tree matches found for "${namesToSearch.join(', ')}". You can type/paste PIDs.`);
                     }
                   } catch (err) {
+                    lookupBtn.disabled = false;
+                    lookupBtn.innerHTML = '🔍 Search Tree';
                     notify(`FamilySearch search notice: ${err.message}`);
                   }
                 }

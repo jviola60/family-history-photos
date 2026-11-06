@@ -1299,6 +1299,25 @@
     var trimmed = query.trim();
     var lower = trimmed.toLowerCase();
 
+    // If query contains multiple comma or semicolon separated names, search each and combine
+    if (trimmed.includes(',') && !trimmed.includes('-') && !/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed)) {
+      var subQueries = trimmed.split(/[,;&]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      if (subQueries.length > 1) {
+        var combinedMatches = [];
+        var seenIds = new Set();
+        for (var sqIdx = 0; sqIdx < subQueries.length; sqIdx++) {
+          var sqMatches = await searchPersons(subQueries[sqIdx]);
+          for (var mIdx = 0; mIdx < sqMatches.length; mIdx++) {
+            if (!seenIds.has(sqMatches[mIdx].id)) {
+              seenIds.add(sqMatches[mIdx].id);
+              combinedMatches.push(sqMatches[mIdx]);
+            }
+          }
+        }
+        return combinedMatches;
+      }
+    }
+
     // 1. Check local seeds
     var localMatches = KNOWN_FAMILY.filter(function (f) {
       if (f.id.toLowerCase() === lower) return true;
