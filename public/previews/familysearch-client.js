@@ -363,27 +363,125 @@
   }
 
   /**
-   * Helper to convert ISO date (YYYY-MM-DD) into FamilySearch normalized date string (e.g. "2 March 2003")
+   * Helper to parse any user date format (ISO, US M/D/YYYY, Month Day Year, Year, etc.)
+   * returns { normalized: "30 March 2003", formal: "+2003-03-30", iso: "2003-03-30", year: 2003, decade: "2000s" }
+   */
+  function parseFamilySearchDate(input) {
+    if (!input) return { normalized: '', formal: '', iso: '', decade: '' };
+    var clean = String(input).trim();
+    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var monthNames = {
+      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+      may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+      oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+    };
+
+    var y = null, m = null, d = null;
+
+    // 1. Check ISO format YYYY-MM-DD or YYYY-MM or YYYY (with optional +/- prefix)
+    var isoMatch = clean.match(/^([+-]?\d{4})(?:[-/](\d{1,2}))?(?:[-/](\d{1,2}))?$/);
+    if (isoMatch) {
+      y = parseInt(isoMatch[1], 10);
+      if (isoMatch[2]) m = parseInt(isoMatch[2], 10);
+      if (isoMatch[3]) d = parseInt(isoMatch[3], 10);
+    }
+
+    // 2. Check US format M/D/YYYY or MM/DD/YYYY
+    if (!y) {
+      var usMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+      if (usMatch) {
+        m = parseInt(usMatch[1], 10);
+        d = parseInt(usMatch[2], 10);
+        y = parseInt(usMatch[3], 10);
+      }
+    }
+
+    // 3. Check "March 30, 2003" or "30 March 2003"
+    if (!y) {
+      var wordMatch1 = clean.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+      if (wordMatch1) {
+        var mn = wordMatch1[1].toLowerCase();
+        if (monthNames[mn]) {
+          m = monthNames[mn];
+          d = parseInt(wordMatch1[2], 10);
+          y = parseInt(wordMatch1[3], 10);
+        }
+      }
+    }
+    if (!y) {
+      var wordMatch2 = clean.match(/^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{4})$/);
+      if (wordMatch2) {
+        var mn2 = wordMatch2[2].toLowerCase();
+        if (monthNames[mn2]) {
+          d = parseInt(wordMatch2[1], 10);
+          m = monthNames[mn2];
+          y = parseInt(wordMatch2[3], 10);
+        }
+      }
+    }
+    if (!y) {
+      var monthYearMatch = clean.match(/^([A-Za-z]+)\s+(\d{4})$/);
+      if (monthYearMatch) {
+        var mn3 = monthYearMatch[1].toLowerCase();
+        if (monthNames[mn3]) {
+          m = monthNames[mn3];
+          y = parseInt(monthYearMatch[2], 10);
+        }
+      }
+    }
+
+    // Fallback 4-digit year search (e.g. "Circa 2003")
+    if (!y) {
+      var yearMatch = clean.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+      if (yearMatch) {
+        y = parseInt(yearMatch[1], 10);
+      }
+    }
+
+    if (y) {
+      var decade = Math.floor(y / 10) * 10 + 's';
+      if (m && d) {
+        var padM = String(m).padStart(2, '0');
+        var padD = String(d).padStart(2, '0');
+        var isoStr = y + '-' + padM + '-' + padD;
+        return {
+          normalized: d + ' ' + months[m - 1] + ' ' + y,
+          formal: '+' + isoStr,
+          iso: isoStr,
+          year: y,
+          decade: decade
+        };
+      } else if (m) {
+        var padM2 = String(m).padStart(2, '0');
+        var isoStr2 = y + '-' + padM2;
+        return {
+          normalized: months[m - 1] + ' ' + y,
+          formal: '+' + isoStr2,
+          iso: isoStr2,
+          year: y,
+          decade: decade
+        };
+      } else {
+        return {
+          normalized: String(y),
+          formal: '+' + y,
+          iso: String(y),
+          year: y,
+          decade: decade
+        };
+      }
+    }
+
+    return { normalized: clean, formal: '', iso: clean, decade: '' };
+  }
+
+  /**
+   * Helper to convert ISO or text date into FamilySearch normalized date string (e.g. "30 March 2003")
    */
   function formatNormalizedDate(iso) {
     if (!iso) return '';
-    var clean = String(iso).trim();
-    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    var parts = clean.split(/[-_\s./]+/);
-    if (parts.length === 3) {
-      var y = parts[0];
-      var m = parseInt(parts[1], 10);
-      var d = parseInt(parts[2], 10);
-      if (m >= 1 && m <= 12 && !isNaN(d)) {
-        return d + ' ' + months[m - 1] + ' ' + y;
-      }
-    } else if (parts.length === 2 && parts[0].length === 4) {
-      var ym = parseInt(parts[1], 10);
-      if (ym >= 1 && ym <= 12) {
-        return months[ym - 1] + ' ' + parts[0];
-      }
-    }
-    return clean;
+    var parsed = parseFamilySearchDate(iso);
+    return parsed.normalized || String(iso).trim();
   }
 
   /**
@@ -470,41 +568,103 @@
   /**
    * Resolves authoritative Place Description link via FamilySearch Places Search API
    */
-  async function resolvePlaceDescription(placeText, token) {
-    if (!placeText || !token) return null;
+  async function resolvePlaceDescription(placeText, token, fallbackStory, photoLat, photoLng) {
+    if ((!placeText && !fallbackStory && typeof photoLat !== 'number') || !token) return null;
     try {
-      // 1. Clean place query: strip street address and postal code for jurisdictional matching (e.g. "Bowling Green, OH")
-      var query = placeText.replace(/^\d+[^,]+,\s*/, '').replace(/\s+\d{5}(-\d{4})?$/, '').trim() || placeText;
-      var candidateQueries = [
-        'name:' + encodeURIComponent('"' + query + '"'),
-        'name:' + encodeURIComponent(query),
-        encodeURIComponent(query)
-      ];
+      var candidates = [];
+      function addCandidate(s) {
+        if (!s) return;
+        var t = String(s).trim();
+        if (t && candidates.indexOf(t) === -1) {
+          candidates.push(t);
+        }
+      }
 
-      for (var qIdx = 0; qIdx < candidateQueries.length; qIdx++) {
-        var pSearchUrl = API_BASE + '/platform/places/search?q=' + candidateQueries[qIdx];
-        var pRes = await fetch(pSearchUrl, {
-          headers: {
-            'Authorization': 'Bearer ' + token.accessToken,
-            'Accept': 'application/x-gedcomx-atom+json, application/json'
-          }
-        });
-        if (pRes.ok) {
-          var pData = await pRes.json();
-          var entries = pData.entries || [];
-          if (entries.length > 0 && entries[0].content && entries[0].content.gedcomx && entries[0].content.gedcomx.places) {
-            var matchedPlace = entries[0].content.gedcomx.places[0];
-            var descHref = (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href)
-              ? matchedPlace.links.description.href
-              : (matchedPlace.id ? (API_BASE + '/platform/places/description/' + matchedPlace.id) : null);
-            var fullName = (matchedPlace.display && matchedPlace.display.fullName)
-              ? matchedPlace.display.fullName
-              : (matchedPlace.names && matchedPlace.names[0] ? matchedPlace.names[0].value : null);
-            return {
-              id: matchedPlace.id,
-              descriptionUrl: descHref,
-              fullName: fullName
-            };
+      var combined = [placeText, fallbackStory].filter(Boolean).join(' ; ');
+
+      // 1. High-confidence Bowling Green / Wood County detection from user's family collection
+      if (/bowling\s+green/i.test(combined)) {
+        addCandidate('Bowling Green, Wood, Ohio');
+        addCandidate('Bowling Green, OH');
+      }
+
+      // 2. Wooster, OH detection
+      if (/wooster/i.test(combined)) {
+        addCandidate('Wooster, Wayne, Ohio');
+        addCandidate('Wooster, OH');
+      }
+
+      // 3. Extract City, State abbreviations (e.g. "Bowling Green, OH")
+      var csMatches = combined.matchAll(/([A-Z][a-zA-Z\s.-]+?),\s*([A-Z]{2})\b/g);
+      for (var m of csMatches) {
+        var rawCity = m[1].replace(/.*?(?:lot\s*#?\d+|rd|road|street|st|ave|avenue|dr|drive|lane|ln|blvd|way)\s*,?\s*/i, '')
+                          .replace(/^\d+[^,]*?,?\s*/, '')
+                          .trim();
+        if (rawCity.length >= 3 && !/fireplace|home|house|church/i.test(rawCity)) {
+          addCandidate(rawCity + ', ' + m[2]);
+        }
+      }
+
+      // 4. Clean placeText query: strip street address, lot numbers, and postal codes
+      if (placeText) {
+        var parts = placeText.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        if (parts.length >= 2) {
+          addCandidate(parts.slice(-2).join(', '));
+        }
+        var cleaned = placeText.replace(/^\d+[^,]+,\s*/, '')
+                               .replace(/lot\s*#?\d+,?\s*/i, '')
+                               .replace(/\s+\d{5}(-\d{4})?$/, '')
+                               .trim();
+        if (cleaned && cleaned !== placeText) {
+          addCandidate(cleaned);
+        }
+        addCandidate(placeText);
+      }
+
+      // 5. GPS coordinate check near Bowling Green (41.37, -83.65)
+      if (typeof photoLat === 'number' && typeof photoLng === 'number') {
+        if (Math.abs(photoLat - 41.37) < 0.5 && Math.abs(photoLng - (-83.65)) < 0.5) {
+          addCandidate('Bowling Green, Wood, Ohio');
+        }
+      }
+
+      var authHeader = {
+        'Authorization': 'Bearer ' + token.accessToken,
+        'Accept': 'application/x-gedcomx-atom+json, application/json'
+      };
+
+      for (var cIdx = 0; cIdx < candidates.length; cIdx++) {
+        var c = candidates[cIdx];
+        var searchQueries = [
+          'name:' + encodeURIComponent('"' + c + '"'),
+          'name:' + encodeURIComponent(c),
+          encodeURIComponent(c)
+        ];
+
+        for (var qIdx = 0; qIdx < searchQueries.length; qIdx++) {
+          var pSearchUrl = API_BASE + '/platform/places/search?q=' + searchQueries[qIdx];
+          var pRes = await fetch(pSearchUrl, { headers: authHeader });
+          if (pRes.ok) {
+            var pData = await pRes.json();
+            var entries = pData.entries || [];
+            if (entries.length > 0 && entries[0].content && entries[0].content.gedcomx && entries[0].content.gedcomx.places) {
+              var matchedPlace = entries[0].content.gedcomx.places[0];
+              var rawDescHref = (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href)
+                ? matchedPlace.links.description.href
+                : (matchedPlace.id ? (API_BASE + '/platform/places/description/' + matchedPlace.id) : null);
+              
+              // Strip query params like ?flag=fsh from place description URI for standard GEDCOM X compliance
+              var descHref = rawDescHref ? rawDescHref.replace(/\?.*$/, '') : null;
+
+              var fullName = (matchedPlace.display && matchedPlace.display.fullName)
+                ? matchedPlace.display.fullName
+                : (matchedPlace.names && matchedPlace.names[0] ? matchedPlace.names[0].value : null);
+              return {
+                id: matchedPlace.id,
+                descriptionUrl: descHref,
+                fullName: fullName
+              };
+            }
           }
         }
       }
@@ -549,11 +709,22 @@
       }
     }
 
+    // Parse date into ISO, normalized (e.g. "30 March 2003"), and formal (e.g. "+2003-03-30")
+    var dateInfo = parseFamilySearchDate(isoDate);
+    var normalizedDate = dateInfo.normalized;
+    var formalDate = dateInfo.formal;
+    var effectiveIso = dateInfo.iso || isoDate;
+
+    // Resolve authoritative Place Description and canonical place name
+    var placeInfo = await resolvePlaceDescription(place, token, story, photo.lat, photo.lng);
+    var placeDescUrl = placeInfo ? placeInfo.descriptionUrl : null;
+    var effectivePlaceName = (placeInfo && placeInfo.fullName) ? placeInfo.fullName : (place || '');
+
     // Format rich descriptive summary for FamilySearch Memories description
     var descLines = [];
     if (story) descLines.push(story);
-    if (isoDate) descLines.push('Date: ' + isoDate);
-    if (place) descLines.push('Location: ' + place);
+    if (isoDate) descLines.push('Date: ' + (normalizedDate || isoDate));
+    if (effectivePlaceName) descLines.push('Location: ' + effectivePlaceName);
     if (people && people.length > 0) {
       var names = people.map(function (p) {
         return typeof p === 'string' ? p : (p.name + (p.rel ? ' (' + p.rel + ')' : ''));
@@ -565,10 +736,9 @@
 
     // Build filename
     var cleanSlug = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
-    var filename = (isoDate ? isoDate + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
+    var filename = (effectiveIso ? effectiveIso + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
 
     // 1. Determine upload endpoint
-    var normalizedDate = formatNormalizedDate(isoDate);
     var uploadUrl = API_BASE + '/platform/memories/memories';
     var qParams = [];
     if (title) qParams.push('title=' + encodeURIComponent(title));
@@ -577,9 +747,9 @@
       qParams.push('date=' + encodeURIComponent(normalizedDate));
       qParams.push('coverageDate=' + encodeURIComponent(normalizedDate));
     }
-    if (place) {
-      qParams.push('place=' + encodeURIComponent(place));
-      qParams.push('coveragePlace=' + encodeURIComponent(place));
+    if (effectivePlaceName) {
+      qParams.push('place=' + encodeURIComponent(effectivePlaceName));
+      qParams.push('coveragePlace=' + encodeURIComponent(effectivePlaceName));
     }
     if (qParams.length > 0) {
       uploadUrl += '?' + qParams.join('&');
@@ -596,10 +766,10 @@
       formData.append('coverageDate', normalizedDate);
       formData.append('temporal', normalizedDate);
     }
-    if (place) {
-      formData.append('place', place);
-      formData.append('coveragePlace', place);
-      formData.append('spatial', place);
+    if (effectivePlaceName) {
+      formData.append('place', effectivePlaceName);
+      formData.append('coveragePlace', effectivePlaceName);
+      formData.append('spatial', effectivePlaceName);
     }
 
     onProgress({ step: 'uploading', message: 'Uploading photo to FamilySearch Beta Memories...' });
@@ -664,28 +834,24 @@
     }
 
     // 1b. Update Memory Date & Place Coverage metadata
-    if (memoryId && (isoDate || place)) {
-      onProgress({ step: 'coverage', message: 'Saving memory Date (' + (normalizedDate || isoDate || 'N/A') + ') and Place (' + (place || 'N/A') + ') to FamilySearch...' });
+    if (memoryId && (normalizedDate || effectivePlaceName)) {
+      onProgress({ step: 'coverage', message: 'Saving memory Date (' + (normalizedDate || 'N/A') + ') and Place (' + (effectivePlaceName || 'N/A') + ') to FamilySearch...' });
       try {
-        var formalDate = (isoDate.startsWith('+') || isoDate.startsWith('-')) ? isoDate : ('+' + isoDate);
-
-        // Resolve FamilySearch Place Authority reference URL if available
-        var placeInfo = await resolvePlaceDescription(place, token);
-        var placeDescUrl = placeInfo ? placeInfo.descriptionUrl : null;
-
         // Build cleanly typed GEDCOM X Coverage entries
         // Notice: In GEDCOM X schema, temporal.normalized is List<TextValue>, not a string.
-        // We supply standard original and formal strings, plus variants for maximum compatibility.
+        // formal must be strict ISO GEDCOM X (e.g. "+2003-03-30" or "+2003")
         var covClean = {};
-        if (isoDate) {
+        if (normalizedDate) {
           covClean.temporal = {
-            original: normalizedDate || isoDate,
-            formal: formalDate
+            original: normalizedDate
           };
+          if (formalDate) {
+            covClean.temporal.formal = formalDate;
+          }
         }
-        if (place) {
+        if (effectivePlaceName) {
           covClean.spatial = {
-            original: place
+            original: effectivePlaceName
           };
           if (placeDescUrl) {
             covClean.spatial.description = placeDescUrl;
@@ -693,16 +859,18 @@
         }
 
         var covWithNormalized = {};
-        if (isoDate) {
+        if (normalizedDate) {
           covWithNormalized.temporal = {
-            original: normalizedDate || isoDate,
-            formal: formalDate,
-            normalized: [{ value: normalizedDate || isoDate }]
+            original: normalizedDate,
+            normalized: [{ value: normalizedDate }]
           };
+          if (formalDate) {
+            covWithNormalized.temporal.formal = formalDate;
+          }
         }
-        if (place) {
+        if (effectivePlaceName) {
           covWithNormalized.spatial = {
-            original: place
+            original: effectivePlaceName
           };
           if (placeDescUrl) {
             covWithNormalized.spatial.description = placeDescUrl;
@@ -713,11 +881,11 @@
         }
 
         var covMinimal = {};
-        if (isoDate) {
-          covMinimal.temporal = { original: normalizedDate || isoDate };
+        if (normalizedDate) {
+          covMinimal.temporal = { original: normalizedDate };
         }
-        if (place) {
-          covMinimal.spatial = { original: place };
+        if (effectivePlaceName) {
+          covMinimal.spatial = { original: effectivePlaceName };
         }
 
         // Query live source description from FamilySearch to inspect links and artifact references
@@ -1324,7 +1492,9 @@
       personMemoriesUrl: personMemoriesUrl,
       linkedPids: Array.from(allUniquePids),
       targetPersonId: targetPersonId,
-      title: title
+      title: title,
+      placeInfo: placeInfo,
+      dateInfo: dateInfo
     };
   }
 
@@ -1538,6 +1708,9 @@
     uploadMemory: uploadMemory,
     deleteMemory: deleteMemory,
     searchPersons: searchPersons,
+    parseFamilySearchDate: parseFamilySearchDate,
+    formatNormalizedDate: formatNormalizedDate,
+    resolvePlaceDescription: resolvePlaceDescription,
     AUTH_URL: AUTH_URL,
     API_BASE: API_BASE,
     WEB_BASE: WEB_BASE

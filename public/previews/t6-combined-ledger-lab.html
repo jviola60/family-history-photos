@@ -3135,9 +3135,22 @@
 
         const dateEl = box.querySelector('#f-date');
         if (dateEl) {
-          p.isoDate = dateEl.value.trim();
-          if (p.isoDate.length >= 4) {
-            p.decade = `${p.isoDate.slice(0, 3)}0s`;
+          const rawDate = dateEl.value.trim();
+          p.isoDate = rawDate;
+          if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+            const parsed = window.FamilySearchClient.parseFamilySearchDate(rawDate);
+            if (parsed) {
+              if (parsed.decade) p.decade = parsed.decade;
+              if (parsed.iso && isManualSave) {
+                p.isoDate = parsed.iso;
+                dateEl.value = parsed.iso;
+              }
+            }
+          } else if (p.isoDate.length >= 4) {
+            const yMatch = p.isoDate.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+            if (yMatch) {
+              p.decade = `${yMatch[1].slice(0, 3)}0s`;
+            }
           }
         }
 
@@ -7545,6 +7558,13 @@
                                     if (result && result.success) {
                                       p.fsSynced = true;
                                       p.fsMemoryId = result.memoryId;
+                                      if (result.dateInfo && result.dateInfo.iso && (!p.isoDate || p.isoDate !== result.dateInfo.iso)) {
+                                        p.isoDate = result.dateInfo.iso;
+                                        if (result.dateInfo.decade) p.decade = result.dateInfo.decade;
+                                      }
+                                      if (result.placeInfo && result.placeInfo.fullName && (!p.place || /fireplace/i.test(p.place))) {
+                                        p.place = result.placeInfo.fullName;
+                                      }
                                       saveItemMetadata(p);
 
                                       const linkedCount = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.length : (p.people && p.people.length > 0 ? p.people.length : 1);
