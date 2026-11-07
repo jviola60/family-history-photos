@@ -261,18 +261,62 @@
 
   function sortFacesSpatially(faces) {
     if (!faces || faces.length <= 1) return faces || [];
-    return faces.slice().sort(function (a, b) {
-      var ba = a.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
-      var bb = b.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
-      var cyA = ba.y + ba.height * 0.5;
-      var cyB = bb.y + bb.height * 0.5;
-      var avgH = Math.max(0.08, (ba.height + bb.height) * 0.5);
-      // Group faces in the same horizontal row when vertical centers are close
-      if (Math.abs(cyA - cyB) <= Math.max(0.12, avgH * 0.65)) {
-        return ba.x - bb.x;
-      }
-      return cyA - cyB;
+    var list = faces.slice();
+    // Sort roughly top-to-bottom first to seed horizontal standing/sitting rows
+    list.sort(function (a, b) {
+      var ba = a.box || { x: 0, y: 0, width: 0.1, height: 0.1 };
+      var bb = b.box || { x: 0, y: 0, width: 0.1, height: 0.1 };
+      return (ba.y + ba.height * 0.5) - (bb.y + bb.height * 0.5);
     });
+
+    var rows = [];
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i];
+      var b = item.box || { x: 0, y: 0, width: 0.1, height: 0.1 };
+      var cy = b.y + b.height * 0.5;
+      var cx = b.x + b.width * 0.5;
+      var placed = false;
+
+      for (var r = 0; r < rows.length; r++) {
+        var rowObj = rows[r];
+        var tolY = Math.max(0.18, rowObj.avgH * 1.35);
+        if (Math.abs(cy - rowObj.avgCy) <= tolY) {
+          // Ensure this face isn't stacked directly above/below someone already in this row
+          var xConflict = false;
+          for (var k = 0; k < rowObj.items.length; k++) {
+            var ob = rowObj.items[k].box || { x: 0, y: 0, width: 0.1, height: 0.1 };
+            var ocx = ob.x + ob.width * 0.5;
+            if (Math.abs(cx - ocx) < Math.min(b.width, ob.width) * 0.55) {
+              xConflict = true;
+              break;
+            }
+          }
+          if (!xConflict) {
+            var n = rowObj.items.length;
+            rowObj.avgCy = (rowObj.avgCy * n + cy) / (n + 1);
+            rowObj.avgH = (rowObj.avgH * n + b.height) / (n + 1);
+            rowObj.items.push(item);
+            placed = true;
+            break;
+          }
+        }
+      }
+      if (!placed) {
+        rows.push({ avgCy: cy, avgH: b.height || 0.1, items: [item] });
+      }
+    }
+
+    rows.sort(function (a, b) { return a.avgCy - b.avgCy; });
+    var out = [];
+    for (var ri = 0; ri < rows.length; ri++) {
+      rows[ri].items.sort(function (a, b) {
+        return ((a.box && a.box.x) || 0) - ((b.box && b.box.x) || 0);
+      });
+      for (var m = 0; m < rows[ri].items.length; m++) {
+        out.push(rows[ri].items[m]);
+      }
+    }
+    return out;
   }
 
   async function detectFaces(source) {
@@ -289,58 +333,42 @@
     var origH = imgEl.naturalHeight || imgEl.height || 240;
     if (origW < 20 || origH < 20) return [];
 
-    // 1. Try native FaceDetector API if available
+    // Use 1200px working resolution (and gentle upscale on small scans) so group-photo faces stay >= 28px
+    var maxDim = 1200;
+    var scale = Math.min(maxDim / origW, maxDim / origH, 1.8);
+    var w = Math.max(48, Math.round(origW * scale));
+    var h = Math.max(48, Math.round(origH * scale));
+
+    // 1. Collect native FaceDetector hits if available (merged with cascade below so speckled vintage faces aren't missed)
+    var nativeClusters = [];
     if (typeof window.FaceDetector === 'function') {
       try {
-        var nativeDetector = new window.FaceDetector({ fastMode: false, maxDetectedFaces: 15 });
+        var nativeDetector = new window.FaceDetector({ fastMode: false, maxDetectedFaces: 30 });
         var nativeFaces = await nativeDetector.detect(imgEl);
         if (nativeFaces && nativeFaces.length > 0) {
-          var mappedNative = nativeFaces.map(function (f) {
+          nativeClusters = nativeFaces.map(function (f) {
             var bb = f.boundingBox;
-            var r = bb.y + bb.height * 0.5;
-            var c = bb.x + bb.width * 0.5;
-            var s = Math.max(bb.width, bb.height);
-            return [r, c, s, 20.0, 5, 20.0];
+            var r = (bb.y + bb.height * 0.5) * scale;
+            var c = (bb.x + bb.width * 0.5) * scale;
+            var s = Math.max(bb.width, bb.height) * scale;
+            return [r, c, s, 48.0, 8, 16.0];
           });
-          var cleanNative = nonMaxSuppressionWithContainment(mappedNative);
-          var nativeOut = cleanNative.map(function (cl, idx) {
-            var halfS = cl[2] * 0.5;
-            var xNorm = Math.max(0, (cl[1] - halfS) / origW);
-            var yNorm = Math.max(0, (cl[0] - halfS) / origH);
-            var wNorm = Math.min(1 - xNorm, cl[2] / origW);
-            var hNorm = Math.min(1 - yNorm, (cl[2] * 1.05) / origH);
-            return {
-              id: 'face_' + Date.now() + '_' + idx,
-              box: {
-                x: Math.round(xNorm * 1000) / 1000,
-                y: Math.round(yNorm * 1000) / 1000,
-                width: Math.round(wNorm * 1000) / 1000,
-                height: Math.round(hNorm * 1000) / 1000
-              },
-              confidence: 0.95
-            };
-          });
-          return sortFacesSpatially(nativeOut);
         }
       } catch (nativeErr) {
-        // Fall back to cascade
+        // Continue to multi-pass cascade
       }
     }
 
-    // 2. Cascade detector
+    // 2. Multi-pass Despeckled + Local-Contrast PICO Cascade Detector
     var classifier = await loadCascade();
-    if (!classifier) return [];
-
-    // Scale image down to max 500px for speed & scale consistency
-    var maxDim = 500;
-    var scale = Math.min(maxDim / origW, maxDim / origH, 1.0);
-    var w = Math.round(origW * scale);
-    var h = Math.round(origH * scale);
+    if (!classifier && nativeClusters.length === 0) return [];
 
     var canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(imgEl, 0, 0, w, h);
 
     var imgData = ctx.getImageData(0, 0, w, h);
@@ -348,7 +376,7 @@
 
     // Detect if image is colored or monochrome (black & white / sepia)
     var colorDiffSum = 0;
-    var sampleStep = Math.max(4, Math.floor((w * h) / 800));
+    var sampleStep = Math.max(4, Math.floor((w * h) / 1000));
     var sampleCount = 0;
     for (var pIdx = 0; pIdx < data.length; pIdx += sampleStep * 4) {
       var pr = data[pIdx], pg = data[pIdx + 1], pb = data[pIdx + 2];
@@ -357,37 +385,120 @@
     }
     var isColorImage = (sampleCount > 0 && (colorDiffSum / sampleCount) > 14);
 
-    var gray = new Uint8Array(w * h);
+    var grayRaw = new Uint8Array(w * h);
     for (var r = 0; r < h; ++r) {
       for (var c = 0; c < w; ++c) {
         var idx = (r * w + c) * 4;
-        gray[r * w + c] = Math.round(data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114);
+        grayRaw[r * w + c] = Math.round(data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114);
       }
     }
 
-    var image = { pixels: gray, nrows: h, ncols: w, ldim: w };
-    var minsize = Math.max(22, Math.round(Math.min(w, h) * 0.08));
-    var maxsize = Math.round(Math.min(w, h) * 0.70);
+    // 3x3 median despeckle so white vintage snow/pebble glare dots don't blind the cascade
+    var gray = new Uint8Array(grayRaw);
+    var medWin = new Uint8Array(9);
+    for (var mr = 1; mr < h - 1; ++mr) {
+      var mRow = mr * w;
+      for (var mc = 1; mc < w - 1; ++mc) {
+        var mk = 0;
+        for (var mdy = -1; mdy <= 1; ++mdy) {
+          var nrOff = (mr + mdy) * w + mc;
+          for (var mdx = -1; mdx <= 1; ++mdx) {
+            medWin[mk++] = grayRaw[nrOff + mdx];
+          }
+        }
+        for (var ma = 1; ma < 9; ++ma) {
+          var mv = medWin[ma];
+          var mb = ma - 1;
+          while (mb >= 0 && medWin[mb] > mv) {
+            medWin[mb + 1] = medWin[mb];
+            mb--;
+          }
+          medWin[mb + 1] = mv;
+        }
+        gray[mRow + mc] = medWin[4];
+      }
+    }
 
-    var rawDetections = runCascade(image, classifier, {
-      shiftfactor: 0.08,
-      minsize: minsize,
-      maxsize: maxsize,
-      scalefactor: 1.12
-    });
+    var validClusters = nativeClusters.slice();
 
-    if (!rawDetections || rawDetections.length === 0) return [];
+    if (classifier) {
+      // Build local-contrast normalized gray via integral image so faded/flash-washed & sunglasses faces pop
+      var normGray = new Uint8Array(w * h);
+      var lRad = Math.max(12, Math.round(Math.min(w, h) * 0.035));
+      var stride = w + 1;
+      var intS = new Float64Array(stride * (h + 1));
+      var intSq = new Float64Array(stride * (h + 1));
+      for (var iy = 1; iy <= h; ++iy) {
+        var rowS = 0, rowSq = 0;
+        var gRow = (iy - 1) * w;
+        var iRow = iy * stride;
+        var pRow = (iy - 1) * stride;
+        for (var ix = 1; ix <= w; ++ix) {
+          var gv = gray[gRow + (ix - 1)];
+          rowS += gv;
+          rowSq += gv * gv;
+          intS[iRow + ix] = intS[pRow + ix] + rowS;
+          intSq[iRow + ix] = intSq[pRow + ix] + rowSq;
+        }
+      }
+      for (var ny = 0; ny < h; ++ny) {
+        var y0 = Math.max(0, ny - lRad), y1 = Math.min(h, ny + lRad + 1);
+        var r0 = y0 * stride, r1 = y1 * stride;
+        var outRow = ny * w;
+        for (var nx = 0; nx < w; ++nx) {
+          var x0 = Math.max(0, nx - lRad), x1 = Math.min(w, nx + lRad + 1);
+          var area = (y1 - y0) * (x1 - x0);
+          var sumL = intS[r1 + x1] - intS[r0 + x1] - intS[r1 + x0] + intS[r0 + x0];
+          var sumSqL = intSq[r1 + x1] - intSq[r0 + x1] - intSq[r1 + x0] + intSq[r0 + x0];
+          var meanL = sumL / area;
+          var stdL = Math.max(13, Math.sqrt(Math.max(0, sumSqL / area - meanL * meanL)));
+          var origV = gray[outRow + nx];
+          var stretched = 128 + ((origV - meanL) / stdL) * 46;
+          normGray[outRow + nx] = Math.max(0, Math.min(255, Math.round(0.32 * origV + 0.68 * stretched)));
+        }
+      }
 
-    var clusters = clusterDetections(rawDetections, 0.25);
-    // Filter clusters: require at least 3 detections with cumulative score >= 5.0, or 2 detections with single-hit >= 8.0
-    var validClusters = clusters.filter(function (c) {
-      return (c[4] >= 3 && c[3] >= 5.0) || (c[4] >= 2 && c[5] >= 8.0);
-    });
+      var minsize = Math.max(24, Math.round(Math.min(w, h) * 0.038));
+      var maxsize = Math.round(Math.min(w, h) * 0.70);
+      var cascadeParams = {
+        shiftfactor: 0.06,
+        minsize: minsize,
+        maxsize: maxsize,
+        scalefactor: 1.09
+      };
+
+      var dets1 = runCascade({ pixels: gray, nrows: h, ncols: w, ldim: w }, classifier, cascadeParams) || [];
+      var dets2 = runCascade({ pixels: normGray, nrows: h, ncols: w, ldim: w }, classifier, cascadeParams) || [];
+      var rawDetections = dets1.concat(dets2);
+
+      if (rawDetections.length > 0) {
+        var clusters = clusterDetections(rawDetections, 0.25);
+        var cascadeValid = clusters.filter(function (c) {
+          return (c[4] >= 3 && c[5] >= 7.8) || (c[4] >= 6 && c[3] >= 38.0);
+        });
+        validClusters = validClusters.concat(cascadeValid);
+      }
+    }
+
     if (validClusters.length === 0) return [];
 
-    // Apply Multi-Scale Non-Maximum Suppression with Containment Elimination
-    // (Eliminates spurious torso/clothing boxes enclosing real faces, and duplicate overlaps)
+    // Apply Multi-Scale Non-Maximum Suppression with Containment & Center-Proximity Elimination
     validClusters = nonMaxSuppressionWithContainment(validClusters);
+    var deduped = [];
+    for (var di = 0; di < validClusters.length; di++) {
+      var cand = validClusters[di];
+      var dup = false;
+      for (var dj = 0; dj < deduped.length; dj++) {
+        var kept = deduped[dj];
+        var maxSz = Math.max(cand[2], kept[2]);
+        if (Math.abs(cand[0] - kept[0]) < maxSz * 0.48 && Math.abs(cand[1] - kept[1]) < maxSz * 0.48) {
+          dup = true;
+          break;
+        }
+      }
+      if (!dup) deduped.push(cand);
+    }
+    validClusters = deduped;
     if (validClusters.length === 0) return [];
 
     var results = [];
@@ -396,13 +507,14 @@
       var col = validClusters[i][1];
       var size = validClusters[i][2];
       var quality = validClusters[i][3];
+      var maxQ = validClusters[i][5] || quality;
 
-      // Validate standard deviation of pixels to avoid flat patterns, and check skin tones
-      var halfS = size * 0.5;
-      var sx = Math.max(0, Math.round(col - halfS));
-      var ex = Math.min(w - 1, Math.round(col + halfS));
-      var sy = Math.max(0, Math.round(row - halfS));
-      var ey = Math.min(h - 1, Math.round(row + halfS));
+      // Validate standard deviation of pixels to avoid flat walls/columns, and check skin tones (including pale/flash-lit 1980s skin)
+      var halfProbe = size * 0.5;
+      var sx = Math.max(0, Math.round(col - halfProbe));
+      var ex = Math.min(w - 1, Math.round(col + halfProbe));
+      var sy = Math.max(0, Math.round(row - halfProbe));
+      var ey = Math.min(h - 1, Math.round(row + halfProbe));
 
       var sum = 0, sumSq = 0, count = 0;
       var skinCount = 0;
@@ -419,9 +531,11 @@
           if (isColorImage) {
             var cIdx = (py * w + px) * 4;
             var cr = data[cIdx], cg = data[cIdx + 1], cb = data[cIdx + 2];
-            // Characteristic human skin tone distribution in RGB:
-            // R > B and R >= G with healthy luminance
-            if (cr > 45 && cg > 25 && cb > 20 && cr > cb && (cr - cb) >= 8 && (cr - cg) >= 2) {
+            var isWarmSkin = cr > 45 && cg > 25 && cb > 20 && cr > cb && (cr - cb) >= 6 && (cr - cg) >= 1;
+            var maxCh = cr > cg ? (cr > cb ? cr : cb) : (cg > cb ? cg : cb);
+            var minCh = cr < cg ? (cr < cb ? cr : cb) : (cg < cb ? cg : cb);
+            var isPaleVintageSkin = cr > 145 && cg > 130 && cb > 125 && cr >= cb - 2 && cr >= cg - 1 && (maxCh - minCh) <= 45;
+            if (isWarmSkin || isPaleVintageSkin) {
               skinCount++;
               if (py < midY) topSkin++;
               else botSkin++;
@@ -433,23 +547,21 @@
       if (count > 0) {
         var mean = sum / count;
         var variance = (sumSq / count) - (mean * mean);
-        if (Math.sqrt(Math.max(0, variance)) < 12) continue; // Skip flat textures (wall, plain sky)
+        if (Math.sqrt(Math.max(0, variance)) < 10) continue;
 
         if (isColorImage) {
           var skinRatio = skinCount / count;
-          // In a color photograph, genuine human faces have at least 10% skin pixels.
-          // Plain fabric, wallpaper, or furniture have < 10% skin tones.
-          if (skinRatio < 0.10) continue;
-          // If a large candidate box has skin only at the very top edge and 0% skin in the bottom half,
-          // it is capturing clothing/torso below a head.
+          if (skinRatio < 0.10 && maxQ < 12.5) continue;
           if (botSkin === 0 && topSkin > 0 && (size / Math.min(w, h)) > 0.25) continue;
         }
       }
 
-      var xNorm = Math.max(0, (col - halfS) / w);
-      var yNorm = Math.max(0, (row - halfS) / h);
-      var wNorm = Math.min(1 - xNorm, size / w);
-      var hNorm = Math.min(1 - yNorm, (size * 1.05) / h);
+      var halfW = size * 0.54;
+      var halfH = size * 0.58;
+      var xNorm = Math.max(0, (col - halfW) / w);
+      var yNorm = Math.max(0, (row - halfH) / h);
+      var wNorm = Math.min(1 - xNorm, (halfW * 2) / w);
+      var hNorm = Math.min(1 - yNorm, (halfH * 2) / h);
 
       results.push({
         id: 'face_' + Date.now() + '_' + i,
@@ -459,7 +571,7 @@
           width: Math.round(wNorm * 1000) / 1000,
           height: Math.round(hNorm * 1000) / 1000
         },
-        confidence: Math.min(0.99, Math.round((0.70 + Math.min(quality, 30) / 100) * 100) / 100)
+        confidence: Math.min(0.99, Math.round((0.72 + Math.min(quality, 28) / 100) * 100) / 100)
       });
     }
 
