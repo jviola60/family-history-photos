@@ -2829,6 +2829,33 @@
     </div>
   </div>
 
+  <!-- FAMILYSEARCH SUCCESS MODAL ("Black Box" Dialog) -->
+  <div id="fs-success-modal" class="share-modal-backdrop" hidden>
+    <div class="share-modal-card" style="max-width: 490px; background: #141414; color: #f3f4f6; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 24px 60px rgba(0,0,0,0.85); border-radius: 12px; overflow: hidden;">
+      <div class="share-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;">
+        <div class="share-modal-title-group" style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">🌳</span>
+          <div>
+            <h3 id="fs-modal-title" style="margin: 0; font-size: 16px; font-weight: 600; color: #ffffff;">Photo on FamilySearch</h3>
+            <p id="fs-modal-sub" style="margin: 2px 0 0; font-size: 12px; color: #9ca3af;">Memory artifact linked</p>
+          </div>
+        </div>
+        <button type="button" class="btn sm" id="btn-fs-modal-close" style="background: transparent; border: none; color: #9ca3af; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close dialog">✕</button>
+      </div>
+      <div style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+        <p id="fs-modal-message" style="margin: 0; font-size: 13.5px; line-height: 1.55; color: #e5e7eb;">
+          Your photo has been uploaded to FamilySearch. Click <strong>OK</strong> to see your photo in FamilySearch, or <strong>Cancel</strong>.
+        </p>
+        <div id="fs-modal-pids" style="display: none; font-size: 11.5px; background: rgba(255,255,255,0.06); padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.09); color: #cbd5e1; line-height: 1.4;"></div>
+      </div>
+      <div class="share-modal-actions" style="padding: 14px 18px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.25);">
+        <button type="button" class="btn" id="btn-fs-modal-cancel" style="background: rgba(255,255,255,0.08); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.18); font-size: 13px; padding: 7px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
+        <button type="button" class="btn primary" id="btn-fs-modal-reupload" style="display: none; background: #2563eb; color: #ffffff; border: none; font-size: 13px; padding: 7px 16px; border-radius: 6px; cursor: pointer;">Update / Re-upload</button>
+        <button type="button" class="btn primary" id="btn-fs-modal-ok" style="background: #16a34a; color: #ffffff; font-weight: 600; border: none; font-size: 13px; padding: 7px 18px; border-radius: 6px; cursor: pointer;">OK (See photo in FamilySearch)</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/exifr.js"></script>
   <script src="/leaflet/leaflet.js"></script>
   <script src="/taste-charts.js"></script>
@@ -3206,11 +3233,10 @@
           if (!p.people) p.people = [];
           if (!p.people.some(pr => pr.name.toLowerCase() === name.toLowerCase())) {
             p.people.push({ name, rel, branch });
-            if (p.faces && p.faces.length > 0) {
-              const unassigned = p.faces.find(f => !f.name);
-              if (unassigned) unassigned.name = name;
+            if (p.faces && p.faces.length === 1 && p.people.length === 1) {
+              p.faces[0].name = name;
             }
-            if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+            p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
             notify(`Added tagged relative ${name} (${rel}) to ${p.id}.`);
           }
           nameEl.value = '';
@@ -4906,18 +4932,20 @@
 
       function renderFaceBoxes(p) {
         if (!p || !p.faces || p.faces.length === 0) return '';
+        const singlePersonAutoName = (p.faces.length === 1 && p.people && p.people.length === 1 && p.people[0].name) ? p.people[0].name : '';
         return p.faces.map((f, idx) => {
           const b = f.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
           const left = (b.x * 100).toFixed(1) + '%';
           const top = (b.y * 100).toFixed(1) + '%';
           const width = (b.width * 100).toFixed(1) + '%';
           const height = (b.height * 100).toFixed(1) + '%';
-          const name = f.name || (p.people && p.people[idx] ? p.people[idx].name : (p.people && p.people.length === 1 ? p.people[0].name : ''));
+          const name = (f.name || '').trim() || singlePersonAutoName;
+          const isAssigned = Boolean(name);
           return `
-            <div class="face-box-marker" data-face-idx="${idx}" style="position:absolute;left:${left};top:${top};width:${width};height:${height};border:2px solid #00d2ff;background:rgba(0,210,255,0.12);box-shadow:0 0 10px rgba(0,210,255,0.5);border-radius:6px;pointer-events:auto;cursor:pointer;transition:all 0.15s ease;" title="${name ? `Assigned to: ${esc(name)} (Click to edit or delete)` : 'Click to tag relative or delete box'}">
+            <div class="face-box-marker" data-face-idx="${idx}" style="position:absolute;left:${left};top:${top};width:${width};height:${height};border:2px solid ${isAssigned ? '#00d2ff' : '#fbbf24'};background:${isAssigned ? 'rgba(0,210,255,0.12)' : 'rgba(251,191,36,0.14)'};box-shadow:0 0 10px ${isAssigned ? 'rgba(0,210,255,0.5)' : 'rgba(251,191,36,0.4)'};border-radius:6px;pointer-events:auto;cursor:pointer;transition:all 0.15s ease;" title="${name ? `Assigned to: ${esc(name)} (Click to change or delete)` : 'Click to tag relative or delete box'}">
               <button type="button" class="btn-remove-face-box" data-del-face-idx="${idx}" title="Remove this face box" style="position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:#ef4444;color:#ffffff;border:1.5px solid #ffffff;font-size:11px;font-weight:bold;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;box-shadow:0 2px 5px rgba(0,0,0,0.5);pointer-events:auto;z-index:12;">✕</button>
-              <div style="position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#f8fafc;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid #00d2ff;pointer-events:none;box-shadow:0 2px 4px rgba(0,0,0,0.5);">
-                ${esc(name) || `Face #${idx + 1} (Tag)`}
+              <div style="position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#f8fafc;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid ${isAssigned ? '#00d2ff' : '#fbbf24'};pointer-events:none;box-shadow:0 2px 4px rgba(0,0,0,0.5);">
+                ${isAssigned ? esc(name) : `<span style="color:#fbbf24;">Face #${idx + 1} (Click to tag)</span>`}
               </div>
             </div>
           `;
@@ -5006,6 +5034,7 @@
               </span>
               <div style="display:flex;gap:6px;">
                 <button class="btn sm" type="button" id="insp-add-face" title="Add another face box to tag someone manually" style="padding:2px 8px;font-size:11px;">+ Add Box</button>
+                <button class="btn sm" type="button" id="insp-clear-names" title="Keep face boxes but clear assigned names so you can re-tag each person" style="padding:2px 8px;font-size:11px;">Unassign All</button>
                 <button class="btn sm" type="button" id="insp-clear-faces" title="Remove all detected face boxes" style="padding:2px 8px;font-size:11px;color:var(--danger, #ef4444);">Clear All</button>
               </div>
             </div>
@@ -5222,17 +5251,17 @@
                     throw new Error('FaceDetectorEngine is not loaded yet.');
                   }
                   const faces = await window.FaceDetectorEngine.detectFaces(imgEl || afterSrc(p));
-                  p.faces = faces || [];
+                  p.faces = (faces || []).map(f => ({ ...f, name: '' }));
                   p.facesScanned = true;
                   
-                  // Auto-map if 1 person and 1 face
-                  if (p.faces.length === 1 && p.people.length === 1) {
+                  // Auto-map ONLY if exactly 1 person and 1 face
+                  if (p.faces.length === 1 && p.people && p.people.length === 1 && p.people[0].name) {
                     p.faces[0].name = p.people[0].name;
                   }
-                  p.unnamedFaces = Math.max(0, p.faces.length - (p.people ? p.people.length : 0));
+                  p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
                   saveItemMetadata(p);
                   notify(p.faces.length > 0
-                    ? `✓ Detected ${p.faces.length} face${p.faces.length > 1 ? 's' : ''}! Face coordinates saved for FamilySearch.`
+                    ? `✓ Detected ${p.faces.length} face${p.faces.length > 1 ? 's' : ''}! Click each box to assign the correct relative.`
                     : 'No distinct faces detected. You can add coordinates or tag relatives below.');
                   render();
                 } catch (err) {
@@ -5250,14 +5279,14 @@
                 const fIdx = parseInt(delBtn.getAttribute('data-del-face-idx'), 10);
                 if (!p.faces || isNaN(fIdx)) return;
                 const removed = p.faces.splice(fIdx, 1);
-                p.unnamedFaces = Math.max(0, p.faces.length - (p.people ? p.people.length : 0));
+                p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
                 saveItemMetadata(p);
                 notify(`✕ Removed face box ${removed[0]?.name ? `(${removed[0].name})` : `#${fIdx + 1}`}.`);
                 render();
               };
             });
 
-            // Wire Add Face Box & Clear All Face Boxes buttons
+            // Wire Add Face Box, Unassign All & Clear All Face Boxes buttons
             const addFaceBtn = box.querySelector('#insp-add-face');
             if (addFaceBtn) {
               addFaceBtn.onclick = () => {
@@ -5269,9 +5298,21 @@
                   confidence: 1.0,
                   name: ''
                 });
-                p.unnamedFaces = Math.max(0, p.faces.length - (p.people ? p.people.length : 0));
+                p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
                 saveItemMetadata(p);
                 notify(`+ Added face box #${newIdx}. Click it to tag a relative name!`);
+                render();
+              };
+            }
+
+            const clearNamesBtn = box.querySelector('#insp-clear-names');
+            if (clearNamesBtn) {
+              clearNamesBtn.onclick = () => {
+                if (!p.faces || p.faces.length === 0) return;
+                p.faces.forEach(f => { f.name = ''; });
+                p.unnamedFaces = p.faces.length;
+                saveItemMetadata(p);
+                notify('Cleared all face tag assignments. Click any box to tag the correct relative!');
                 render();
               };
             }
@@ -5297,18 +5338,37 @@
                 const fIdx = parseInt(el.getAttribute('data-face-idx'), 10);
                 const f = p.faces && p.faces[fIdx];
                 if (!f) return;
-                const cur = f.name || (p.people && p.people[fIdx] ? p.people[fIdx].name : '');
-                const relNames = (p.people || []).map(x => x.name).filter(Boolean);
-                const choice = prompt(`Tag Face #${fIdx + 1}:\n(Current: ${cur || 'None'})\n\nRelatives:\n${relNames.join(', ')}\n\nType relative name (or type "delete" to remove this box):`, cur || (relNames[0] || ''));
+                const cur = (f.name || '').trim();
+                const relNames = (p.people || []).map(x => (typeof x === 'string' ? x : x.name || '')).filter(Boolean);
+
+                let promptMsg = `Tag Face #${fIdx + 1}:\n(Current: ${cur || 'Unassigned'})\n\n`;
+                if (relNames.length > 0) {
+                  promptMsg += `Relatives on this photo:\n` + relNames.map((n, i) => `  ${i + 1}. ${n}`).join('\n') + `\n\n`;
+                  promptMsg += `Type number (1-${relNames.length}) or name (or "clear" to unassign, "delete" to remove):`;
+                } else {
+                  promptMsg += `Type relative name (or "delete" to remove this box):`;
+                }
+
+                const choice = prompt(promptMsg, cur || '');
                 if (choice !== null) {
-                  const val = choice.trim();
+                  let val = choice.trim();
                   if (val.toLowerCase() === 'delete' || val.toLowerCase() === 'remove') {
                     p.faces.splice(fIdx, 1);
-                    p.unnamedFaces = Math.max(0, (p.faces || []).filter(fc => !fc.name).length);
+                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
                     saveItemMetadata(p);
                     notify(`✕ Removed Face #${fIdx + 1}.`);
                     render();
+                  } else if (val.toLowerCase() === 'clear' || val.toLowerCase() === 'none' || val === '') {
+                    f.name = '';
+                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
+                    saveItemMetadata(p);
+                    notify(`Face #${fIdx + 1} marked unassigned.`);
+                    render();
                   } else {
+                    const num = parseInt(val, 10);
+                    if (!isNaN(num) && num >= 1 && num <= relNames.length) {
+                      val = relNames[num - 1];
+                    }
                     f.name = val;
                     if (val) {
                       if (!p.people) p.people = [];
@@ -5316,9 +5376,9 @@
                         p.people.push({ name: val, rel: 'Relative', branch: p.branch || '' });
                       }
                     }
-                    p.unnamedFaces = Math.max(0, (p.faces || []).filter(fc => !fc.name).length);
+                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
                     saveItemMetadata(p);
-                    notify(`Face #${fIdx + 1} assigned to ${f.name || 'unnamed'}.`);
+                    notify(`Face #${fIdx + 1} assigned to ${f.name}.`);
                     render();
                   }
                 }
@@ -5524,11 +5584,10 @@
               const branch = (branchInput && branchInput.value.trim()) ? branchInput.value.trim() : (p.branch || '');
               if (branch) recordUserBranch(branch);
               p.people.push({ name, rel, branch });
-              if (p.faces && p.faces.length > 0) {
-                const unassigned = p.faces.find(f => !f.name);
-                if (unassigned) unassigned.name = name;
+              if (p.faces && p.faces.length === 1 && p.people.length === 1) {
+                p.faces[0].name = name;
               }
-              if (p.unnamedFaces > 0) p.unnamedFaces -= 1;
+              p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
               saveItemMetadata(p);
               notify(`Tagged ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Querying FamilySearch Tree...`);
               render();
@@ -5701,20 +5760,22 @@
 
             box.querySelector('#btn-insp-fs').onclick = async () => {
               commitInspectorInputs(p, false);
-              let replaceOld = false;
               if (p.fsSynced && p.fsMemoryId) {
-                const choice = confirm(
-                  `Photo ${p.id} was already uploaded to FamilySearch (Memory #${p.fsMemoryId}).\n\n` +
-                  `• Click OK to REPLACE the older photo on FamilySearch (uploads this updated version and deletes the old copy).\n` +
-                  `• Click Cancel to open the existing memory on FamilySearch Beta.`
-                );
-                if (!choice) {
-                  window.open(`https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`, '_blank', 'noopener,noreferrer');
-                  return;
-                }
-                replaceOld = true;
+                showFamilySearchSuccessModal({
+                  title: `Photo ${p.id} on FamilySearch`,
+                  memoryId: p.fsMemoryId,
+                  memoryUrl: `https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`,
+                  pidSummary: p.fsId || '',
+                  message: `Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick "OK" to see your photo in FamilySearch, "Update / Re-upload" to send your updated face tags, or "Cancel" to close.`,
+                  allowReupload: true,
+                  onReupload: async () => {
+                    await uploadPrintToFamilySearch(p, { replaceMemoryId: p.fsMemoryId });
+                    render();
+                  }
+                });
+                return;
               }
-              await uploadPrintToFamilySearch(p, { replaceMemoryId: replaceOld ? p.fsMemoryId : null });
+              await uploadPrintToFamilySearch(p);
               render();
             };
             box.querySelector('#btn-insp-cite').onclick = () => {
@@ -7509,6 +7570,74 @@
                                   }
                                 }
 
+                                function showFamilySearchSuccessModal(opts) {
+                                  const modal = document.getElementById('fs-success-modal');
+                                  if (!modal) {
+                                    const choice = confirm(opts.message || 'Photo uploaded to FamilySearch.\n\nClick OK to see your photo on FamilySearch, or Cancel.');
+                                    if (choice && opts.memoryUrl) {
+                                      window.open(opts.memoryUrl, '_blank', 'noopener,noreferrer');
+                                    }
+                                    return;
+                                  }
+
+                                  const titleEl = document.getElementById('fs-modal-title');
+                                  const subEl = document.getElementById('fs-modal-sub');
+                                  const msgEl = document.getElementById('fs-modal-message');
+                                  const pidsEl = document.getElementById('fs-modal-pids');
+                                  const okBtn = document.getElementById('btn-fs-modal-ok');
+                                  const cancelBtn = document.getElementById('btn-fs-modal-cancel');
+                                  const reuploadBtn = document.getElementById('btn-fs-modal-reupload');
+                                  const closeBtn = document.getElementById('btn-fs-modal-close');
+
+                                  if (titleEl) titleEl.textContent = opts.title || 'Photo on FamilySearch';
+                                  if (subEl) subEl.textContent = opts.memoryId ? `Memory #${opts.memoryId}` : 'Memory artifact linked';
+                                  if (msgEl) {
+                                    msgEl.innerHTML = opts.htmlMessage || (opts.message ? esc(opts.message).replace(/\n/g, '<br>') : 'Click <strong>OK</strong> to see your photo in FamilySearch, or <strong>Cancel</strong>.');
+                                  }
+
+                                  if (pidsEl) {
+                                    if (opts.pidSummary) {
+                                      pidsEl.style.display = 'block';
+                                      pidsEl.innerHTML = `<strong>Linked Relatives in Family Tree:</strong> ${esc(opts.pidSummary)}`;
+                                    } else {
+                                      pidsEl.style.display = 'none';
+                                    }
+                                  }
+
+                                  const closeModal = () => {
+                                    modal.setAttribute('hidden', '');
+                                  };
+
+                                  if (closeBtn) closeBtn.onclick = closeModal;
+                                  if (cancelBtn) cancelBtn.onclick = closeModal;
+                                  modal.onclick = (e) => {
+                                    if (e.target === modal) closeModal();
+                                  };
+
+                                  if (okBtn) {
+                                    okBtn.onclick = () => {
+                                      closeModal();
+                                      if (opts.memoryUrl) {
+                                        window.open(opts.memoryUrl, '_blank', 'noopener,noreferrer');
+                                      }
+                                    };
+                                  }
+
+                                  if (reuploadBtn) {
+                                    if (opts.allowReupload && typeof opts.onReupload === 'function') {
+                                      reuploadBtn.style.display = 'inline-block';
+                                      reuploadBtn.onclick = () => {
+                                        closeModal();
+                                        opts.onReupload();
+                                      };
+                                    } else {
+                                      reuploadBtn.style.display = 'none';
+                                    }
+                                  }
+
+                                  modal.removeAttribute('hidden');
+                                }
+
                                 async function uploadPrintToFamilySearch(p, options = {}) {
                                   if (!window.FamilySearchClient) {
                                     notify('FamilySearch client library not loaded.');
@@ -7590,15 +7719,18 @@
                                         notify(`✓ Uploaded 1 photo (Memory #${result.memoryId}) & linked to all ${linkedCount} relatives (${pidSummary})!`);
                                       }
                                       
+                                      const memUrl = result.memoryUrl || `https://beta.familysearch.org/memories/memory/${result.memoryId}`;
                                       setTimeout(() => {
-                                        const msg = linkedCount > 1
-                                          ? `✓ Photo uploaded ONCE (Memory #${result.memoryId}) and linked to all ${linkedCount} relatives on FamilySearch (${pidSummary})!\n\nNo matter which person you view on FamilySearch, this single photo is attached to their Memories.\n\nOpen photo on FamilySearch now?`
-                                          : `✓ Memory #${result.memoryId} successfully attached to ${pidSummary || 'FamilySearch'}!\n\nOpen photo on FamilySearch now?`;
-                                        const openTab = confirm(msg);
-                                        if (openTab) {
-                                          window.open(result.memoryUrl || `https://beta.familysearch.org/memories/memory/${result.memoryId}`, '_blank', 'noopener,noreferrer');
-                                        }
-                                      }, 300);
+                                        showFamilySearchSuccessModal({
+                                          title: '✓ Photo Uploaded to FamilySearch',
+                                          memoryId: result.memoryId,
+                                          memoryUrl: memUrl,
+                                          pidSummary: pidSummary,
+                                          message: linkedCount > 1
+                                            ? `Photo uploaded ONCE (Memory #${result.memoryId}) and linked to all ${linkedCount} relatives on FamilySearch (${pidSummary})!\n\nClick "OK" to see your photo in FamilySearch, or "Cancel" to return to your album.`
+                                            : `Memory #${result.memoryId} successfully attached to ${pidSummary || 'FamilySearch'}!\n\nClick "OK" to see your photo in FamilySearch, or "Cancel" to return to your album.`
+                                        });
+                                      }, 150);
                                     }
                                   } catch (err) {
                                     console.error('FamilySearch upload error:', err);

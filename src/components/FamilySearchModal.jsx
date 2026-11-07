@@ -223,14 +223,9 @@ export default function FamilySearchModal({
         if (matchingFace) {
           const idx = facesList.indexOf(matchingFace);
           usedFaces.add(idx);
-        } else {
-          // If no face box was explicitly labeled with this person's name,
-          // assign the next available detected face box so a visual bounding box is sent!
-          const unassignedIdx = facesList.findIndex((f, idx) => (!f.name || f.name.startsWith('Person ')) && !usedFaces.has(idx));
-          if (unassignedIdx !== -1) {
-            matchingFace = facesList[unassignedIdx];
-            usedFaces.add(unassignedIdx);
-          }
+        } else if (allPeopleNames.length === 1 && facesList.length === 1 && !usedFaces.has(0)) {
+          matchingFace = facesList[0];
+          usedFaces.add(0);
         }
         const mapped = resolvePersonMapping(name, personMappings);
         tagsToAttach.push({

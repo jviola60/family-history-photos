@@ -1115,8 +1115,8 @@
     if (faces && faces.length > 0) {
       faces.forEach(function (f, fIdx) {
         var fName = (f.name || '').trim();
-        if (!fName && people && people[fIdx]) {
-          fName = (typeof people[fIdx] === 'string' ? people[fIdx] : people[fIdx].name || '').trim();
+        if (!fName && faces.length === 1 && people && people.length === 1) {
+          fName = (typeof people[0] === 'string' ? people[0] : people[0].name || '').trim();
         }
         if (fName) {
           tagTargets.push({
