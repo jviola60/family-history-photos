@@ -2461,10 +2461,33 @@
       color: var(--muted);
       font-family: var(--mono);
     }
+    @keyframes fhpSpin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 
 <body>
+  <!-- Initial App Loading Splash Screen for slower/older computers -->
+  <div id="app-loading-screen" style="position:fixed;inset:0;background:#f4f3f1;z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;padding:24px;text-align:center;transition:opacity 0.35s ease, visibility 0.35s ease;">
+    <div style="background:#ffffff;border:1px solid #dfdeda;border-radius:16px;padding:36px 32px;max-width:440px;width:100%;box-shadow:0 12px 36px rgba(0,0,0,0.08);display:flex;flex-direction:column;align-items:center;">
+      <div style="width:56px;height:56px;border-radius:14px;background:#141413;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin-bottom:16px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+        FH
+      </div>
+      <h2 style="font-size:20px;font-weight:700;color:#111110;margin:0 0 6px;">Family History Photos</h2>
+      <p style="font-size:13px;color:#575653;margin:0 0 24px;line-height:1.4;">Mom's Family Memory Assistant &amp; 4K Photo Restorer</p>
+      
+      <div style="width:100%;height:8px;background:#ecebe7;border-radius:4px;overflow:hidden;margin-bottom:14px;position:relative;">
+        <div id="app-loading-bar" style="width:20%;height:100%;background:#1d5fbf;border-radius:4px;transition:width 0.25s ease;"></div>
+      </div>
+      
+      <div id="app-loading-status" style="font-size:13px;font-weight:500;color:#1d5fbf;display:flex;align-items:center;gap:8px;">
+        <span class="loading-spin-dot" style="display:inline-block;width:12px;height:12px;border:2px solid #1d5fbf;border-top-color:transparent;border-radius:50%;animation:fhpSpin 0.7s linear infinite;"></span>
+        <span id="app-loading-msg">Opening photo archive &amp; restoring memories...</span>
+      </div>
+    </div>
+  </div>
+
   <div class="frame">
     <!-- #2 LEFT SIDEBAR: Folder Chooser + Album views + All Built-in Batch Cleanup Queues + Subfolders -->
     <aside class="sidebar" id="sidebar" aria-label="Archive navigation and cleanup queues">
@@ -2482,10 +2505,10 @@
       </div>
 
       <div class="folder-picker-box">
-        <button class="btn primary folder-pick-btn btn-pick-1-5 mob-only" type="button" id="btn-pick-1-5" title="Pick up to 5 photos from your photo gallery">
-          <span data-icon="grid"></span><span>Pick Photos (1–5)...</span>
+        <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick individual photo(s) from your computer or phone">
+          <span data-icon="grid"></span><span>Pick Photo(s) (1–5)...</span>
         </button>
-        <button class="btn primary folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
+        <button class="btn folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
@@ -2554,8 +2577,8 @@
           </div>
         </div>
         <div class="top-right">
-          <button class="btn sm primary mob-only" type="button" id="btn-top-pick-photos" title="Pick up to 5 photos from your photo gallery">
-            <span data-icon="grid"></span><span>Pick Photos (1–5)</span>
+          <button class="btn sm primary" type="button" id="btn-top-pick-photos" title="Pick individual photo(s) from your computer or phone">
+            <span data-icon="grid"></span><span>Pick Photo(s)</span>
           </button>
           <button class="btn sm btn-mob-camera mob-only" type="button" id="btn-mob-camera" title="Take photo or pick from phone gallery">
             <span>📷 Camera</span>
@@ -3564,12 +3587,41 @@
         return { w: nw, h: nh, ratio: nw / nh };
       }
 
+      function setAppLoadingProgress(pct, msg) {
+        const bar = document.getElementById('app-loading-bar');
+        const msgEl = document.getElementById('app-loading-msg');
+        if (bar && typeof pct === 'number') bar.style.width = `${pct}%`;
+        if (msgEl && msg) msgEl.textContent = msg;
+      }
+
+      function dismissAppLoadingScreen() {
+        const el = document.getElementById('app-loading-screen');
+        if (!el) return;
+        setAppLoadingProgress(100, 'Ready!');
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+        setTimeout(() => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }, 400);
+      }
+      setTimeout(dismissAppLoadingScreen, 8000);
+
       function saveItemMetadata(p) {
         if (!p) return;
         try {
           const raw = localStorage.getItem('fhp_saved_metadata_catalog') || '{}';
           const catalog = JSON.parse(raw);
           const key = p.file || p.id;
+
+          const cleanFaces = Array.isArray(p.faces) ? p.faces.map((f) => ({
+            id: f.id,
+            name: f.name,
+            rel: f.rel,
+            branch: f.branch,
+            confirmed: f.confirmed,
+            box: f.box ? { x: f.box.x, y: f.box.y, width: f.box.width, height: f.box.height } : null
+          })) : [];
+
           catalog[key] = {
             id: p.id,
             file: p.file,
@@ -3581,7 +3633,7 @@
             lng: p.lng,
             branch: p.branch,
             people: p.people,
-            faces: p.faces,
+            faces: cleanFaces,
             unnamedFaces: p.unnamedFaces,
             story: p.story,
             fsId: p.fsId,
@@ -3591,9 +3643,18 @@
             edits: p.edits
           };
           if (p.id) catalog[p.id] = catalog[key];
-          localStorage.setItem('fhp_saved_metadata_catalog', JSON.stringify(catalog));
+
+          try {
+            localStorage.setItem('fhp_saved_metadata_catalog', JSON.stringify(catalog));
+          } catch (storageErr) {
+            console.warn('LocalStorage quota reached or blocked, saving to IndexedDB:', storageErr);
+          }
+
+          // Dual-save to IndexedDB metadata store so records survive even if localStorage is cleared or quotas exceeded
+          setMetaInDb('metadata_catalog', catalog).catch(() => {});
+          saveSingleItemToDb(p).catch(() => {});
         } catch (e) {
-          console.warn('Could not save metadata to localStorage:', e);
+          console.warn('Could not save metadata:', e);
         }
       }
 
@@ -3689,7 +3750,10 @@
           if (relEl) relEl.value = '';
         }
 
+        p._customEdited = true;
+        isCustomFolder = true;
         saveItemMetadata(p);
+        saveSingleItemToDb(p).catch(() => {});
 
         if (p._handle && window.JpegMetadataWriter) {
           try {
@@ -3698,16 +3762,24 @@
         }
 
         if (isManualSave) {
-          notify(`✓ Saved record for ${p.title || p.id} in app!`);
+          saveArchiveToDb(items, rootFolderName).catch(() => {});
+          notify(`✓ Saved record for "${p.title || p.id}" — safely stored in browser database!`);
         }
       }
 
-      function restoreCatalogMetadata(itemsList) {
+      async function restoreCatalogMetadata(itemsList) {
         if (!itemsList || !itemsList.length) return;
         try {
+          let catalog = null;
           const raw = localStorage.getItem('fhp_saved_metadata_catalog');
-          if (!raw) return;
-          const catalog = JSON.parse(raw);
+          if (raw) {
+            try { catalog = JSON.parse(raw); } catch (_) {}
+          }
+          if (!catalog) {
+            catalog = await getMetaFromDb('metadata_catalog');
+          }
+          if (!catalog) return;
+
           itemsList.forEach((p) => {
             const saved = (p.file && catalog[p.file]) || (p.id && catalog[p.id]);
             if (saved) {
@@ -3719,7 +3791,9 @@
               if (typeof saved.lng === 'number') p.lng = saved.lng;
               if (saved.branch) p.branch = saved.branch;
               if (Array.isArray(saved.people)) p.people = saved.people;
-              if (Array.isArray(saved.faces)) p.faces = saved.faces;
+              if (Array.isArray(saved.faces) && saved.faces.length > 0) {
+                p.faces = saved.faces;
+              }
               if (typeof saved.unnamedFaces === 'number') p.unnamedFaces = saved.unnamedFaces;
               if (saved.story) p.story = saved.story;
               if (saved.fsId) p.fsId = saved.fsId;
@@ -3730,7 +3804,7 @@
             }
           });
         } catch (e) {
-          console.warn('Could not restore metadata from localStorage:', e);
+          console.warn('Could not restore metadata:', e);
         }
       }
 
@@ -3794,6 +3868,86 @@
         });
       }
 
+      async function getMetaFromDb(key) {
+        try {
+          const db = await openArchiveDb();
+          if (!db) return null;
+          return new Promise((resolve) => {
+            const tx = db.transaction(DB_META, 'readonly');
+            const req = tx.objectStore(DB_META).get(key);
+            req.onsuccess = () => resolve(req.result ? req.result.value : null);
+            req.onerror = () => resolve(null);
+          });
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function setMetaInDb(key, value) {
+        try {
+          const db = await openArchiveDb();
+          if (!db) return false;
+          return new Promise((resolve) => {
+            const tx = db.transaction(DB_META, 'readwrite');
+            const req = tx.objectStore(DB_META).put({ key, value });
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => resolve(false);
+          });
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function cleanEntryForDb(item) {
+        const entry = { ...item };
+        delete entry.src;
+        delete entry.workingSrc;
+        delete entry._pre4kSrc;
+        delete entry._handle;
+        entry.history = [];
+        if (entry._file && typeof entry._file.slice === 'function') {
+          try {
+            entry._file = entry._file.slice(0, entry._file.size, entry._file.type || 'image/jpeg');
+          } catch (_) {}
+        }
+        if (entry._workingBlob && typeof entry._workingBlob.slice === 'function') {
+          try {
+            entry._workingBlob = entry._workingBlob.slice(0, entry._workingBlob.size, entry._workingBlob.type || 'image/jpeg');
+          } catch (_) {}
+        }
+        if (Array.isArray(entry.faces)) {
+          entry.faces = entry.faces.map((f) => ({
+            id: f.id,
+            name: f.name,
+            rel: f.rel,
+            branch: f.branch,
+            confirmed: f.confirmed,
+            box: f.box ? { x: f.box.x, y: f.box.y, width: f.box.width, height: f.box.height } : null
+          }));
+        }
+        return entry;
+      }
+
+      async function saveSingleItemToDb(item) {
+        if (!item || !item.id) return false;
+        try {
+          const db = await openArchiveDb();
+          if (!db) return false;
+          const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
+          const entry = cleanEntryForDb(item);
+          tx.objectStore(DB_STORE).put(entry);
+          tx.objectStore(DB_META).put({ key: 'isCustom', value: true });
+          tx.objectStore(DB_META).put({ key: 'lastSaved', value: Date.now() });
+          return new Promise((resolve) => {
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          });
+        } catch (e) {
+          console.warn('Could not save single item to DB:', e);
+          return false;
+        }
+      }
+
       async function saveArchiveToDb(itemsList, folderName) {
         try {
           const db = await openArchiveDb();
@@ -3804,16 +3958,13 @@
 
           store.clear();
           itemsList.forEach((item) => {
-            const entry = { ...item };
-            delete entry.src;
-            delete entry.workingSrc;
-            delete entry._pre4kSrc;
-            entry.history = [];
+            const entry = cleanEntryForDb(item);
             store.put(entry);
           });
 
           metaStore.put({ key: 'folder', value: folderName });
           metaStore.put({ key: 'isCustom', value: true });
+          metaStore.put({ key: 'lastSaved', value: Date.now() });
 
           return new Promise((resolve) => {
             tx.oncomplete = () => resolve(true);
@@ -3892,13 +4043,19 @@
         }
       }
 
-      async function clearArchiveFromDb() {
+      async function clearArchiveFromDb(options = {}) {
         try {
           const db = await openArchiveDb();
           if (!db) return;
           const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
           tx.objectStore(DB_STORE).clear();
-          tx.objectStore(DB_META).clear();
+          if (options && options.keepDemoCleared) {
+            tx.objectStore(DB_META).put({ key: 'demoCleared', value: true });
+            tx.objectStore(DB_META).put({ key: 'isCustom', value: true });
+            tx.objectStore(DB_META).delete('folder');
+          } else {
+            tx.objectStore(DB_META).clear();
+          }
         } catch (e) {
           console.warn('Could not clear IndexedDB archive:', e);
         }
@@ -4581,33 +4738,27 @@
                   <div style="width:60px;height:60px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">
                     🖼️
                   </div>
-                  <div class="mob-only" style="flex-direction:column;align-items:center;">
-                    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Pick Photos from Gallery</h2>
-                    <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
-                      Select up to 5 photos from your phone gallery or camera roll to tag family members, set dates &amp; places, fix in Photo Lab, and share or sync with FamilySearch.
+                  <div style="flex-direction:column;align-items:center;">
+                    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Add Your Family Photos</h2>
+                    <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;max-width:480px;margin-left:auto;margin-right:auto;">
+                      Choose photo files from your computer or phone to catalog dates &amp; places, tag relatives, restore old prints in Photo Lab, and sync with FamilySearch.
                     </p>
                   </div>
-                  <div class="desktop-only" style="flex-direction:column;align-items:center;">
-                    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;color:var(--text);">Open Photo Folder</h2>
-                    <p class="muted" style="font-size:14px;line-height:1.5;margin-bottom:22px;">
-                      Scan a folder of photos from your computer to catalog metadata, detect faces, restore in Photo Lab, and export or sync with FamilySearch.
-                    </p>
-                  </div>
-                  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn primary mob-only" type="button" id="btn-empty-pick" style="padding:12px 20px;font-weight:600;">
-                      <span data-icon="grid"></span> Pick Up to 5 Photos...
+                  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;align-items:center;">
+                    <button class="btn primary" type="button" id="btn-empty-pick" style="padding:12px 20px;font-weight:600;">
+                      <span data-icon="grid"></span> Pick Photo(s)...
+                    </button>
+                    <button class="btn desktop-only" type="button" id="btn-empty-choose" style="padding:12px 18px;">
+                      <span data-icon="folder"></span> Scan Entire Folder...
                     </button>
                     <button class="btn mob-only" type="button" id="btn-empty-camera">
                       📷 Camera
                     </button>
-                    <button class="btn primary desktop-only" type="button" id="btn-empty-choose" style="padding:12px 20px;font-weight:600;">
-                      <span data-icon="folder"></span> Scan Entire Folder...
-                    </button>
-                    <button class="btn sm" type="button" id="btn-empty-reload-demo">
-                      ↺ Load Sample Photos
-                    </button>
                   </div>
-                  <p class="mono muted" style="font-size:11px;margin-top:18px;">
+                  <div style="margin-top:20px;font-size:12px;color:var(--muted);">
+                    Want to test with sample photos first? <button class="link-btn" type="button" id="btn-empty-reload-demo" style="color:var(--accent);text-decoration:underline;">↺ Load Demo Photos</button>
+                  </div>
+                  <p class="mono muted" style="font-size:11px;margin-top:14px;">
                     🔒 100% private: All scans, metadata and edits stay on your device.
                   </p>
                 </div>`;
@@ -11973,6 +12124,8 @@
         try {
           localStorage.removeItem('fhp_demo_cleared');
         } catch (e) {}
+        await setMetaInDb('demoCleared', false);
+        await setMetaInDb('isCustom', false);
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
         duplicateResolved = false;
@@ -11989,10 +12142,12 @@
       }
 
       async function clearAllPhotos() {
-        await clearArchiveFromDb();
+        await clearArchiveFromDb({ keepDemoCleared: true });
         try {
           localStorage.setItem('fhp_demo_cleared', '1');
         } catch (e) {}
+        await setMetaInDb('demoCleared', true);
+        await setMetaInDb('isCustom', true);
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
         duplicateResolved = false;
@@ -12004,7 +12159,7 @@
         activeQueue = 'all';
         catalogPage = 1;
         selectedId = null;
-        notify('Cleared sample photos. Choose a photo folder to start working with your real photos.');
+        notify('Cleared sample photos. Choose a photo folder or pick photos to start working with your real photos.');
         render();
       }
 
@@ -12188,21 +12343,26 @@
           return;
         }
 
-        // Limit strictly to up to 5 photos at a time
-        const selectedFiles = imgFiles.slice(0, 5);
-        if (imgFiles.length > 5) {
-          notify('Loaded the first 5 photos (up to 5 at a time ensures fast performance & prevents crashes).');
+        // Limit batch to up to 10 photos at a time
+        const selectedFiles = imgFiles.slice(0, 10);
+        if (imgFiles.length > 10) {
+          notify('Loaded the first 10 photos (processing in batches ensures fast performance & prevents crashes).');
         }
-        await clearArchiveFromDb();
+
         try {
           localStorage.setItem('fhp_demo_cleared', '1');
         } catch (e) {}
+        await setMetaInDb('demoCleared', true);
+        await setMetaInDb('isCustom', true);
+
         activeFolderImageFiles = [];
         activeFolderBatchIndex = 0;
         duplicateResolved = false;
         ignoredDupPairKeys = new Set();
         isCustomFolder = true;
-        rootFolderName = sourceLabel;
+        if (!rootFolderName || rootFolderName === '(No folder opened)' || !isCustomFolder) {
+          rootFolderName = sourceLabel || 'Photo_Gallery';
+        }
         activeFolder = null;
         activeQueue = 'all';
         catalogPage = 1;
@@ -12211,10 +12371,13 @@
         if (searchInput) searchInput.value = '';
 
         const newItems = [];
+        const existingCount = (isCustomFolder && items && items.length > 0) ? items.length : 0;
+        const existingFiles = new Set((isCustomFolder && items) ? items.map((p) => p.file) : []);
 
         for (let i = 0; i < selectedFiles.length; i++) {
           const file = selectedFiles[i];
-          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Photo ${i + 1}`;
+          if (existingFiles.has(file.name)) continue;
+          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Photo ${existingCount + i + 1}`;
           const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
           const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
           const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
@@ -12224,7 +12387,7 @@
           const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
           const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
           const url = URL.createObjectURL(file);
-          const id = `PH-${String(i + 1).padStart(3, '0')}`;
+          const id = `PH-${String(existingCount + i + 1).padStart(3, '0')}`;
           const fileKb = Math.max(1, Math.round(file.size / 1024));
 
           newItems.push({
@@ -12287,8 +12450,13 @@
           });
         }
 
-        items = newItems;
-        selectedId = items[0].id;
+        if (existingCount > 0 && isCustomFolder) {
+          items = [...items, ...newItems];
+        } else {
+          items = newItems;
+        }
+
+        selectedId = newItems[0] ? newItems[0].id : (items[0] ? items[0].id : null);
         mode = 'catalog';
         const side = document.getElementById('sidebar');
         if (side) side.classList.remove('open');
@@ -12587,21 +12755,27 @@
       }
 
       // Check if user previously imported a custom archive into persistent IndexedDB or explicitly cleared demo
-      const isDemoCleared = (localStorage.getItem('fhp_demo_cleared') === '1');
+      setAppLoadingProgress(25, 'Checking saved family photos & archive...');
+      const idbDemoCleared = await getMetaFromDb('demoCleared');
+      const isDemoCleared = (localStorage.getItem('fhp_demo_cleared') === '1') || (idbDemoCleared === true);
+
       try {
         if (params.get('reset') === '1') {
           await clearArchiveFromDb();
           try { localStorage.removeItem('fhp_demo_cleared'); } catch (e) {}
+          await setMetaInDb('demoCleared', false);
           items = makeSampleItems();
           isCustomFolder = false;
         } else if (params.get('clear') === '1') {
-          await clearArchiveFromDb();
+          await clearArchiveFromDb({ keepDemoCleared: true });
           try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (e) {}
+          await setMetaInDb('demoCleared', true);
           items = [];
           rootFolderName = '(No folder opened)';
           isCustomFolder = true;
           selectedId = null;
         } else {
+          setAppLoadingProgress(45, 'Loading photo archive...');
           const savedArchive = await loadArchiveFromDb();
           if (savedArchive && savedArchive.items && savedArchive.items.length > 0) {
             items = savedArchive.items;
@@ -12622,16 +12796,23 @@
         console.warn('Could not restore archive from IndexedDB:', dbErr);
       }
 
+      setAppLoadingProgress(70, 'Restoring family metadata & relatives...');
       mountIcons();
-      restoreCatalogMetadata(items);
+      await restoreCatalogMetadata(items);
+      
+      setAppLoadingProgress(85, 'Rendering photo ledger...');
       render();
+      
       if (typeof initFamilySearchAuth === 'function') {
-        await initFamilySearchAuth();
+        initFamilySearchAuth().catch(() => {});
       }
 
       if (isCustomFolder && items.length > 0) {
         scheduleMetadataExtraction(items);
       }
+
+      setAppLoadingProgress(100, 'Ready!');
+      dismissAppLoadingScreen();
 
       if (window.FamilyHistoryTutorial) {
         window.FamilyHistoryTutorial.init({
