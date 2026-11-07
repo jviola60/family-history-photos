@@ -175,27 +175,28 @@ export async function restoreWithCloudAi(imageSource, settings, onProgress) {
 
       // Prepare input payload tailored to each specific Fal.ai model
       let inputPayload = { image_url: uploadedUrl };
+      const upFactor = typeof currentSettings.upscaleFactor === 'number' ? currentSettings.upscaleFactor : 2;
 
       if (chosenModelId === 'fal-ai/clarity-upscaler') {
         inputPayload = {
           image_url: uploadedUrl,
-          upscale_factor: 2,
+          upscale_factor: Math.min(4, Math.max(1, upFactor)),
           prompt: "masterpiece, highly detailed authentic photograph, natural facial textures, clean eyes, sharp film scan, restored vintage portrait, 4k 8k uhd",
-          resemblance: typeof currentSettings.falResemblance === 'number' ? currentSettings.falResemblance : 0.75,
-          creativity: typeof currentSettings.falCreativity === 'number' ? currentSettings.falCreativity : 0.30,
+          resemblance: typeof currentSettings.falResemblance === 'number' ? currentSettings.falResemblance : 0.78,
+          creativity: typeof currentSettings.falCreativity === 'number' ? currentSettings.falCreativity : 0.28,
           enable_safety_checker: true
         };
       } else if (chosenModelId === 'fal-ai/ccsr') {
         inputPayload = {
           image_url: uploadedUrl,
-          scale: 2
+          scale: Math.min(4, Math.max(1, upFactor))
         };
       } else if (chosenModelId === 'fal-ai/codeformer') {
         inputPayload = {
           image_url: uploadedUrl,
-          fidelity: typeof currentSettings.falFidelity === 'number' ? currentSettings.falFidelity : 0.75,
+          fidelity: typeof currentSettings.falFidelity === 'number' ? currentSettings.falFidelity : 0.72,
           face_upscale: true,
-          upscale_factor: 2
+          upscale_factor: Math.min(4, Math.max(1, upFactor))
         };
       }
 

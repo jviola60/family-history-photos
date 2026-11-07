@@ -3055,6 +3055,7 @@
   <script src="/face-detector.js"></script>
   <script src="/jpeg-metadata-writer.js"></script>
   <script src="/help-tutorial.js"></script>
+  <script type="module" src="/src/ai-bridge.js"></script>
   <script>
     (async () => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
@@ -3250,6 +3251,7 @@
           },
           model: 'gfpgan',
           upscaleTarget: '4k',
+          spotRemove: -1,
           denoise: 62,
           fidelity: 68,
           _pre4kSrc: null,
@@ -3844,7 +3846,9 @@
           restored4k: p.restored4k,
           workingSrc: p.workingSrc,
           _pre4kSrc: p._pre4kSrc || null,
+          model: p.model || 'gfpgan',
           upscaleTarget: p.upscaleTarget || '4k',
+          spotRemove: typeof p.spotRemove === 'number' ? p.spotRemove : -1,
           denoise: typeof p.denoise === 'number' ? p.denoise : 62,
           fidelity: typeof p.fidelity === 'number' ? p.fidelity : 68,
           crop: p.crop,
@@ -7466,12 +7470,13 @@
         };
       }
 
-      /* 1. Multi-Stage 4K Super-Resolution Upscaler & YCbCr Edge-Preserving Grain Denoiser
-         - Always starts from clean pre-4K source so re-running never compounds grain or JPEG artifacts.
-         - Stage 1: Native-resolution dust pinhole repair + neutral-highlight cast defade + YCbCr 5×5 bilateral chroma/grain smoothing.
-         - Stage 2: Progressive stepped bicubic upscaling + Sobel edge-tangent anti-aliasing & clamped slope steepening.
-         - Stage 3: Full-4K Contrast-Adaptive Super-Resolution (CAS) micro-clarity with strict [min, max] halo prevention. */
-      async function runCanvas4KRestore(p, onStageProgress = null) {
+      /* Shared Stage 1 Pre-Processor:
+         1. Fast White-Dot & Vintage Shadow-Fade Pre-Analysis
+         2. Multi-Scale Annular Spot, Dust & Emulsion Dot Inpainter (with Face/Eye/Smile & Pattern Guards)
+         3. Highlight-Safe 1970s–80s Faded Shadow & Dye Recovery + Paper Defade
+         4. Edge-Preserving 5×5 YCbCr Bilateral Grain Denoiser
+         5. Multi-Scale Optical De-Blur (tightens soft 1970s–80s camera lenses before 4K upscaling) */
+      async function prepareCleanedSourceCanvas(p, onStageProgress = null) {
         if (!p.restored4k && p.workingSrc && !p._pre4kSrc) {
           p._pre4kSrc = p.workingSrc;
         }
@@ -7497,40 +7502,404 @@
         const data = srcImgData.data;
         const total = srcW * srcH;
 
-        if (onStageProgress) onStageProgress('1/3 Smoothing grain & cleaning scan...');
+        /* Build Face Eye/Smile Protection Map so spot removal never touches pupils, catchlights, or smiles */
+        const faceGuard = new Uint8Array(total);
+        let faceBoxes = Array.isArray(p.faces) && p.faces.length ? p.faces : [];
+        if (!faceBoxes.length && window.FaceDetectorEngine && typeof window.FaceDetectorEngine.detectFaces === 'function') {
+          try {
+            const detected = await window.FaceDetectorEngine.detectFaces(baseImg);
+            if (Array.isArray(detected) && detected.length) faceBoxes = detected;
+          } catch (_) {}
+        }
+        for (let fi = 0; fi < faceBoxes.length; fi++) {
+          const b = faceBoxes[fi] && faceBoxes[fi].box;
+          if (!b || typeof b.x !== 'number') continue;
+          const fx = Math.max(0, Math.round(b.x * srcW));
+          const fy = Math.max(0, Math.round(b.y * srcH));
+          const fw = Math.max(8, Math.round(b.width * srcW));
+          const fh = Math.max(8, Math.round(b.height * srcH));
+          const xEnd = Math.min(srcW, fx + fw);
+          const yEnd = Math.min(srcH, fy + fh);
+          for (let y = fy; y < yEnd; y++) {
+            const row = y * srcW;
+            const relY = (y - fy) / fh;
+            for (let x = fx; x < xEnd; x++) {
+              const relX = (x - fx) / fw;
+              const inEyes = relX >= 0.12 && relX <= 0.88 && relY >= 0.18 && relY <= 0.50;
+              const inMouth = relX >= 0.22 && relX <= 0.78 && relY >= 0.60 && relY <= 0.88;
+              faceGuard[row + x] = (inEyes || inMouth) ? 2 : 1;
+            }
+          }
+        }
+
+        if (onStageProgress) onStageProgress('1/3 Cleaning white dots, dust & film grain...');
         await new Promise((r) => setTimeout(r, 0));
 
-        /* Stage 1A: True isolated dust speck & pinhole repair (preserves eyes, catchlights & lace) */
-        if (p.scratchesFixed) {
+        /* Pre-analyze luminance, color saturation & shadow fade */
+        const initLum = new Float32Array(total);
+        const initSat = new Uint8Array(total);
+        const histR = new Uint32Array(256);
+        const histG = new Uint32Array(256);
+        const histB = new Uint32Array(256);
+        for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
+          const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
+          initLum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+          const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+          const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+          initSat[i] = mx - mn;
+          histR[r]++;
+          histG[g]++;
+          histB[b]++;
+        }
+
+        /* Fast 3ms scan for isolated vintage white dots / snow specks / emulsion pitting */
+        const probeR = Math.max(2, Math.round(Math.max(srcW, srcH) / 180));
+        const pdx = new Int32Array(16);
+        const pdy = new Int32Array(16);
+        for (let k = 0; k < 16; k++) {
+          pdx[k] = Math.round(Math.cos((k * Math.PI) / 8) * probeR);
+          pdy[k] = Math.round(Math.sin((k * Math.PI) / 8) * probeR);
+        }
+        let probeDots = 0;
+        let probeSamples = 0;
+        for (let y = probeR; y < srcH - probeR; y += 2) {
+          for (let x = probeR; x < srcW - probeR; x += 2) {
+            probeSamples++;
+            const idx = y * srcW + x;
+            const c = initLum[idx];
+            if (c < 135 || initSat[idx] > 30) continue;
+            const cut = c - 38;
+            let br = 0, sLow = 0, cLow = 0;
+            for (let k = 0; k < 16; k++) {
+              const v = initLum[(y + pdy[k]) * srcW + (x + pdx[k])];
+              if (v >= cut) {
+                br++;
+                if (br > 2) break;
+              } else {
+                sLow += v;
+                cLow++;
+              }
+            }
+            if (br <= 2 && cLow > 0 && (sLow / cLow) < 115) probeDots++;
+          }
+        }
+        const whiteDotPct = probeSamples > 0 ? (probeDots / probeSamples) * 100 : 0;
+        const isVintageProfile = p.model === 'vintage80s';
+        const isAutoSpotted = isVintageProfile || whiteDotPct >= 0.12;
+
+        const userSpot = typeof p.spotRemove === 'number' ? p.spotRemove : -1;
+        const effectiveSpot = !p.scratchesFixed && userSpot <= 0
+          ? 0
+          : (userSpot >= 0
+            ? userSpot
+            : (isVintageProfile ? 88 : (isAutoSpotted ? 84 : 20)));
+
+        let spotsHealed = 0;
+
+        /* Stage 1A: Adaptive Dust Pinhole OR Multi-Scale Vintage White-Dot & Emulsion Spot Inpainter */
+        if (effectiveSpot > 0 && effectiveSpot <= 30) {
           const copy = new Uint8ClampedArray(data);
           for (let y = 1; y < srcH - 1; y++) {
             for (let x = 1; x < srcW - 1; x++) {
-              const idx = (y * srcW + x) * 4;
-              const cLum = (copy[idx] * 77 + copy[idx + 1] * 150 + copy[idx + 2] * 29) >> 8;
+              const idx = y * srcW + x;
+              if (faceGuard[idx] === 2 || initSat[idx] > 32) continue;
+              const cLum = initLum[idx];
               let minL = 255, maxL = 0, sr = 0, sg = 0, sb = 0;
               for (let ky = -1; ky <= 1; ky++) {
                 const rOff = (y + ky) * srcW + x;
                 for (let kx = -1; kx <= 1; kx++) {
                   if (kx === 0 && ky === 0) continue;
-                  const n = (rOff + kx) * 4;
-                  const nl = (copy[n] * 77 + copy[n + 1] * 150 + copy[n + 2] * 29) >> 8;
+                  const n = rOff + kx;
+                  const nl = initLum[n];
                   if (nl < minL) minL = nl;
                   if (nl > maxL) maxL = nl;
-                  sr += copy[n];
-                  sg += copy[n + 1];
-                  sb += copy[n + 2];
+                  const pOff = n * 4;
+                  sr += copy[pOff];
+                  sg += copy[pOff + 1];
+                  sb += copy[pOff + 2];
                 }
               }
-              if ((maxL - minL) < 52 && (cLum > maxL + 28 || cLum < minL - 28)) {
-                data[idx] = sr >> 3;
-                data[idx + 1] = sg >> 3;
-                data[idx + 2] = sb >> 3;
+              if ((maxL - minL) < 48 && (cLum > maxL + 28 || cLum < minL - 28)) {
+                const pOff = idx * 4;
+                data[pOff] = sr >> 3;
+                data[pOff + 1] = sg >> 3;
+                data[pOff + 2] = sb >> 3;
+                spotsHealed++;
               }
+            }
+          }
+        } else if (effectiveSpot > 30) {
+          if (onStageProgress) onStageProgress('1/3 Healing vintage white dots, specks & dust...');
+          await new Promise((r) => setTimeout(r, 0));
+
+          const unit = Math.max(1, Math.round(Math.max(srcW, srcH) / 650));
+          const radii = [2 * unit, 3 * unit];
+          if (effectiveSpot >= 45) radii.push(4 * unit);
+          if (effectiveSpot >= 75) radii.push(5 * unit);
+
+          const ringTables = radii.map((R) => {
+            const dxR = new Int32Array(16), dyR = new Int32Array(16);
+            const dxM = new Int32Array(16), dyM = new Int32Array(16);
+            for (let k = 0; k < 16; k++) {
+              const ang = (k * Math.PI) / 8;
+              dxR[k] = Math.round(Math.cos(ang) * R);
+              dyR[k] = Math.round(Math.sin(ang) * R);
+              dxM[k] = Math.round(Math.cos(ang) * R * 0.52);
+              dyM[k] = Math.round(Math.sin(ang) * R * 0.52);
+            }
+            return { R, dxR, dyR, dxM, dyM };
+          });
+
+          const spotMask = new Uint8Array(total);
+          const bgEst = new Float32Array(total);
+          bgEst.set(initLum);
+
+          const baseThresh = Math.max(14, 35 - (effectiveSpot / 100) * 19);
+          const ringVals = new Float32Array(16);
+          const sorted = new Float32Array(16);
+          const maxR = radii[radii.length - 1];
+          const d2 = 2 * unit;
+
+          for (let y = maxR + 1; y < srcH - maxR - 1; y++) {
+            const row = y * srcW;
+            for (let x = maxR + 1; x < srcW - maxR - 1; x++) {
+              const idx = row + x;
+              const fg = faceGuard[idx];
+              if (fg === 2) continue;
+              const cLum = initLum[idx];
+              if (cLum < baseThresh + 12) continue;
+              const cSat = initSat[idx];
+              if (cSat > 46) continue;
+
+              const pOff = idx * 4;
+              const r0 = data[pOff], g0 = data[pOff + 1], b0 = data[pOff + 2];
+              const isSkinTone = fg === 1 || ((r0 >= g0 + 5) && (r0 >= b0 + 4) && cLum > 110 && cLum < 238);
+              const innerAvg = 0.25 * (initLum[idx - d2] + initLum[idx + d2] + initLum[idx - d2 * srcW] + initLum[idx + d2 * srcW]);
+              const isBroadSmoothDome = (cLum - innerAvg) < 6 && cLum > 145;
+
+              for (let ri = 0; ri < ringTables.length; ri++) {
+                const { R, dxR, dyR, dxM, dyM } = ringTables[ri];
+                if ((isSkinTone || isBroadSmoothDome) && R > 3 * unit) continue;
+                const localThresh = baseThresh + (isSkinTone ? 12 : 0) + (cSat > 30 ? 10 : 0);
+                const cut = cLum - localThresh;
+                if (cut <= 4) continue;
+
+                let bright = 0;
+                for (let k = 0; k < 16; k++) {
+                  const v = initLum[(y + dyR[k]) * srcW + (x + dxR[k])];
+                  ringVals[k] = v;
+                  if (v >= cut) {
+                    bright++;
+                    if (bright > 3) break;
+                  }
+                }
+                if (bright > 3) continue;
+
+                sorted.set(ringVals);
+                for (let a = 1; a < 16; a++) {
+                  const v = sorted[a];
+                  let b = a - 1;
+                  while (b >= 0 && sorted[b] > v) {
+                    sorted[b + 1] = sorted[b];
+                    b--;
+                  }
+                  sorted[b + 1] = v;
+                }
+                const q75 = sorted[12];
+                const med = sorted[6];
+                const bridgeCut = q75 + (cLum - q75) * 0.40;
+                let bridgeBits = 0;
+                let bridgeCount = 0;
+                for (let k = 0; k < 16; k++) {
+                  if (ringVals[k] > bridgeCut && initLum[(y + dyM[k]) * srcW + (x + dxM[k])] > bridgeCut) {
+                    bridgeBits |= (1 << k);
+                    bridgeCount++;
+                  }
+                }
+                let isContinuous = bridgeCount >= 3;
+                if (!isContinuous && bridgeCount >= 2) {
+                  for (let k = 0; k < 16; k++) {
+                    if (bridgeBits & (1 << k)) {
+                      if (bridgeBits & ((1 << ((k + 1) & 15)) | (1 << ((k + 7) & 15)) | (1 << ((k + 8) & 15)) | (1 << ((k + 9) & 15)))) {
+                        isContinuous = true;
+                        break;
+                      }
+                    }
+                  }
+                }
+                if (!isContinuous) {
+                  spotMask[idx] = 1;
+                  bgEst[idx] = med;
+                  break;
+                }
+              }
+            }
+          }
+
+          /* Expand mask into soft blurry JPEG/lens halos around detected white dots */
+          for (let pass = 0; pass < 2 * unit; pass++) {
+            const prevMask = new Uint8Array(spotMask);
+            for (let y = 2; y < srcH - 2; y++) {
+              const row = y * srcW;
+              for (let x = 2; x < srcW - 2; x++) {
+                const idx = row + x;
+                if (prevMask[idx] || faceGuard[idx] === 2) continue;
+                let nearBgSum = 0, nearCount = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                  for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const n = (y + dy) * srcW + (x + dx);
+                    if (prevMask[n]) {
+                      nearBgSum += bgEst[n];
+                      nearCount++;
+                    }
+                  }
+                }
+                if (nearCount > 0) {
+                  const refBg = nearBgSum / nearCount;
+                  const haloGap = faceGuard[idx] === 1 ? 16 : 9;
+                  if (initLum[idx] > refBg + haloGap && refBg < 198 && initSat[idx] < 40) {
+                    spotMask[idx] = 1;
+                    bgEst[idx] = refBg;
+                  }
+                }
+              }
+            }
+          }
+
+          const everHealed = new Uint8Array(spotMask);
+          for (let i = 0; i < total; i++) {
+            if (spotMask[i]) spotsHealed++;
+          }
+
+          /* Onion-peel inward median/trimmed-mean inpainting from clean surrounding fabric/hair/skin */
+          const maxPeel = maxR + 4 * unit;
+          const rList = new Uint8Array(49), gList = new Uint8Array(49), bList = new Uint8Array(49);
+          const lList = new Float32Array(49), order = new Uint8Array(49);
+
+          for (let iter = 0; iter < maxPeel; iter++) {
+            let remaining = 0;
+            const nextMask = new Uint8Array(spotMask);
+            const snap = new Uint8ClampedArray(data);
+            for (let y = 3; y < srcH - 3; y++) {
+              const row = y * srcW;
+              for (let x = 3; x < srcW - 3; x++) {
+                const idx = row + x;
+                if (!spotMask[idx]) continue;
+                let cnt = 0;
+                for (let dy = -2; dy <= 2; dy++) {
+                  const nr = (y + dy) * srcW;
+                  for (let dx = -2; dx <= 2; dx++) {
+                    const n = nr + (x + dx);
+                    if (!spotMask[n]) {
+                      const pOff = n * 4;
+                      rList[cnt] = snap[pOff];
+                      gList[cnt] = snap[pOff + 1];
+                      bList[cnt] = snap[pOff + 2];
+                      lList[cnt] = 0.299 * snap[pOff] + 0.587 * snap[pOff + 1] + 0.114 * snap[pOff + 2];
+                      order[cnt] = cnt;
+                      cnt++;
+                    }
+                  }
+                }
+                if (cnt >= 4 || (iter >= maxPeel - 2 && cnt >= 1)) {
+                  for (let a = 1; a < cnt; a++) {
+                    const oi = order[a], lv = lList[oi];
+                    let b = a - 1;
+                    while (b >= 0 && lList[order[b]] > lv) {
+                      order[b + 1] = order[b];
+                      b--;
+                    }
+                    order[b + 1] = oi;
+                  }
+                  const lo = Math.floor(cnt * 0.22);
+                  const hi = Math.max(lo + 1, Math.ceil(cnt * 0.62));
+                  let sr = 0, sg = 0, sb = 0, sc = 0;
+                  for (let k = lo; k < hi; k++) {
+                    const oi = order[k];
+                    sr += rList[oi];
+                    sg += gList[oi];
+                    sb += bList[oi];
+                    sc++;
+                  }
+                  const pOff = idx * 4;
+                  data[pOff] = Math.round(sr / sc);
+                  data[pOff + 1] = Math.round(sg / sc);
+                  data[pOff + 2] = Math.round(sb / sc);
+                  nextMask[idx] = 0;
+                } else {
+                  remaining++;
+                }
+              }
+            }
+            spotMask.set(nextMask);
+            if (remaining === 0) break;
+          }
+
+          /* Feather ONLY healed spot patches so repaired dark suits & hair blend seamlessly */
+          const postSnap = new Uint8ClampedArray(data);
+          for (let y = 1; y < srcH - 1; y++) {
+            const row = y * srcW;
+            for (let x = 1; x < srcW - 1; x++) {
+              const idx = row + x;
+              if (!everHealed[idx]) continue;
+              let sr = 0, sg = 0, sb = 0;
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const pOff = ((y + dy) * srcW + (x + dx)) * 4;
+                  sr += postSnap[pOff];
+                  sg += postSnap[pOff + 1];
+                  sb += postSnap[pOff + 2];
+                }
+              }
+              const pOff = idx * 4;
+              data[pOff] = Math.round(sr / 9);
+              data[pOff + 1] = Math.round(sg / 9);
+              data[pOff + 2] = Math.round(sb / 9);
             }
           }
         }
 
-        /* Stage 1B: Smart neutral-paper yellowed cast defade (ignores blue skies/studio backdrops so skin never turns orange) */
+        /* Stage 1B: 1970s–80s Faded Shadow & Warm Dye Cast Recovery (Highlight-Safe, Foliage-Safe) */
+        const pctHist = (h, q) => {
+          const tgt = total * q;
+          let s = 0;
+          for (let v = 0; v < 256; v++) {
+            s += h[v];
+            if (s >= tgt) return v;
+          }
+          return 255;
+        };
+        const p2R = pctHist(histR, 0.02), p2G = pctHist(histG, 0.02), p2B = pctHist(histB, 0.02);
+        const p25R = pctHist(histR, 0.25), p25G = pctHist(histG, 0.25), p25B = pctHist(histB, 0.25);
+        const hasVintageWarmFade = isVintageProfile || p.tone.defade || (p2R > 24 && p2G > 15 && (p2R >= p2G + 6) && isAutoSpotted);
+
+        if (hasVintageWarmFade) {
+          const fadeStrength = isVintageProfile ? 0.74 : (p.tone.defade ? 0.65 : 0.52);
+          const targetBlack = Math.min(Math.min(p2R, p2G, p2B), 12);
+          const dropR = Math.max(0, (p2R - targetBlack) * fadeStrength);
+          const dropG = Math.max(0, (p2G - targetBlack) * fadeStrength);
+          const dropB = Math.max(0, (p2B - targetBlack) * fadeStrength);
+          /* Only neutralize aged warm red/brown cyan-dye fade in midtones (never subtract green from park foliage) */
+          const baseMid = (p25G + p25B) * 0.5;
+          const redExcess = Math.max(0, Math.min(18, (p25R - baseMid) * 0.45));
+          for (let i = 0; i < total * 4; i += 4) {
+            for (let c = 0; c < 3; c++) {
+              const v = data[i + c];
+              const n = v / 255;
+              const shW = Math.pow(1 - n, 1.5);
+              const midW = 4 * n * (1 - n) * (1 - n * 0.55);
+              const drop = c === 0 ? dropR : (c === 1 ? dropG : dropB);
+              const cast = c === 0 ? redExcess * 0.65 : -redExcess * 0.20;
+              const val = v - drop * shW - cast * midW;
+              const u = Math.max(0, Math.min(1, val / 255));
+              const sc = u < 0.84 ? u - 0.036 * Math.sin((u / 0.84) * Math.PI * 2) : u;
+              data[i + c] = Math.max(0, Math.min(255, Math.round(sc * 255)));
+            }
+          }
+        }
+
+        /* Neutral yellowed paper highlight defade when explicitly requested */
         if (p.tone.defade) {
           let sumR = 0, sumG = 0, sumB = 0, countN = 0;
           for (let i = 0; i < total * 4; i += 4) {
@@ -7546,10 +7915,7 @@
             }
           }
           if (countN > total * 0.025) {
-            const avgR = sumR / countN;
-            const avgG = sumG / countN;
-            const avgB = sumB / countN;
-            /* Only correct aged warm/yellow/magenta cast on neutral highlights, clamped gently */
+            const avgR = sumR / countN, avgG = sumG / countN, avgB = sumB / countN;
             if (avgR > avgB + 4 || avgG > avgB + 4) {
               const gray = (avgR + avgG + avgB) / 3;
               const gainR = Math.max(0.93, Math.min(1.06, 1 + ((gray / avgR) - 1) * 0.35));
@@ -7591,7 +7957,7 @@
             Cb[i] = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
             Cr[i] = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
           }
-          const modelSmoothBonus = p.model === 'gfpgan' ? 2.2 : 0;
+          const modelSmoothBonus = (p.model === 'gfpgan' || isVintageProfile) ? 2.2 : 0;
           const sigY = Math.max(2.5, (denoiseVal / 100) * 14.5 + modelSmoothBonus + (p.descreen ? 8.5 : 0));
           const sigC = Math.max(10.0, 14.0 + (denoiseVal / 100) * 18.0 + (p.descreen ? 8.0 : 0));
           const lutY = new Float32Array(256);
@@ -7623,11 +7989,9 @@
                   const y1 = Y[j];
                   const ad = Math.min(255, (y0 > y1 ? (y0 - y1) : (y1 - y0)) | 0);
                   const sp = spWeights[k];
-                  if (denoiseVal > 0 || p.descreen) {
-                    const wy = sp * lutY[ad];
-                    sumY += y1 * wy;
-                    wSumY += wy;
-                  }
+                  const wy = sp * lutY[ad];
+                  sumY += y1 * wy;
+                  wSumY += wy;
                   const wc = sp * lutC[ad];
                   sumCb += Cb[j] * wc;
                   sumCr += Cr[j] * wc;
@@ -7645,7 +8009,114 @@
           }
         }
 
+        /* Stage 1E: Multi-Scale Optical De-Blur at Source Resolution
+           Recovers soft 1970s–80s camera focus (eyes, eyebrows, smiles, coat lapels) BEFORE 4K upscaling! */
+        const fidelityVal = typeof p.fidelity === 'number' ? p.fidelity : 68;
+        if (fidelityVal > 15) {
+          const lum = new Float32Array(total);
+          for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
+            lum[i] = 0.299 * data[pOff] + 0.587 * data[pOff + 1] + 0.114 * data[pOff + 2];
+          }
+          const sepBlur = (src, rad) => {
+            const tmp = new Float32Array(total);
+            const out = new Float32Array(total);
+            const sig = rad * 0.52;
+            const weights = [];
+            let wSum = 0;
+            for (let k = -rad; k <= rad; k++) {
+              const w = Math.exp(-(k * k) / (2 * sig * sig));
+              weights.push(w);
+              wSum += w;
+            }
+            for (let i = 0; i < weights.length; i++) weights[i] /= wSum;
+            for (let y = 0; y < srcH; y++) {
+              const row = y * srcW;
+              for (let x = 0; x < srcW; x++) {
+                let s = 0;
+                for (let k = -rad; k <= rad; k++) {
+                  const xx = x + k < 0 ? 0 : (x + k >= srcW ? srcW - 1 : x + k);
+                  s += src[row + xx] * weights[k + rad];
+                }
+                tmp[row + x] = s;
+              }
+            }
+            for (let y = 0; y < srcH; y++) {
+              const row = y * srcW;
+              for (let x = 0; x < srcW; x++) {
+                let s = 0;
+                for (let k = -rad; k <= rad; k++) {
+                  const yy = y + k < 0 ? 0 : (y + k >= srcH ? srcH - 1 : y + k);
+                  s += tmp[yy * srcW + x] * weights[k + rad];
+                }
+                out[row + x] = s;
+              }
+            }
+            return out;
+          };
+
+          const deblurBoost = (isVintageProfile || isAutoSpotted) ? 1.18 : 0.72;
+          const fScale = (fidelityVal / 100) * deblurBoost;
+          const blurFine = sepBlur(lum, 2);
+          const blurMeso = sepBlur(lum, 4);
+
+          for (let y = 3; y < srcH - 3; y++) {
+            const row = y * srcW;
+            for (let x = 3; x < srcW - 3; x++) {
+              const idx = row + x;
+              const c = lum[idx];
+              let mn = c, mx = c;
+              for (let dy = -2; dy <= 2; dy++) {
+                const nr = (y + dy) * srcW + x;
+                for (let dx = -2; dx <= 2; dx++) {
+                  const v = lum[nr + dx];
+                  if (v < mn) mn = v;
+                  if (v > mx) mx = v;
+                }
+              }
+              const span = mx - mn;
+              if (span < 10) continue;
+              const gate = Math.min(1, (span - 10) / 24);
+              const dFine = (c - blurFine[idx]) * 0.44 * fScale * gate;
+              const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.34 * fScale * gate;
+              let ny = c + dFine + dMeso;
+              const loClamp = Math.max(0, mn - 2);
+              const hiClamp = Math.min(252, mx + 2);
+              if (ny < loClamp) ny = loClamp;
+              if (ny > hiClamp) ny = hiClamp;
+              const d = ny - c;
+              const pOff = idx * 4;
+              data[pOff] = Math.max(0, Math.min(255, Math.round(data[pOff] + d)));
+              data[pOff + 1] = Math.max(0, Math.min(255, Math.round(data[pOff + 1] + d)));
+              data[pOff + 2] = Math.max(0, Math.min(255, Math.round(data[pOff + 2] + d)));
+            }
+          }
+        }
+
         srcCtx.putImageData(srcImgData, 0, 0);
+        return {
+          srcCanvas,
+          natW,
+          natH,
+          srcW,
+          srcH,
+          spotsHealed,
+          isAutoSpotted,
+          hasVintageWarmFade
+        };
+      }
+
+      /* 1A. Built-in Multi-Stage 4K Super-Resolution Upscaler & Vintage Print Restorer */
+      async function runCanvas4KRestore(p, onStageProgress = null) {
+        const {
+          srcCanvas,
+          natW,
+          natH,
+          srcW,
+          srcH,
+          spotsHealed,
+          isAutoSpotted,
+          hasVintageWarmFade
+        } = await prepareCleanedSourceCanvas(p, onStageProgress);
 
         /* Stage 2: Progressive Multi-Step Super-Resolution Pixel Upscaling */
         const upMode = p.upscaleTarget || '4k';
@@ -7699,7 +8170,6 @@
               const gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl);
               const gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr);
               const magSq = gx * gx + gy * gy;
-              /* Skip smooth skin, sky & fabric completely so grain is never amplified */
               if (magSq < 324) continue;
               const mag = Math.sqrt(magSq);
               const tx = (-gy / mag) * 0.85;
@@ -7756,7 +8226,7 @@
           }
 
           const spanMin = p.model === 'gfpgan' ? 12 : (p.model === 'fal' ? 9 : 10);
-          const baseCasGain = p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.36);
+          const baseCasGain = p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.38);
           const casGain = baseCasGain * (0.45 + (fidelityVal / 100) * 0.85);
           const w2 = outW * 2;
 
@@ -7810,11 +8280,83 @@
         p.width = outW;
         p.height = outH;
         const label = upMode === '1x'
-          ? 'Denoised & Restored'
+          ? 'Dots & Grain Cleaned'
           : (upMode === '2x'
             ? '2× Super-Res'
-            : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res')));
+            : ((p.model === 'vintage80s' || isAutoSpotted)
+              ? '4K Vintage Restore'
+              : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res'))));
         addEditLabel(p, label);
+        return { spotsHealed, isAutoSpotted, hasVintageWarmFade };
+      }
+
+      /* 1B. Deep Neural AI Face & 4K Reconstruction (Pre-cleans white dots & fade FIRST, then runs CodeFormer / Clarity GPU AI) */
+      async function runDeepAi4KRestore(p, aiMode = 'cloud', onStageProgress = null) {
+        const bridge = window.ArchivalAiBridge;
+        if (!bridge) {
+          throw new Error('Neural AI module is still loading. Please try again in a moment.');
+        }
+
+        /* Step 1: Clean white dots, dust spots & vintage fade locally FIRST so AI never sharpens dust specks! */
+        const { srcCanvas, natW, natH, spotsHealed } = await prepareCleanedSourceCanvas(p, onStageProgress);
+        const upMode = p.upscaleTarget || '4k';
+        const { outW, outH } = computeUpscaleTargetDims(natW, natH, upMode);
+
+        const cleanedBlob = await new Promise((resolve) => srcCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95));
+        const cleanedUrl = URL.createObjectURL(cleanedBlob);
+
+        try {
+          let aiResultUrl = null;
+          let badgeLabel = '4K Neural AI';
+
+          if (aiMode === 'local') {
+            if (onStageProgress) onStageProgress('2/3 Rebuilding faces & 4K detail on Local AI...');
+            const res = await bridge.restoreWithLocalAi(cleanedUrl, {
+              faceModel: 'codeformer',
+              fidelity: Math.max(0.45, Math.min(0.92, (p.fidelity || 68) / 100)),
+              repairScratches: false,
+              restoreColor: false,
+              upscale: upMode !== '1x'
+            }, onStageProgress);
+            aiResultUrl = res.url;
+            badgeLabel = '4K Local AI';
+          } else {
+            const saved = bridge.getAiSettings();
+            const chosenModel = saved.falModel || 'fal-ai/codeformer';
+            const upFactor = upMode === '4k' ? 4 : (upMode === '2x' ? 2 : 1);
+            const res = await bridge.restoreWithCloudAi(cleanedUrl, {
+              ...saved,
+              provider: 'fal',
+              falModel: chosenModel,
+              upscaleFactor: upFactor,
+              falFidelity: 0.72,
+              falResemblance: 0.80,
+              falCreativity: 0.28
+            }, onStageProgress);
+            aiResultUrl = res.url;
+            badgeLabel = chosenModel.includes('codeformer') ? '4K AI Face Rebuild' : '4K Clarity AI';
+          }
+
+          if (onStageProgress) onStageProgress(`3/3 Finalizing ${outW}×${outH} 4K print...`);
+          const aiImg = await loadImageElement(aiResultUrl);
+          const outCanvas = document.createElement('canvas');
+          outCanvas.width = outW;
+          outCanvas.height = outH;
+          const outCtx = outCanvas.getContext('2d');
+          outCtx.imageSmoothingEnabled = true;
+          outCtx.imageSmoothingQuality = 'high';
+          outCtx.drawImage(aiImg, 0, 0, outW, outH);
+
+          pushSnapshot(p);
+          await canvasToWorkingUrl(outCanvas, p, 0.95, false);
+          p.restored4k = upMode !== '1x';
+          p.width = outW;
+          p.height = outH;
+          addEditLabel(p, badgeLabel);
+          return { spotsHealed, badgeLabel };
+        } finally {
+          try { URL.revokeObjectURL(cleanedUrl); } catch (_) {}
+        }
       }
 
       /* 2. Real Canvas B&W-to-Color Archival Colorizer */
@@ -8395,9 +8937,11 @@
       function renderLabToolBody(p) {
         const body = document.getElementById('lab-tool-body');
 
-        /* TAB 1: 4K SUPER-RESOLUTION UPSCALE & SMOOTH GRAIN RESTORATION */
+        /* TAB 1: 4K SUPER-RESOLUTION UPSCALE, VINTAGE WHITE-DOT INPAINT & AI FACE REBUILD */
         if (activeTool === 'restore') {
           const upTarget = p.upscaleTarget || '4k';
+          const spotVal = typeof p.spotRemove === 'number' ? p.spotRemove : -1;
+          const spotSliderPos = spotVal >= 0 ? spotVal : (p.model === 'vintage80s' ? 88 : 55);
           const denoiseVal = typeof p.denoise === 'number' ? p.denoise : 62;
           const fidelityVal = typeof p.fidelity === 'number' ? p.fidelity : 68;
           const baseW = p.origWidth || p.width || 1200;
@@ -8407,12 +8951,24 @@
           const targetMp = ((targetW * targetH) / 1e6).toFixed(1);
           const addedPixelsM = Math.max(0, ((targetW * targetH) - (baseW * baseH)) / 1e6).toFixed(1);
 
+          const bridge = window.ArchivalAiBridge;
+          const aiSaved = bridge ? bridge.getAiSettings() : { falApiKey: '', falModel: 'fal-ai/codeformer' };
+          const hasFalKey = Boolean(aiSaved && aiSaved.falApiKey && String(aiSaved.falApiKey).trim());
+          const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
+
           body.innerHTML = `
-            <p class="muted" style="font-size:12px;margin-bottom:8px;">Smooths film grain &amp; compression noise first, then upscales with edge-guided super-resolution to add clean, natural pixels without harsh halos.</p>
+            <p class="muted" style="font-size:12px;margin-bottom:8px;">Erases white dots &amp; dust specks first, restores faded 1970s–80s shadows, de-blurs soft lenses, and adds clean 4K super-resolution pixels.</p>
+            <div class="field" style="margin-top:0;margin-bottom:10px;">
+              <label>Quick 1-Click Photo Mode</label>
+              <div class="preset-grid-2">
+                <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow/dust specks, faded brown blacks, and soft camera focus">🕰️ 1970s–80s Spotted Print</button>
+                <button class="btn sm ${p.model !== 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans (Smart Auto still heals heavy dots if detected)">✨ Smart Portrait 4K</button>
+              </div>
+            </div>
             <div style="padding:8px 10px;border-radius:7px;background:var(--raised);border:1px solid var(--border);margin-bottom:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
               <div>
                 <div style="font-weight:700;color:var(--text);" id="upscale-readout-dims">${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span></div>
-                <div class="muted" style="font-size:11px;margin-top:2px;" id="upscale-readout-note">${Number(addedPixelsM) > 0 ? `+${addedPixelsM} million clean pixels added · zero compounding grain` : 'Native dimensions · grain cleanup & clarity pass'}</div>
+                <div class="muted" style="font-size:11px;margin-top:2px;" id="upscale-readout-note">${Number(addedPixelsM) > 0 ? `+${addedPixelsM} million clean pixels · dots & grain cleaned BEFORE upscaling` : 'Native dimensions · dot removal, grain cleanup & de-blur pass'}</div>
               </div>
             </div>
             <div class="field" style="margin-top:0;">
@@ -8420,34 +8976,77 @@
               <select id="lab-upscale-target">
                 <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Add pixels up to 3840 px (Recommended)</option>
                 <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double width &amp; height (4× pixels)</option>
-                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size (1×) — Smooth grain &amp; restore clarity only</option>
+                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size (1×) — Erase dots, smooth grain &amp; de-blur only</option>
               </select>
             </div>
             <div class="field" style="margin-top:8px;">
               <label for="lab-model">Restoration profile</label>
               <select id="lab-model">
+                <option value="vintage80s" ${p.model === 'vintage80s' ? 'selected' : ''}>1970s–80s Vintage Print — Heavy white-dot erase + fade &amp; focus fix</option>
                 <option value="gfpgan" ${p.model === 'gfpgan' ? 'selected' : ''}>Portrait &amp; Faces — Silky skin + crisp eyes &amp; hair</option>
                 <option value="codeformer" ${p.model === 'codeformer' ? 'selected' : ''}>Balanced Family Print — Smooth grain + natural detail</option>
                 <option value="fal" ${p.model === 'fal' ? 'selected' : ''}>High-Definition Clarity — Crisp group &amp; scenery detail</option>
               </select>
             </div>
             <div class="slider-row">
+              <div class="slider-head">
+                <span>Erase white dots, dust &amp; snow spots</span>
+                <span class="mono" style="display:inline-flex;align-items:center;gap:6px;">
+                  <span id="val-spot">${spotVal < 0 ? 'Smart Auto' : `${spotVal}%`}</span>
+                  <button type="button" id="btn-spot-auto" style="display:${spotVal < 0 ? 'none' : 'inline-block'};font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;">Auto</button>
+                </span>
+              </div>
+              <input type="range" id="rng-spot" min="0" max="100" value="${spotSliderPos}">
+            </div>
+            <div class="slider-row">
               <div class="slider-head"><span>Smooth grain &amp; JPEG noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
               <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
             </div>
             <div class="slider-row">
-              <div class="slider-head"><span>Edge &amp; face detail crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
+              <div class="slider-head"><span>Optical de-blur &amp; face crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
               <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
             </div>
             <div style="margin-top:10px;">
-              <label class="check-row"><span>Repair dust &amp; silvering specks</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
-              <label class="check-row"><span>Defade yellowed paper cast</span><input type="checkbox" id="chk-defade" ${p.tone.defade ? 'checked' : ''}></label>
+              <label class="check-row"><span>Repair dust &amp; emulsion pits</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
+              <label class="check-row"><span>Defade 1970s–80s cast &amp; shadows</span><input type="checkbox" id="chk-defade" ${(p.tone.defade || p.model === 'vintage80s') ? 'checked' : ''}></label>
               <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
               <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
             </div>
             <button class="btn accent" type="button" id="btn-run-4k" style="width:100%;margin-top:12px;">
-              ${p.restored4k ? `✨ Re-run Clean Upscale (${targetW}×${targetH})` : `✨ Upscale & Restore to ${targetW}×${targetH}`}
+              ${p.restored4k ? `✨ Re-run Clean 4K Restore (${targetW}×${targetH})` : `✨ Clean Dots & Upscale to ${targetW}×${targetH}`}
             </button>
+
+            <details id="ai-deep-panel" ${hasFalKey ? 'open' : ''} style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);">
+              <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text);user-select:none;">
+                🧠 Very Blurry Faces? Deep AI Face &amp; 4K Rebuild ${hasFalKey ? '<span style="color:var(--positive);font-weight:700;">· Ready</span>' : '<span class="muted" style="font-weight:400;">(Optional)</span>'}
+              </summary>
+              <div style="margin-top:8px;font-size:11.5px;line-height:1.45;">
+                <p class="muted" style="margin:0 0 8px 0;">Adding pixels alone cannot invent missing eyes or eyelashes on out-of-focus 1980s photos. Deep AI cleans all white dots first, then uses GPU neural networks (<strong>CodeFormer</strong> / <strong>Clarity 4K</strong>) to rebuild blurry faces.</p>
+                <div id="local-ai-banner" style="display:none;margin-bottom:8px;padding:6px 8px;border-radius:6px;background:var(--pill-positive-bg);color:var(--pill-positive-ink);font-size:11px;">
+                  ✓ Offline Local AI Server detected on port 8008!
+                  <button class="btn sm" type="button" id="btn-run-local-ai" style="width:100%;margin-top:6px;">⚡ Run Offline Local AI Face &amp; 4K Rebuild</button>
+                </div>
+                <div class="field" style="margin-top:4px;">
+                  <label for="ai-cloud-model">Cloud AI GPU Model (Fal.ai)</label>
+                  <select id="ai-cloud-model">
+                    <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Rebuild Blurry Group &amp; Portrait Faces (~$0.002/photo)</option>
+                    <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative 4K Photo Detail (~$0.015/photo)</option>
+                    <option value="fal-ai/ccsr" ${selFalModel === 'fal-ai/ccsr' ? 'selected' : ''}>CCSR — Full-Photo 4K Super-Resolution (~$0.005/photo)</option>
+                  </select>
+                </div>
+                <div class="field" style="margin-top:6px;">
+                  <label for="ai-fal-key">Fal.ai API Key <span class="muted" style="font-weight:400;">(saved privately in your browser)</span></label>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" id="ai-fal-key" placeholder="Key_ID:Key_Secret from fal.ai/dashboard/keys" value="${esc(aiSaved.falApiKey || '')}" style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;">
+                    <button class="btn sm" type="button" id="btn-test-fal">Verify</button>
+                  </div>
+                  <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
+                </div>
+                <button class="btn primary" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
+                  🧠 Clean White Dots + AI Rebuild Faces to 4K
+                </button>
+              </div>
+            </details>
           `;
 
           const refreshUpscaleReadout = () => {
@@ -8464,18 +9063,56 @@
             }
             if (noteEl) {
               noteEl.textContent = Number(addM) > 0
-                ? `+${addM} million clean pixels added · zero compounding grain`
-                : 'Native dimensions · grain cleanup & clarity pass';
+                ? `+${addM} million clean pixels · dots & grain cleaned BEFORE upscaling`
+                : 'Native dimensions · dot removal, grain cleanup & de-blur pass';
             }
             if (runBtn && !runBtn.disabled) {
               runBtn.textContent = p.restored4k
-                ? `✨ Re-run Clean Upscale (${tw}×${th})`
-                : `✨ Upscale & Restore to ${tw}×${th}`;
+                ? `✨ Re-run Clean 4K Restore (${tw}×${th})`
+                : `✨ Clean Dots & Upscale to ${tw}×${th}`;
             }
           };
 
+          body.querySelector('#btn-preset-vintage80s').onclick = () => {
+            p.model = 'vintage80s';
+            p.spotRemove = 88;
+            p.denoise = 68;
+            p.fidelity = 78;
+            p.scratchesFixed = true;
+            p.tone.defade = true;
+            renderLabToolBody(p);
+            notify('Selected 1970s–80s Spotted Print mode — click "Clean Dots & Upscale" below!');
+          };
+          body.querySelector('#btn-preset-cleanport').onclick = () => {
+            p.model = 'gfpgan';
+            p.spotRemove = -1;
+            p.denoise = 62;
+            p.fidelity = 68;
+            p.tone.defade = false;
+            renderLabToolBody(p);
+          };
+
           body.querySelector('#lab-upscale-target').onchange = refreshUpscaleReadout;
-          body.querySelector('#lab-model').onchange = (e) => { p.model = e.target.value; };
+          body.querySelector('#lab-model').onchange = (e) => {
+            p.model = e.target.value;
+            if (p.model === 'vintage80s' && (typeof p.spotRemove !== 'number' || p.spotRemove < 75)) {
+              p.spotRemove = 88;
+              p.tone.defade = true;
+            }
+            renderLabToolBody(p);
+          };
+          body.querySelector('#rng-spot').oninput = (e) => {
+            p.spotRemove = Number(e.target.value);
+            body.querySelector('#val-spot').textContent = `${p.spotRemove}%`;
+            const autoBtn = body.querySelector('#btn-spot-auto');
+            if (autoBtn) autoBtn.style.display = 'inline-block';
+          };
+          body.querySelector('#btn-spot-auto').onclick = () => {
+            p.spotRemove = -1;
+            body.querySelector('#val-spot').textContent = 'Smart Auto';
+            body.querySelector('#btn-spot-auto').style.display = 'none';
+            body.querySelector('#rng-spot').value = p.model === 'vintage80s' ? 88 : 55;
+          };
           body.querySelector('#rng-denoise').oninput = (e) => {
             p.denoise = Number(e.target.value);
             body.querySelector('#val-denoise').textContent = `${p.denoise}%`;
@@ -8491,19 +9128,23 @@
           };
           body.querySelector('#chk-descreen').onchange = (e) => { p.descreen = e.target.checked; };
           body.querySelector('#chk-deglare').onchange = (e) => { p.deglare = e.target.checked; };
+
           body.querySelector('#btn-run-4k').onclick = async () => {
             const btn = body.querySelector('#btn-run-4k');
             btn.disabled = true;
-            btn.textContent = '1/3 Smoothing grain & cleaning scan...';
+            btn.textContent = '1/3 Cleaning white dots, dust & grain...';
             try {
-              await runCanvas4KRestore(p, (stageMsg) => {
+              const diag = await runCanvas4KRestore(p, (stageMsg) => {
                 btn.textContent = stageMsg;
                 const ro = document.getElementById('lab-status-readout');
                 if (ro) ro.textContent = stageMsg;
               });
               try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
-              document.getElementById('lab-status-readout').textContent = `Upscaled & restored to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP) — drag Split curtain to compare`;
-              notify(`✓ Upscaled & restored ${p.id} to ${p.width}×${p.height} px with smooth grain cleanup!`);
+              const spotMsg = diag && diag.spotsHealed > 120
+                ? `healed ${diag.spotsHealed.toLocaleString()} spot pixels & upscaled`
+                : 'upscaled & restored';
+              document.getElementById('lab-status-readout').textContent = `✓ ${spotMsg.charAt(0).toUpperCase() + spotMsg.slice(1)} to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP)`;
+              notify(`✓ ${p.id}: ${spotMsg} to ${p.width}×${p.height} px!`);
               renderSidebarCounts();
               renderPhotoLab();
             } catch (_) {
@@ -8512,6 +9153,108 @@
               notify('Could not process pixels on this image.');
             }
           };
+
+          /* Wire Optional Local AI & Cloud AI (Fal.ai CodeFormer / Clarity 4K) Controls (resolved lazily so module load order never matters) */
+          const probeLocalAi = () => {
+            const b = window.ArchivalAiBridge;
+            if (!b) return;
+            b.checkLocalAiHealth().then((health) => {
+              const banner = body.querySelector('#local-ai-banner');
+              if (banner && health && health.available) {
+                banner.style.display = 'block';
+              }
+            }).catch(() => {});
+          };
+          probeLocalAi();
+          window.addEventListener('archival_ai_ready', probeLocalAi, { once: true });
+
+          const modelSel = body.querySelector('#ai-cloud-model');
+          const keyInput = body.querySelector('#ai-fal-key');
+          const statusEl = body.querySelector('#ai-fal-status');
+
+          modelSel.onchange = () => {
+            const b = window.ArchivalAiBridge;
+            if (b) b.saveAiSettings({ falModel: modelSel.value });
+          };
+          keyInput.onchange = () => {
+            const b = window.ArchivalAiBridge;
+            if (b) {
+              b.saveAiSettings({
+                provider: 'fal',
+                falApiKey: b.sanitizeFalKey(keyInput.value)
+              });
+            }
+          };
+          body.querySelector('#btn-test-fal').onclick = async () => {
+            const b = window.ArchivalAiBridge;
+            if (!b) {
+              statusEl.textContent = 'Cloud AI module is unavailable in static preview.';
+              return;
+            }
+            const testBtn = body.querySelector('#btn-test-fal');
+            const cleanKey = b.sanitizeFalKey(keyInput.value);
+            b.saveAiSettings({ provider: 'fal', falApiKey: cleanKey, falModel: modelSel.value });
+            testBtn.disabled = true;
+            testBtn.textContent = 'Checking...';
+            statusEl.textContent = 'Verifying Fal.ai key...';
+            const res = await b.testFalConnection(cleanKey);
+            testBtn.disabled = false;
+            testBtn.textContent = 'Verify';
+            statusEl.style.color = res.success ? 'var(--positive)' : 'var(--negative)';
+            statusEl.textContent = res.message;
+          };
+
+          const runNeuralHandler = async (aiMode) => {
+            const b = window.ArchivalAiBridge;
+            if (!b) {
+              notify('Cloud AI module is still loading — please try again in a second.');
+              return;
+            }
+            const cloudBtn = body.querySelector('#btn-run-cloud-ai');
+            const localBtn = body.querySelector('#btn-run-local-ai');
+            if (aiMode === 'cloud') {
+              const cleanKey = b.sanitizeFalKey(keyInput.value);
+              if (!cleanKey) {
+                statusEl.style.color = 'var(--negative)';
+                statusEl.textContent = 'Please paste a Fal.ai API key (Key_ID:Key_Secret) first, or use the free built-in "Clean Dots & Upscale" button above.';
+                return;
+              }
+              b.saveAiSettings({ provider: 'fal', falApiKey: cleanKey, falModel: modelSel.value });
+            }
+            if (cloudBtn) cloudBtn.disabled = true;
+            if (localBtn) localBtn.disabled = true;
+            const activeBtn = aiMode === 'local' ? localBtn : cloudBtn;
+            const origText = activeBtn ? activeBtn.textContent : '';
+            try {
+              const res = await runDeepAi4KRestore(p, aiMode, (msg) => {
+                if (activeBtn) activeBtn.textContent = msg;
+                if (statusEl) {
+                  statusEl.style.color = 'var(--muted)';
+                  statusEl.textContent = msg;
+                }
+                const ro = document.getElementById('lab-status-readout');
+                if (ro) ro.textContent = msg;
+              });
+              try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+              document.getElementById('lab-status-readout').textContent = `✓ ${res.badgeLabel} complete (${p.width}×${p.height} px)`;
+              notify(`✓ Cleaned spots & rebuilt ${p.id} with ${res.badgeLabel} (${p.width}×${p.height} px)!`);
+              renderSidebarCounts();
+              renderPhotoLab();
+            } catch (err) {
+              if (cloudBtn) cloudBtn.disabled = false;
+              if (localBtn) localBtn.disabled = false;
+              if (activeBtn) activeBtn.textContent = origText;
+              if (statusEl) {
+                statusEl.style.color = 'var(--negative)';
+                statusEl.textContent = err && err.message ? err.message : 'AI restoration failed.';
+              }
+              notify((err && err.message) || 'Cloud AI request failed.');
+            }
+          };
+
+          body.querySelector('#btn-run-cloud-ai').onclick = () => runNeuralHandler('cloud');
+          const localRunBtn = body.querySelector('#btn-run-local-ai');
+          if (localRunBtn) localRunBtn.onclick = () => runNeuralHandler('local');
           return;
         }
 
@@ -9682,7 +10425,9 @@
         p.crop = p.origCrop || '50% 50%';
         p.scale = p.origScale || (p.src === 'sample.jpg' ? 1.05 : 1);
         p.restored4k = Boolean(p.origRestored4k);
+        p.model = 'gfpgan';
         p.upscaleTarget = '4k';
+        p.spotRemove = -1;
         p.denoise = 62;
         p.fidelity = 68;
         p.rotation = 0;
@@ -9943,6 +10688,7 @@
             color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
             model: 'gfpgan',
             upscaleTarget: '4k',
+            spotRemove: -1,
             denoise: 62,
             fidelity: 68,
             scratchesFixed: true,
@@ -10344,6 +11090,7 @@
             color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
             model: 'gfpgan',
             upscaleTarget: '4k',
+            spotRemove: -1,
             denoise: 62,
             fidelity: 68,
             scratchesFixed: true,
