@@ -232,18 +232,46 @@
   }
 
   function loadImageElement(source) {
-    if (source instanceof HTMLImageElement && source.complete && source.naturalWidth > 0) {
+    if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement && source.complete && source.naturalWidth > 0) {
       return Promise.resolve(source);
     }
-    if (source instanceof HTMLCanvasElement) {
+    if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
       return Promise.resolve(source);
     }
     return new Promise(function (resolve, reject) {
       var img = new Image();
+      var objectUrl = null;
       img.crossOrigin = 'anonymous';
-      img.onload = function () { resolve(img); };
-      img.onerror = function (e) { reject(new Error('Failed to load image for face detection')); };
-      img.src = typeof source === 'string' ? source : (source.src || '');
+      img.onload = function () {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve(img);
+      };
+      img.onerror = function () {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to load image for face detection'));
+      };
+      if (typeof Blob !== 'undefined' && source instanceof Blob) {
+        objectUrl = URL.createObjectURL(source);
+        img.src = objectUrl;
+      } else {
+        img.src = typeof source === 'string' ? source : (source && source.src ? source.src : '');
+      }
+    });
+  }
+
+  function sortFacesSpatially(faces) {
+    if (!faces || faces.length <= 1) return faces || [];
+    return faces.slice().sort(function (a, b) {
+      var ba = a.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
+      var bb = b.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
+      var cyA = ba.y + ba.height * 0.5;
+      var cyB = bb.y + bb.height * 0.5;
+      var avgH = Math.max(0.08, (ba.height + bb.height) * 0.5);
+      // Group faces in the same horizontal row when vertical centers are close
+      if (Math.abs(cyA - cyB) <= Math.max(0.12, avgH * 0.65)) {
+        return ba.x - bb.x;
+      }
+      return cyA - cyB;
     });
   }
 
@@ -275,7 +303,7 @@
             return [r, c, s, 20.0, 5, 20.0];
           });
           var cleanNative = nonMaxSuppressionWithContainment(mappedNative);
-          return cleanNative.map(function (cl, idx) {
+          var nativeOut = cleanNative.map(function (cl, idx) {
             var halfS = cl[2] * 0.5;
             var xNorm = Math.max(0, (cl[1] - halfS) / origW);
             var yNorm = Math.max(0, (cl[0] - halfS) / origH);
@@ -292,6 +320,7 @@
               confidence: 0.95
             };
           });
+          return sortFacesSpatially(nativeOut);
         }
       } catch (nativeErr) {
         // Fall back to cascade
@@ -434,7 +463,7 @@
       });
     }
 
-    return results;
+    return sortFacesSpatially(results);
   }
 
   /**
@@ -456,11 +485,477 @@
     ].join(',');
   }
 
+  /* =====================================================================
+   * VISUAL FACE RECOGNITION & PORTRAIT CROP ENGINE
+   * Learns 192-dim zero-mean facial structure + chromaticity descriptors
+   * when relatives are tagged, and recognizes them on scans.
+   * ===================================================================== */
+  var FACE_DB_KEY = 'fhp_face_recognition_v1';
+
+  function loadFaceDb() {
+    try {
+      var raw = localStorage.getItem(FACE_DB_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && parsed.people) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('FaceDetectorEngine: Could not read face recognition store:', e);
+    }
+    return { version: 1, people: {} };
+  }
+
+  function saveFaceDb(db) {
+    try {
+      localStorage.setItem(FACE_DB_KEY, JSON.stringify(db));
+    } catch (e) {
+      console.warn('FaceDetectorEngine: Could not save face recognition store:', e);
+    }
+  }
+
+  function normalizePersonKey(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function isValidPersonName(name) {
+    var s = String(name || '').trim();
+    if (!s) return false;
+    if (/^face\s*#?\d+/i.test(s) || /^person\s*#?\d+/i.test(s) || /^unidentified/i.test(s) || /^unknown/i.test(s)) {
+      return false;
+    }
+    return true;
+  }
+
+  function makeFaceSourceKey(photoId, box) {
+    if (!photoId || !box) return '';
+    var bx = Math.round((Number(box.x) || 0) * 100);
+    var by = Math.round((Number(box.y) || 0) * 100);
+    var bw = Math.round((Number(box.width) || 0.2) * 100);
+    return String(photoId) + ':' + bx + '_' + by + '_' + bw;
+  }
+
+  function zScoreNormalize(arr) {
+    var n = arr.length;
+    if (n === 0) return arr;
+    var sum = 0;
+    for (var i = 0; i < n; i++) sum += arr[i];
+    var mean = sum / n;
+    var sq = 0;
+    for (var j = 0; j < n; j++) {
+      var d = arr[j] - mean;
+      sq += d * d;
+    }
+    var std = Math.sqrt(sq / n);
+    var out = new Array(n);
+    if (std < 1e-5) {
+      for (var k = 0; k < n; k++) out[k] = 0;
+      return out;
+    }
+    for (var m = 0; m < n; m++) {
+      out[m] = (arr[m] - mean) / std;
+    }
+    return out;
+  }
+
+  function cropFaceThumbnailFromImg(imgEl, box, outSize) {
+    var size = outSize || 96;
+    var origW = imgEl.naturalWidth || imgEl.width || 320;
+    var origH = imgEl.naturalHeight || imgEl.height || 240;
+    var bx = box && box.x !== undefined ? Number(box.x) : 0;
+    var by = box && box.y !== undefined ? Number(box.y) : 0;
+    var bw = box && box.width !== undefined ? Number(box.width) : 0.2;
+    var bh = box && box.height !== undefined ? Number(box.height) : 0.2;
+
+    // Add 18% context padding so hair/chin/shoulders frame the portrait nicely
+    var padX = bw * 0.18;
+    var padY = bh * 0.18;
+    var sx = Math.max(0, Math.round((bx - padX) * origW));
+    var sy = Math.max(0, Math.round((by - padY) * origH));
+    var sw = Math.min(origW - sx, Math.max(16, Math.round((bw + padX * 2) * origW)));
+    var sh = Math.min(origH - sy, Math.max(16, Math.round((bh + padY * 2) * origH)));
+
+    var c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    var ctx = c.getContext('2d');
+    ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, size, size);
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+
+  async function cropFaceThumbnail(source, box) {
+    if (!source || !box) return '';
+    try {
+      var imgEl = await loadImageElement(source);
+      return cropFaceThumbnailFromImg(imgEl, box, 96);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function extractDescriptorFromImg(imgEl, box) {
+    var origW = imgEl.naturalWidth || imgEl.width || 320;
+    var origH = imgEl.naturalHeight || imgEl.height || 240;
+    var bx = box && box.x !== undefined ? Number(box.x) : 0;
+    var by = box && box.y !== undefined ? Number(box.y) : 0;
+    var bw = box && box.width !== undefined ? Number(box.width) : 0.2;
+    var bh = box && box.height !== undefined ? Number(box.height) : 0.2;
+
+    // Slight horizontal inset (4%) focuses on facial features rather than background wall
+    var insetX = bw * 0.04;
+    var sx = Math.max(0, Math.round((bx + insetX) * origW));
+    var sy = Math.max(0, Math.round(by * origH));
+    var sw = Math.min(origW - sx, Math.max(12, Math.round((bw - insetX * 2) * origW)));
+    var sh = Math.min(origH - sy, Math.max(12, Math.round(bh * origH)));
+
+    var S = 48; // 48x48 canonical face patch -> 8x8 cells of 6x6 pixels
+    var c = document.createElement('canvas');
+    c.width = S;
+    c.height = S;
+    var ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, S, S);
+    var data = ctx.getImageData(0, 0, S, S).data;
+
+    var gray = new Float32Array(S * S);
+    var rgWarm = new Float32Array(S * S);
+    var gbTint = new Float32Array(S * S);
+
+    for (var i = 0; i < S * S; i++) {
+      var r = data[i * 4];
+      var g = data[i * 4 + 1];
+      var b = data[i * 4 + 2];
+      var tot = r + g + b + 1.0;
+      gray[i] = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+      rgWarm[i] = (r - b) / tot;
+      gbTint[i] = (g - 0.5 * (r + b)) / tot;
+    }
+
+    // 1. 64-dim 8x8 spatial luminance (Z-scored to be illumination invariant & zero-mean)
+    var lumCells = new Array(64);
+    var cellW = S / 8; // 6
+    for (var cy = 0; cy < 8; cy++) {
+      for (var cx = 0; cx < 8; cx++) {
+        var lSum = 0;
+        for (var py = cy * cellW; py < (cy + 1) * cellW; py++) {
+          for (var px = cx * cellW; px < (cx + 1) * cellW; px++) {
+            lSum += gray[py * S + px];
+          }
+        }
+        lumCells[cy * 8 + cx] = lSum / (cellW * cellW);
+      }
+    }
+    var lumNorm = zScoreNormalize(lumCells);
+
+    // 2. 64-dim facial edge gradients: 8x4 horizontal |dx| + 8x4 vertical |dy|
+    var dxCells = new Array(32);
+    var dyCells = new Array(32);
+    for (var gy = 0; gy < 8; gy++) {
+      for (var gx = 0; gx < 4; gx++) {
+        var sumDx = 0, sumDy = 0, cntG = 0;
+        var startY = gy * 6;
+        var startX = gx * 12;
+        for (var y = startY; y < startY + 6; y++) {
+          for (var x = startX; x < startX + 12; x++) {
+            var xm = Math.max(0, x - 1), xp = Math.min(S - 1, x + 1);
+            var ym = Math.max(0, y - 1), yp = Math.min(S - 1, y + 1);
+            sumDx += Math.abs(gray[y * S + xp] - gray[y * S + xm]);
+            sumDy += Math.abs(gray[yp * S + x] - gray[ym * S + x]);
+            cntG++;
+          }
+        }
+        dxCells[gy * 4 + gx] = sumDx / cntG;
+        dyCells[gy * 4 + gx] = sumDy / cntG;
+      }
+    }
+    var gradNorm = zScoreNormalize(dxCells.concat(dyCells));
+
+    // 3. 64-dim hair/skin chromaticity distribution (8x4 warm-cool + 8x4 tint)
+    var warmCells = new Array(32);
+    var tintCells = new Array(32);
+    var chromaVarCheck = 0;
+    for (var hy = 0; hy < 8; hy++) {
+      for (var hx = 0; hx < 4; hx++) {
+        var wSum = 0, tSum = 0, cCnt = 0;
+        for (var y2 = hy * 6; y2 < (hy + 1) * 6; y2++) {
+          for (var x2 = hx * 12; x2 < (hx + 1) * 12; x2++) {
+            wSum += rgWarm[y2 * S + x2];
+            tSum += gbTint[y2 * S + x2];
+            cCnt++;
+          }
+        }
+        var wAvg = wSum / cCnt;
+        warmCells[hy * 4 + hx] = wAvg;
+        tintCells[hy * 4 + hx] = tSum / cCnt;
+        chromaVarCheck += Math.abs(wAvg);
+      }
+    }
+    var isColored = (chromaVarCheck / 32) > 0.025;
+    var chromaWeight = isColored ? 0.65 : 0.15;
+    var chromaNorm = zScoreNormalize(warmCells.concat(tintCells));
+
+    // Combine 192 dimensions and L2-normalize to unit sphere
+    var vec = new Array(192);
+    var normSq = 0;
+    for (var d = 0; d < 64; d++) {
+      var v0 = lumNorm[d] * 1.0;
+      var v1 = gradNorm[d] * 1.15;
+      var v2 = chromaNorm[d] * chromaWeight;
+      vec[d] = v0;
+      vec[64 + d] = v1;
+      vec[128 + d] = v2;
+      normSq += v0 * v0 + v1 * v1 + v2 * v2;
+    }
+    var mag = Math.sqrt(normSq) || 1;
+    for (var idx = 0; idx < 192; idx++) {
+      vec[idx] = Math.round((vec[idx] / mag) * 10000) / 10000;
+    }
+    return vec;
+  }
+
+  async function extractFaceDescriptor(source, box) {
+    if (!source || !box) return null;
+    var imgEl = await loadImageElement(source);
+    return {
+      vec: extractDescriptorFromImg(imgEl, box),
+      cropUrl: cropFaceThumbnailFromImg(imgEl, box, 96)
+    };
+  }
+
+  function cosineSimilarity(a, b) {
+    if (!a || !b || a.length !== b.length) return 0;
+    var dot = 0, na = 0, nb = 0;
+    for (var i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    var denom = Math.sqrt(na) * Math.sqrt(nb);
+    return denom > 1e-7 ? (dot / denom) : 0;
+  }
+
+  function forgetFace(sourceKey) {
+    if (!sourceKey) return;
+    var db = loadFaceDb();
+    var changed = false;
+    Object.keys(db.people).forEach(function (k) {
+      var p = db.people[k];
+      if (p && Array.isArray(p.samples)) {
+        var before = p.samples.length;
+        p.samples = p.samples.filter(function (s) { return s.sourceKey !== sourceKey; });
+        if (p.samples.length !== before) {
+          changed = true;
+        }
+        if (p.samples.length === 0) {
+          delete db.people[k];
+          changed = true;
+        }
+      }
+    });
+    if (changed) saveFaceDb(db);
+  }
+
+  async function learnFace(source, box, personInfo, sourceKey) {
+    var name = typeof personInfo === 'string' ? personInfo : (personInfo && personInfo.name ? personInfo.name : '');
+    if (!isValidPersonName(name) || !source || !box) return null;
+
+    if (sourceKey) {
+      forgetFace(sourceKey);
+    }
+
+    try {
+      var desc = await extractFaceDescriptor(source, box);
+      if (!desc || !desc.vec) return null;
+
+      var db = loadFaceDb();
+      var key = normalizePersonKey(name);
+      var existing = db.people[key] || {
+        name: name.trim(),
+        fsId: '',
+        rel: 'Relative',
+        branch: '',
+        avatar: '',
+        samples: []
+      };
+
+      existing.name = name.trim();
+      if (personInfo && typeof personInfo === 'object') {
+        if (personInfo.fsId) existing.fsId = personInfo.fsId;
+        if (personInfo.rel) existing.rel = personInfo.rel;
+        if (personInfo.branch) existing.branch = personInfo.branch;
+      }
+      if (desc.cropUrl) {
+        existing.avatar = desc.cropUrl;
+      }
+
+      if (!Array.isArray(existing.samples)) existing.samples = [];
+      existing.samples.push({
+        sourceKey: sourceKey || ('manual_' + Date.now()),
+        vec: desc.vec,
+        updatedAt: Date.now()
+      });
+      // Keep up to 12 most informative recent samples per person
+      if (existing.samples.length > 12) {
+        existing.samples = existing.samples.slice(existing.samples.length - 12);
+      }
+
+      db.people[key] = existing;
+      saveFaceDb(db);
+      return existing;
+    } catch (e) {
+      console.warn('FaceDetectorEngine learnFace notice:', e);
+      return null;
+    }
+  }
+
+  function getLearnedPeople() {
+    var db = loadFaceDb();
+    return Object.keys(db.people).map(function (k) {
+      var p = db.people[k];
+      return {
+        name: p.name,
+        fsId: p.fsId || '',
+        rel: p.rel || 'Relative',
+        branch: p.branch || '',
+        avatar: p.avatar || '',
+        sampleCount: Array.isArray(p.samples) ? p.samples.length : 0
+      };
+    }).filter(function (p) { return Boolean(p.name); }).sort(function (a, b) {
+      if (b.sampleCount !== a.sampleCount) return b.sampleCount - a.sampleCount;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  /**
+   * Generates portrait crops and compares every detected face against learned relatives.
+   * Uses greedy 1-to-1 best-first matching across the photo so one relative is never
+   * assigned to two different faces in the same photo.
+   */
+  async function recognizeFaces(source, faces, photoPeople) {
+    if (!source || !faces || faces.length === 0) return faces || [];
+    var imgEl;
+    try {
+      imgEl = await loadImageElement(source);
+    } catch (e) {
+      return faces;
+    }
+
+    var db = loadFaceDb();
+    var personKeys = Object.keys(db.people).filter(function (k) {
+      return db.people[k] && Array.isArray(db.people[k].samples) && db.people[k].samples.length > 0;
+    });
+
+    var photoNameSet = new Set();
+    if (Array.isArray(photoPeople)) {
+      photoPeople.forEach(function (pr) {
+        var pn = typeof pr === 'string' ? pr : (pr && pr.name ? pr.name : '');
+        if (pn) photoNameSet.add(normalizePersonKey(pn));
+      });
+    }
+
+    var allPairs = [];
+
+    for (var i = 0; i < faces.length; i++) {
+      var f = faces[i];
+      var b = f.box || { x: 0, y: 0, width: 0.2, height: 0.2 };
+      f.cropUrl = cropFaceThumbnailFromImg(imgEl, b, 96);
+      var vec = extractDescriptorFromImg(imgEl, b);
+      f.candidates = [];
+
+      if (personKeys.length > 0 && vec) {
+        var scoredForFace = [];
+        for (var pkIdx = 0; pkIdx < personKeys.length; pkIdx++) {
+          var pKey = personKeys[pkIdx];
+          var person = db.people[pKey];
+          var bestSim = -1;
+          for (var sIdx = 0; sIdx < person.samples.length; sIdx++) {
+            var sim = cosineSimilarity(vec, person.samples[sIdx].vec);
+            if (sim > bestSim) bestSim = sim;
+          }
+          // Gentle +0.03 tie-breaker if this relative is already listed in this photo's metadata
+          if (photoNameSet.has(pKey)) {
+            bestSim = Math.min(0.99, bestSim + 0.03);
+          }
+          if (bestSim >= 0.42) {
+            scoredForFace.push({
+              key: pKey,
+              name: person.name,
+              fsId: person.fsId || '',
+              rel: person.rel || 'Relative',
+              branch: person.branch || '',
+              avatar: person.avatar || '',
+              score: bestSim,
+              confidence: Math.round(bestSim * 100)
+            });
+            allPairs.push({
+              faceIdx: i,
+              personKey: pKey,
+              person: person,
+              score: bestSim
+            });
+          }
+        }
+        scoredForFace.sort(function (a, b2) { return b2.score - a.score; });
+        f.candidates = scoredForFace.slice(0, 3);
+      }
+    }
+
+    // Greedy 1-to-1 assignment (highest similarity pair first across the entire photo)
+    allPairs.sort(function (a, b) { return b.score - a.score; });
+    var assignedFaces = new Set();
+    var assignedPeople = new Set();
+
+    // Respect any face already manually confirmed on this photo
+    faces.forEach(function (f, idx) {
+      if (f.confirmed && f.name) {
+        assignedFaces.add(idx);
+        assignedPeople.add(normalizePersonKey(f.name));
+      }
+    });
+
+    for (var pIdx2 = 0; pIdx2 < allPairs.length; pIdx2++) {
+      var pair = allPairs[pIdx2];
+      if (assignedFaces.has(pair.faceIdx) || assignedPeople.has(pair.personKey)) continue;
+
+      var targetFace = faces[pair.faceIdx];
+      if (pair.score >= 0.68) {
+        // High-confidence face recognition match -> auto-fill & highlight!
+        targetFace.name = pair.person.name;
+        if (pair.person.fsId && !targetFace.fsId) {
+          targetFace.fsId = pair.person.fsId;
+        }
+        targetFace.recognized = true;
+        targetFace.suggestedName = pair.person.name;
+        targetFace.suggestedFsId = pair.person.fsId || '';
+        targetFace.matchConfidence = Math.round(pair.score * 100);
+        assignedFaces.add(pair.faceIdx);
+        assignedPeople.add(pair.personKey);
+      } else if (pair.score >= 0.48) {
+        // Moderate similarity -> show as 1-click suggestion without forcing wrong auto-tag
+        targetFace.suggestedName = pair.person.name;
+        targetFace.suggestedFsId = pair.person.fsId || '';
+        targetFace.matchConfidence = Math.round(pair.score * 100);
+        assignedFaces.add(pair.faceIdx);
+        assignedPeople.add(pair.personKey);
+      }
+    }
+
+    return faces;
+  }
+
   window.FaceDetectorEngine = {
     detectFaces: detectFaces,
     loadCascade: loadCascade,
-    toGedcomXRegion: toGedcomXRegion
+    toGedcomXRegion: toGedcomXRegion,
+    cropFaceThumbnail: cropFaceThumbnail,
+    extractFaceDescriptor: extractFaceDescriptor,
+    makeFaceSourceKey: makeFaceSourceKey,
+    learnFace: learnFace,
+    forgetFace: forgetFace,
+    getLearnedPeople: getLearnedPeople,
+    recognizeFaces: recognizeFaces
   };
 
 })(typeof window !== 'undefined' ? window : this);
+
 

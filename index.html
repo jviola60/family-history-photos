@@ -2856,6 +2856,150 @@
     </div>
   </div>
 
+  <!-- 1-CLICK INTERACTIVE FACE TAGGER & RECOGNITION MODAL -->
+  <style>
+    .ft-thumb-btn {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.18);
+      background: #1e293b;
+      padding: 0;
+      cursor: pointer;
+      overflow: hidden;
+      flex-shrink: 0;
+      transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+    }
+    .ft-thumb-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.45);
+    }
+    .ft-thumb-btn.active {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.35);
+      transform: scale(1.05);
+    }
+    .ft-thumb-btn.tagged {
+      border-color: #22c55e;
+    }
+    .ft-thumb-btn.active.tagged {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.4);
+    }
+    .ft-person-choice {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+    }
+    .ft-person-choice:hover {
+      background: rgba(56,189,248,0.16);
+      border-color: #38bdf8;
+    }
+    .ft-person-choice.selected {
+      background: rgba(34,197,94,0.2);
+      border-color: #22c55e;
+      color: #ffffff;
+    }
+    .ft-person-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 7px;
+    }
+  </style>
+  <div id="face-tagger-modal" class="share-modal-backdrop" hidden>
+    <div class="share-modal-card" style="max-width: 560px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; background: #111827; color: #f8fafc; border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 25px 65px rgba(0,0,0,0.85); border-radius: 14px; overflow: hidden;">
+      <div style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 21px;">👤</span>
+          <div>
+            <h3 id="ft-modal-title" style="margin: 0; font-size: 16px; font-weight: 600; color: #ffffff;">Tag People in Photo</h3>
+            <p id="ft-modal-sub" style="margin: 2px 0 0; font-size: 12px; color: #94a3b8;">Just click a person's name below — no typing needed</p>
+          </div>
+        </div>
+        <button type="button" class="btn sm" id="btn-ft-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close face tagger">✕</button>
+      </div>
+
+      <!-- Top strip of all detected faces in the photo -->
+      <div style="padding: 10px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 10px;">
+        <button type="button" class="btn sm" id="btn-ft-prev" style="background: rgba(255,255,255,0.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.14); padding: 5px 9px; font-size: 12px; cursor: pointer; flex-shrink: 0;">← Prev</button>
+        <div id="ft-face-strip" style="display: flex; align-items: center; gap: 8px; overflow-x: auto; flex: 1; padding: 3px 2px;"></div>
+        <button type="button" class="btn sm" id="btn-ft-next" style="background: rgba(255,255,255,0.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.14); padding: 5px 9px; font-size: 12px; cursor: pointer; flex-shrink: 0;">Next →</button>
+      </div>
+
+      <!-- Scrollable body -->
+      <div style="padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; flex: 1;">
+        <!-- Active Face Zoomed Portrait + Face Recognition Status -->
+        <div style="display: flex; align-items: center; gap: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px;">
+          <div style="width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 2px solid #38bdf8; background: #0f172a; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <img id="ft-active-crop" src="" alt="Selected Face" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+            <span id="ft-active-crop-placeholder" style="font-size: 28px;">👤</span>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span id="ft-face-counter" style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #38bdf8;">Face #1</span>
+              <span id="ft-current-badge" style="font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(251,191,36,0.18); color: #fbbf24;">Needs Name</span>
+            </div>
+            <div id="ft-recog-banner" style="margin-top: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- All faces done banner -->
+        <div id="ft-all-done-banner" style="display: none; padding: 10px 12px; border-radius: 8px; background: rgba(34,197,94,0.16); border: 1px solid rgba(34,197,94,0.4); color: #86efac; font-size: 13px; font-weight: 600;">
+          ✓ Every detected face in this photo is tagged! Click Done when ready, or click any face above to adjust.
+        </div>
+
+        <!-- 1-Click Section: People Listed on This Photo -->
+        <div id="ft-photo-people-section">
+          <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 7px;">
+            People in This Photo — Click to Select
+          </div>
+          <div id="ft-photo-people-list" class="ft-person-grid"></div>
+        </div>
+
+        <!-- 1-Click Section: Family Directory & Saved Relatives -->
+        <div id="ft-directory-section">
+          <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 7px;">
+            Family Directory &amp; Learned Relatives — Click to Select
+          </div>
+          <div id="ft-directory-list" class="ft-person-grid"></div>
+        </div>
+
+        <!-- Add Someone New (only needed once per new person) -->
+        <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+          <div style="font-size: 11.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">
+            Someone not listed above? Type once &amp; we'll save them for future 1-click selection:
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="ft-new-name-input" placeholder="Enter new relative's name..." style="flex: 1; background: rgba(0,0,0,0.35); color: #ffffff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 11px; font-size: 13px;">
+            <button type="button" class="btn primary" id="btn-ft-add-new" style="background: #2563eb; color: #ffffff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;">+ Tag &amp; Learn</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <div style="padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0,0,0,0.3);">
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn sm" id="btn-ft-unassign" style="background: rgba(255,255,255,0.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.16); padding: 6px 12px; border-radius: 6px; font-size: 12.5px; cursor: pointer;">Unassign</button>
+          <button type="button" class="btn sm" id="btn-ft-delete" style="background: rgba(239,68,68,0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); padding: 6px 12px; border-radius: 6px; font-size: 12.5px; cursor: pointer;">Delete Box</button>
+        </div>
+        <button type="button" class="btn primary" id="btn-ft-done" style="background: #16a34a; color: #ffffff; font-weight: 600; border: none; padding: 7px 20px; border-radius: 7px; font-size: 13.5px; cursor: pointer;">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/exifr.js"></script>
   <script src="/leaflet/leaflet.js"></script>
   <script src="/taste-charts.js"></script>
@@ -4941,15 +5085,464 @@
           const height = (b.height * 100).toFixed(1) + '%';
           const name = (f.name || '').trim() || singlePersonAutoName;
           const isAssigned = Boolean(name);
+          const suggestionLabel = (!isAssigned && f.suggestedName)
+            ? `? ${f.suggestedName.split(' ')[0]} (Click to confirm)`
+            : `Face #${idx + 1} (Click to select name)`;
+          const assignedPrefix = (isAssigned && f.recognized && !f.confirmed) ? '✨ ' : '';
           return `
-            <div class="face-box-marker" data-face-idx="${idx}" style="position:absolute;left:${left};top:${top};width:${width};height:${height};border:2px solid ${isAssigned ? '#00d2ff' : '#fbbf24'};background:${isAssigned ? 'rgba(0,210,255,0.12)' : 'rgba(251,191,36,0.14)'};box-shadow:0 0 10px ${isAssigned ? 'rgba(0,210,255,0.5)' : 'rgba(251,191,36,0.4)'};border-radius:6px;pointer-events:auto;cursor:pointer;transition:all 0.15s ease;" title="${name ? `Assigned to: ${esc(name)} (Click to change or delete)` : 'Click to tag relative or delete box'}">
+            <div class="face-box-marker" data-face-idx="${idx}" style="position:absolute;left:${left};top:${top};width:${width};height:${height};border:2px solid ${isAssigned ? '#00d2ff' : '#fbbf24'};background:${isAssigned ? 'rgba(0,210,255,0.12)' : 'rgba(251,191,36,0.14)'};box-shadow:0 0 10px ${isAssigned ? 'rgba(0,210,255,0.5)' : 'rgba(251,191,36,0.4)'};border-radius:6px;pointer-events:auto;cursor:pointer;transition:all 0.15s ease;" title="${name ? `Assigned to: ${esc(name)} (Click to change or select another relative)` : 'Click to select relative from list'}">
               <button type="button" class="btn-remove-face-box" data-del-face-idx="${idx}" title="Remove this face box" style="position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:#ef4444;color:#ffffff;border:1.5px solid #ffffff;font-size:11px;font-weight:bold;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;box-shadow:0 2px 5px rgba(0,0,0,0.5);pointer-events:auto;z-index:12;">✕</button>
               <div style="position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#f8fafc;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid ${isAssigned ? '#00d2ff' : '#fbbf24'};pointer-events:none;box-shadow:0 2px 4px rgba(0,0,0,0.5);">
-                ${isAssigned ? esc(name) : `<span style="color:#fbbf24;">Face #${idx + 1} (Click to tag)</span>`}
+                ${isAssigned ? `${assignedPrefix}${esc(name)}` : `<span style="color:#fbbf24;">${esc(suggestionLabel)}</span>`}
               </div>
             </div>
           `;
         }).join('');
+      }
+
+      function resolveKnownPidForName(personName, fallbackFsId) {
+        if (fallbackFsId) {
+          const m = String(fallbackFsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+          if (m) return m[0].toUpperCase();
+        }
+        const lower = String(personName || '').trim().toLowerCase();
+        if (!lower) return '';
+        if (window.FamilySearchClient && Array.isArray(window.FamilySearchClient.KNOWN_FAMILY)) {
+          const kf = window.FamilySearchClient.KNOWN_FAMILY.find(k =>
+            (k.name && k.name.toLowerCase() === lower) ||
+            (Array.isArray(k.aliases) && k.aliases.includes(lower))
+          );
+          if (kf && kf.id) return kf.id.toUpperCase();
+        }
+        for (const it of items) {
+          const hit = (it.people || []).find(pr => pr && pr.name && pr.name.trim().toLowerCase() === lower && pr.fsId);
+          if (hit && hit.fsId) return hit.fsId.toUpperCase();
+        }
+        return '';
+      }
+
+      function appendPidToPhoto(p, pid) {
+        if (!p || !pid) return;
+        const cleanPid = String(pid).trim().toUpperCase();
+        if (!/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(cleanPid)) return;
+        const existingPids = (p.fsId || '').match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g) || [];
+        const upperSet = new Set(existingPids.map(x => x.toUpperCase()));
+        if (!upperSet.has(cleanPid)) {
+          upperSet.add(cleanPid);
+          p.fsId = Array.from(upperSet).join(', ');
+        }
+      }
+
+      function syncRecognizedFacesIntoPeople(p) {
+        if (!p || !Array.isArray(p.faces)) return;
+        if (!Array.isArray(p.people)) p.people = [];
+        p.faces.forEach((f) => {
+          const fName = (f.name || '').trim();
+          if (!fName) return;
+          const resolvedPid = resolveKnownPidForName(fName, f.fsId);
+          if (resolvedPid) f.fsId = resolvedPid;
+          let existing = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === fName.toLowerCase());
+          if (!existing) {
+            existing = { name: fName, rel: 'Relative', branch: p.branch || '', fsId: resolvedPid || undefined };
+            p.people.push(existing);
+          } else if (resolvedPid && !existing.fsId) {
+            existing.fsId = resolvedPid;
+          }
+          if (resolvedPid) appendPidToPhoto(p, resolvedPid);
+        });
+      }
+
+      async function openFaceTaggerModal(p, startIdx = 0) {
+        const modal = document.getElementById('face-tagger-modal');
+        if (!modal || !p || !p.faces || p.faces.length === 0) return;
+
+        let activeIdx = Math.max(0, Math.min(p.faces.length - 1, startIdx || 0));
+        const imgSource = document.getElementById('insp-active-img') || afterSrc(p);
+
+        const closeModal = () => {
+          modal.setAttribute('hidden', '');
+        };
+
+        document.getElementById('btn-ft-close').onclick = closeModal;
+        document.getElementById('btn-ft-done').onclick = closeModal;
+        modal.onclick = (e) => {
+          if (e.target === modal) closeModal();
+        };
+
+        async function assignPerson(personObj, autoAdvance = true) {
+          const chosenName = (personObj && personObj.name ? personObj.name : '').trim();
+          if (!chosenName || !p.faces[activeIdx]) return;
+
+          const targetFace = p.faces[activeIdx];
+          const resolvedPid = resolveKnownPidForName(chosenName, personObj.fsId);
+
+          // Prevent duplicate assignment on the same photo: if this person was on another box, move them cleanly
+          p.faces.forEach((otherFace, idx) => {
+            if (idx !== activeIdx && (otherFace.name || '').trim().toLowerCase() === chosenName.toLowerCase()) {
+              if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+                window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, otherFace.box));
+              }
+              otherFace.name = '';
+              otherFace.fsId = '';
+              otherFace.confirmed = false;
+              otherFace.recognized = false;
+            }
+          });
+
+          targetFace.name = chosenName;
+          targetFace.fsId = resolvedPid || targetFace.fsId || '';
+          targetFace.confirmed = true;
+          targetFace.recognized = true;
+          targetFace.suggestedName = chosenName;
+
+          if (!Array.isArray(p.people)) p.people = [];
+          let existingRel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === chosenName.toLowerCase());
+          if (!existingRel) {
+            existingRel = {
+              name: chosenName,
+              rel: personObj.rel || 'Relative',
+              branch: personObj.branch || p.branch || '',
+              fsId: resolvedPid || undefined
+            };
+            p.people.push(existingRel);
+          } else if (resolvedPid && !existingRel.fsId) {
+            existingRel.fsId = resolvedPid;
+          }
+
+          if (resolvedPid) {
+            appendPidToPhoto(p, resolvedPid);
+          }
+
+          p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+          saveItemMetadata(p);
+
+          // Teach visual Face Recognition this person's face for all future scans
+          if (window.FaceDetectorEngine && window.FaceDetectorEngine.learnFace) {
+            const srcKey = window.FaceDetectorEngine.makeFaceSourceKey
+              ? window.FaceDetectorEngine.makeFaceSourceKey(p.id, targetFace.box)
+              : `${p.id}_${activeIdx}`;
+            window.FaceDetectorEngine.learnFace(
+              afterSrc(p),
+              targetFace.box,
+              {
+                name: chosenName,
+                fsId: resolvedPid || existingRel.fsId || '',
+                rel: existingRel.rel || 'Relative',
+                branch: existingRel.branch || p.branch || ''
+              },
+              srcKey
+            ).catch(() => {});
+          }
+
+          // Background PID lookup if unknown
+          if (!resolvedPid && window.FamilySearchClient && window.FamilySearchClient.searchPersons) {
+            window.FamilySearchClient.searchPersons(chosenName).then((matches) => {
+              if (matches && matches.length > 0 && matches[0].id) {
+                const foundId = matches[0].id.toUpperCase();
+                targetFace.fsId = foundId;
+                if (existingRel) existingRel.fsId = foundId;
+                appendPidToPhoto(p, foundId);
+                saveItemMetadata(p);
+                render();
+              }
+            }).catch(() => {});
+          }
+
+          notify(`✓ Tagged ${chosenName} (Face #${activeIdx + 1}) — Face Recognition learned!`);
+          render();
+
+          if (autoAdvance) {
+            // Find next untagged face
+            let nextIdx = -1;
+            for (let offset = 1; offset < p.faces.length; offset++) {
+              const cand = (activeIdx + offset) % p.faces.length;
+              if (!(p.faces[cand].name || '').trim()) {
+                nextIdx = cand;
+                break;
+              }
+            }
+            if (nextIdx !== -1) {
+              activeIdx = nextIdx;
+            }
+          }
+          renderModalState();
+        }
+
+        function buildDirectoryPeople(photoNamesLower) {
+          const map = new Map();
+          function addEntry(entry) {
+            if (!entry || !entry.name) return;
+            const clean = String(entry.name).trim();
+            if (!clean || /^face\s*#?\d+/i.test(clean) || /^unidentified/i.test(clean)) return;
+            const key = clean.toLowerCase();
+            if (photoNamesLower.has(key)) return;
+            const prev = map.get(key) || { name: clean, fsId: '', rel: '', branch: '', avatar: '', learned: false };
+            if (entry.fsId && !prev.fsId) prev.fsId = entry.fsId;
+            if (entry.rel && (!prev.rel || prev.rel === 'Relative')) prev.rel = entry.rel;
+            if (entry.branch && !prev.branch) prev.branch = entry.branch;
+            if (entry.avatar && !prev.avatar) prev.avatar = entry.avatar;
+            if (entry.sampleCount > 0) prev.learned = true;
+            map.set(key, prev);
+          }
+
+          if (window.FaceDetectorEngine && typeof window.FaceDetectorEngine.getLearnedPeople === 'function') {
+            window.FaceDetectorEngine.getLearnedPeople().forEach(addEntry);
+          }
+          if (window.FamilySearchClient && Array.isArray(window.FamilySearchClient.KNOWN_FAMILY)) {
+            window.FamilySearchClient.KNOWN_FAMILY.forEach(k => addEntry({
+              name: k.name,
+              fsId: k.id,
+              rel: 'Family Tree'
+            }));
+          }
+          items.forEach((it) => {
+            (it.people || []).forEach(pr => {
+              if (typeof pr === 'string') addEntry({ name: pr });
+              else addEntry(pr);
+            });
+          });
+          return Array.from(map.values());
+        }
+
+        function renderModalState() {
+          if (!p.faces || p.faces.length === 0) {
+            closeModal();
+            return;
+          }
+          if (activeIdx >= p.faces.length) activeIdx = p.faces.length - 1;
+          const f = p.faces[activeIdx];
+          const curName = (f.name || '').trim();
+          const taggedCount = p.faces.filter(fc => Boolean((fc.name || '').trim())).length;
+
+          const subEl = document.getElementById('ft-modal-sub');
+          if (subEl) {
+            subEl.textContent = `${taggedCount} of ${p.faces.length} face${p.faces.length > 1 ? 's' : ''} tagged — click any relative below to assign`;
+          }
+
+          // 1. Render face thumbnail strip
+          const stripEl = document.getElementById('ft-face-strip');
+          stripEl.innerHTML = p.faces.map((fc, idx) => {
+            const isTagged = Boolean((fc.name || '').trim());
+            const isActive = idx === activeIdx;
+            const badgeBg = isTagged ? '#16a34a' : '#f59e0b';
+            const badgeTxt = isTagged ? '✓' : `#${idx + 1}`;
+            return `
+              <button type="button" class="ft-thumb-btn ${isActive ? 'active' : ''} ${isTagged ? 'tagged' : ''}" data-ft-idx="${idx}" title="${isTagged ? `Face #${idx + 1}: ${esc(fc.name)}` : `Face #${idx + 1}: Needs tag`}">
+                ${fc.cropUrl
+                  ? `<img src="${esc(fc.cropUrl)}" alt="Face ${idx + 1}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+                  : `<span style="font-size:18px;color:#94a3b8;">👤</span>`}
+                <span style="position:absolute;bottom:2px;right:2px;background:${badgeBg};color:#fff;font-size:9.5px;font-weight:700;padding:1px 4px;border-radius:5px;line-height:1.2;">${badgeTxt}</span>
+              </button>
+            `;
+          }).join('');
+
+          stripEl.querySelectorAll('.ft-thumb-btn').forEach((btn) => {
+            btn.onclick = () => {
+              activeIdx = parseInt(btn.getAttribute('data-ft-idx'), 10) || 0;
+              renderModalState();
+            };
+          });
+
+          document.getElementById('btn-ft-prev').onclick = () => {
+            activeIdx = (activeIdx - 1 + p.faces.length) % p.faces.length;
+            renderModalState();
+          };
+          document.getElementById('btn-ft-next').onclick = () => {
+            activeIdx = (activeIdx + 1) % p.faces.length;
+            renderModalState();
+          };
+
+          // 2. Render active face zoomed portrait & status
+          const cropImg = document.getElementById('ft-active-crop');
+          const cropPh = document.getElementById('ft-active-crop-placeholder');
+          if (f.cropUrl) {
+            cropImg.src = f.cropUrl;
+            cropImg.style.display = 'block';
+            cropPh.style.display = 'none';
+          } else {
+            cropImg.style.display = 'none';
+            cropPh.style.display = 'inline';
+          }
+
+          document.getElementById('ft-face-counter').textContent = `Face #${activeIdx + 1} of ${p.faces.length}`;
+          const badgeEl = document.getElementById('ft-current-badge');
+          if (curName) {
+            badgeEl.style.background = 'rgba(34,197,94,0.2)';
+            badgeEl.style.color = '#86efac';
+            badgeEl.textContent = `✓ ${curName}`;
+          } else {
+            badgeEl.style.background = 'rgba(251,191,36,0.18)';
+            badgeEl.style.color = '#fbbf24';
+            badgeEl.textContent = 'Needs Name — Click a person below';
+          }
+
+          // 3. Render Face Recognition banner
+          const recogBanner = document.getElementById('ft-recog-banner');
+          const topCand = (f.candidates && f.candidates[0]) || (f.suggestedName ? { name: f.suggestedName, fsId: f.suggestedFsId || '', confidence: f.matchConfidence || 0 } : null);
+          if (topCand && topCand.name && (!f.confirmed || curName.toLowerCase() !== topCand.name.toLowerCase())) {
+            recogBanner.innerHTML = `
+              <button type="button" id="btn-ft-confirm-recog" style="width:100%;text-align:left;background:linear-gradient(90deg, rgba(14,165,233,0.22), rgba(37,99,235,0.22));border:1px solid #38bdf8;color:#e0f2fe;padding:7px 11px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <span>✨ Face Recognition Match: <strong>${esc(topCand.name)}</strong>${topCand.confidence ? ` (${topCand.confidence}%)` : ''}</span>
+                <span style="background:#0284c7;color:#fff;padding:2px 8px;border-radius:5px;font-size:11px;white-space:nowrap;">Confirm ✓</span>
+              </button>
+            `;
+            document.getElementById('btn-ft-confirm-recog').onclick = () => assignPerson(topCand, true);
+          } else if (curName && f.confirmed) {
+            recogBanner.innerHTML = `<span style="font-size:12px;color:#94a3b8;">🧠 Face Recognition has learned <strong>${esc(curName)}</strong>'s face for future photos.</span>`;
+          } else {
+            recogBanner.innerHTML = `<span style="font-size:12px;color:#94a3b8;">🧠 Select a name below once — Face Recognition will learn &amp; identify them in future photos.</span>`;
+          }
+
+          // All faces tagged banner
+          const allDoneEl = document.getElementById('ft-all-done-banner');
+          allDoneEl.style.display = (taggedCount === p.faces.length) ? 'block' : 'none';
+
+          // 4. People in This Photo (1-Click buttons)
+          const photoPeopleSec = document.getElementById('ft-photo-people-section');
+          const photoPeopleList = document.getElementById('ft-photo-people-list');
+          const photoPeopleArr = (p.people || []).map(pr => (typeof pr === 'string' ? { name: pr, rel: 'Relative' } : pr)).filter(pr => pr && pr.name);
+          const photoNamesLower = new Set(photoPeopleArr.map(pr => pr.name.trim().toLowerCase()));
+
+          if (photoPeopleArr.length > 0) {
+            photoPeopleSec.style.display = 'block';
+            photoPeopleList.innerHTML = photoPeopleArr.map((pr, pIdx) => {
+              const prName = pr.name.trim();
+              const isSelectedHere = curName.toLowerCase() === prName.toLowerCase();
+              const otherIdx = p.faces.findIndex((fc, idx) => idx !== activeIdx && (fc.name || '').trim().toLowerCase() === prName.toLowerCase());
+              const pidBadge = pr.fsId || resolveKnownPidForName(prName, '');
+              const rightLabel = isSelectedHere
+                ? '<span style="color:#4ade80;font-size:11.5px;font-weight:700;">✓ Tagged</span>'
+                : (otherIdx !== -1
+                    ? `<span style="color:#94a3b8;font-size:11px;">Face #${otherIdx + 1}</span>`
+                    : '<span style="color:#38bdf8;font-size:11.5px;font-weight:600;">Select →</span>');
+              return `
+                <button type="button" class="ft-person-choice ${isSelectedHere ? 'selected' : ''}" data-photo-person-idx="${pIdx}">
+                  <div style="min-width:0;overflow:hidden;">
+                    <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(prName)}</div>
+                    <div style="font-size:11px;color:#94a3b8;">${esc(pr.rel || 'Relative')}${pidBadge ? ` · ${esc(pidBadge)}` : ''}</div>
+                  </div>
+                  ${rightLabel}
+                </button>
+              `;
+            }).join('');
+
+            photoPeopleList.querySelectorAll('[data-photo-person-idx]').forEach((btn) => {
+              btn.onclick = () => {
+                const idx = parseInt(btn.getAttribute('data-photo-person-idx'), 10);
+                if (photoPeopleArr[idx]) assignPerson(photoPeopleArr[idx], true);
+              };
+            });
+          } else {
+            photoPeopleSec.style.display = 'none';
+          }
+
+          // 5. Family Directory & Learned Relatives (1-Click buttons)
+          const dirSec = document.getElementById('ft-directory-section');
+          const dirList = document.getElementById('ft-directory-list');
+          const dirPeople = buildDirectoryPeople(photoNamesLower);
+
+          if (dirPeople.length > 0) {
+            dirSec.style.display = 'block';
+            dirList.innerHTML = dirPeople.map((dp, dIdx) => {
+              const isSelectedHere = curName.toLowerCase() === dp.name.toLowerCase();
+              return `
+                <button type="button" class="ft-person-choice ${isSelectedHere ? 'selected' : ''}" data-dir-person-idx="${dIdx}">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;">
+                    ${dp.avatar
+                      ? `<img src="${esc(dp.avatar)}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid rgba(255,255,255,0.25);">`
+                      : `<span style="width:28px;height:28px;border-radius:50%;background:rgba(56,189,248,0.15);color:#38bdf8;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">${esc(dp.name.charAt(0).toUpperCase())}</span>`}
+                    <div style="min-width:0;overflow:hidden;">
+                      <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dp.name)}</div>
+                      <div style="font-size:11px;color:#94a3b8;">${dp.learned ? '🧠 Learned' : esc(dp.rel || 'Family')}${dp.fsId ? ` · ${esc(dp.fsId)}` : ''}</div>
+                    </div>
+                  </div>
+                  <span style="color:#38bdf8;font-size:11.5px;font-weight:600;flex-shrink:0;">Select →</span>
+                </button>
+              `;
+            }).join('');
+
+            dirList.querySelectorAll('[data-dir-person-idx]').forEach((btn) => {
+              btn.onclick = () => {
+                const idx = parseInt(btn.getAttribute('data-dir-person-idx'), 10);
+                if (dirPeople[idx]) assignPerson(dirPeople[idx], true);
+              };
+            });
+          } else {
+            dirSec.style.display = 'none';
+          }
+
+          // 6. Wire New Name input + Unassign + Delete Box
+          const newInput = document.getElementById('ft-new-name-input');
+          const addNewBtn = document.getElementById('btn-ft-add-new');
+          const submitNew = () => {
+            const val = (newInput.value || '').trim();
+            if (!val) return;
+            newInput.value = '';
+            assignPerson({ name: val, rel: 'Relative', branch: p.branch || '' }, true);
+          };
+          addNewBtn.onclick = submitNew;
+          newInput.onkeydown = (ev) => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              submitNew();
+            }
+          };
+
+          document.getElementById('btn-ft-unassign').onclick = () => {
+            if (!p.faces[activeIdx]) return;
+            const targetFace = p.faces[activeIdx];
+            if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+              window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, targetFace.box));
+            }
+            targetFace.name = '';
+            targetFace.fsId = '';
+            targetFace.confirmed = false;
+            targetFace.recognized = false;
+            p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+            saveItemMetadata(p);
+            notify(`Face #${activeIdx + 1} unassigned.`);
+            render();
+            renderModalState();
+          };
+
+          document.getElementById('btn-ft-delete').onclick = () => {
+            if (!p.faces[activeIdx]) return;
+            const targetFace = p.faces[activeIdx];
+            if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+              window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, targetFace.box));
+            }
+            p.faces.splice(activeIdx, 1);
+            p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+            saveItemMetadata(p);
+            notify(`Removed face box #${activeIdx + 1}.`);
+            render();
+            if (p.faces.length === 0) {
+              closeModal();
+            } else {
+              if (activeIdx >= p.faces.length) activeIdx = p.faces.length - 1;
+              renderModalState();
+            }
+          };
+        }
+
+        modal.removeAttribute('hidden');
+        renderModalState();
+
+        // Ensure face portrait crops & recognition candidates are populated even on older scanned boxes
+        if (window.FaceDetectorEngine && window.FaceDetectorEngine.recognizeFaces && p.faces.some(fc => !fc.cropUrl)) {
+          try {
+            await window.FaceDetectorEngine.recognizeFaces(imgSource, p.faces, p.people);
+            syncRecognizedFacesIntoPeople(p);
+            p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+            saveItemMetadata(p);
+            render();
+            if (!modal.hasAttribute('hidden')) {
+              renderModalState();
+            }
+          } catch (e) {
+            console.warn('Face portrait crop/recognition notice:', e);
+          }
+        }
       }
 
       function renderInspector() {
@@ -5019,7 +5612,7 @@
             <button class="btn sm" type="button" id="insp-rot-r" title="Rotate 90 degrees clockwise">
               <span data-icon="rotateR"></span>
             </button>
-            <button class="btn sm" type="button" id="insp-scan-faces" title="Scan photo for human faces and FamilySearch tag coordinates">
+            <button class="btn sm" type="button" id="insp-scan-faces" title="Scan photo for human faces and run Face Recognition">
               <span data-icon="users"></span><span>${p.faces && p.faces.length > 0 ? `Faces (${p.faces.length})` : 'Scan Faces'}</span>
             </button>
             <button class="btn sm primary" type="button" id="insp-open-lab">
@@ -5028,11 +5621,12 @@
           </div>
 
           ${p.faces && p.faces.length > 0 ? `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:7px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:12px;">
               <span style="font-weight:600;color:var(--text);display:flex;align-items:center;gap:5px;">
-                <span data-icon="users"></span> ${p.faces.length} Detected Face${p.faces.length > 1 ? 's' : ''}
+                <span data-icon="users"></span> ${p.faces.length} Face${p.faces.length > 1 ? 's' : ''}
               </span>
-              <div style="display:flex;gap:6px;">
+              <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                <button class="btn sm primary" type="button" id="insp-open-tagger" title="Open 1-click face picker to select who each person is without typing" style="padding:3px 9px;font-size:11.5px;">🏷️ Tag Faces</button>
                 <button class="btn sm" type="button" id="insp-add-face" title="Add another face box to tag someone manually" style="padding:2px 8px;font-size:11px;">+ Add Box</button>
                 <button class="btn sm" type="button" id="insp-clear-names" title="Keep face boxes but clear assigned names so you can re-tag each person" style="padding:2px 8px;font-size:11px;">Unassign All</button>
                 <button class="btn sm" type="button" id="insp-clear-faces" title="Remove all detected face boxes" style="padding:2px 8px;font-size:11px;color:var(--danger, #ef4444);">Clear All</button>
@@ -5247,23 +5841,49 @@
                 scanFacesBtn.innerHTML = '<span>Scanning...</span>';
                 try {
                   const imgEl = box.querySelector('#insp-active-img');
+                  const sourceForScan = imgEl || afterSrc(p);
                   if (!window.FaceDetectorEngine) {
                     throw new Error('FaceDetectorEngine is not loaded yet.');
                   }
-                  const faces = await window.FaceDetectorEngine.detectFaces(imgEl || afterSrc(p));
+                  const faces = await window.FaceDetectorEngine.detectFaces(sourceForScan);
                   p.faces = (faces || []).map(f => ({ ...f, name: '' }));
                   p.facesScanned = true;
-                  
-                  // Auto-map ONLY if exactly 1 person and 1 face
-                  if (p.faces.length === 1 && p.people && p.people.length === 1 && p.people[0].name) {
-                    p.faces[0].name = p.people[0].name;
+
+                  // Run visual Face Recognition to identify learned relatives & generate portrait crops
+                  if (p.faces.length > 0 && typeof window.FaceDetectorEngine.recognizeFaces === 'function') {
+                    await window.FaceDetectorEngine.recognizeFaces(sourceForScan, p.faces, p.people);
                   }
-                  p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
+
+                  // Auto-map ONLY if exactly 1 person and 1 face and not yet named
+                  if (p.faces.length === 1 && !p.faces[0].name && p.people && p.people.length === 1 && p.people[0].name) {
+                    p.faces[0].name = p.people[0].name;
+                    p.faces[0].fsId = p.people[0].fsId || '';
+                  }
+
+                  syncRecognizedFacesIntoPeople(p);
+                  p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
                   saveItemMetadata(p);
-                  notify(p.faces.length > 0
-                    ? `✓ Detected ${p.faces.length} face${p.faces.length > 1 ? 's' : ''}! Click each box to assign the correct relative.`
-                    : 'No distinct faces detected. You can add coordinates or tag relatives below.');
+
+                  const recognizedCount = p.faces.filter(fc => Boolean((fc.name || '').trim())).length;
+                  if (p.faces.length > 0) {
+                    if (recognizedCount > 0 && recognizedCount === p.faces.length) {
+                      notify(`✨ Face Recognition identified all ${recognizedCount} face${recognizedCount > 1 ? 's' : ''}! Review or adjust with 1 click.`);
+                    } else if (recognizedCount > 0) {
+                      notify(`✨ Face Recognition identified ${recognizedCount} of ${p.faces.length} faces! Click names to tag the remaining ${p.faces.length - recognizedCount}.`);
+                    } else {
+                      notify(`✓ Detected ${p.faces.length} face${p.faces.length > 1 ? 's' : ''}! Select each person's name with 1 click.`);
+                    }
+                  } else {
+                    notify('No distinct faces detected. You can click + Add Box or tag relatives below.');
+                  }
+
                   render();
+
+                  // Open the 1-click Face Tagger automatically on the first untagged face (or Face #1)
+                  if (p.faces.length > 0) {
+                    const firstUntagged = p.faces.findIndex(fc => !(fc.name || '').trim());
+                    openFaceTaggerModal(p, firstUntagged !== -1 ? firstUntagged : 0);
+                  }
                 } catch (err) {
                   console.error('Face scanning error:', err);
                   notify(`Face scan error: ${err.message}`);
@@ -5272,14 +5892,26 @@
               };
             }
 
+            const openTaggerBtn = box.querySelector('#insp-open-tagger');
+            if (openTaggerBtn) {
+              openTaggerBtn.onclick = () => {
+                if (!p.faces || p.faces.length === 0) return;
+                const firstUntagged = p.faces.findIndex(fc => !(fc.name || '').trim());
+                openFaceTaggerModal(p, firstUntagged !== -1 ? firstUntagged : 0);
+              };
+            }
+
             // Wire remove button on individual face boxes
             box.querySelectorAll('.btn-remove-face-box').forEach((delBtn) => {
               delBtn.onclick = (e) => {
                 e.stopPropagation();
                 const fIdx = parseInt(delBtn.getAttribute('data-del-face-idx'), 10);
-                if (!p.faces || isNaN(fIdx)) return;
+                if (!p.faces || isNaN(fIdx) || !p.faces[fIdx]) return;
+                if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+                  window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, p.faces[fIdx].box));
+                }
                 const removed = p.faces.splice(fIdx, 1);
-                p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
+                p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
                 saveItemMetadata(p);
                 notify(`✕ Removed face box ${removed[0]?.name ? `(${removed[0].name})` : `#${fIdx + 1}`}.`);
                 render();
@@ -5291,17 +5923,17 @@
             if (addFaceBtn) {
               addFaceBtn.onclick = () => {
                 if (!p.faces) p.faces = [];
-                const newIdx = p.faces.length + 1;
+                const newIdx = p.faces.length;
                 p.faces.push({
-                  id: 'face_' + Date.now() + '_' + newIdx,
+                  id: 'face_' + Date.now() + '_' + (newIdx + 1),
                   box: { x: 0.38, y: 0.28, width: 0.22, height: 0.22 },
                   confidence: 1.0,
                   name: ''
                 });
-                p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
+                p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
                 saveItemMetadata(p);
-                notify(`+ Added face box #${newIdx}. Click it to tag a relative name!`);
                 render();
+                openFaceTaggerModal(p, newIdx);
               };
             }
 
@@ -5309,10 +5941,18 @@
             if (clearNamesBtn) {
               clearNamesBtn.onclick = () => {
                 if (!p.faces || p.faces.length === 0) return;
-                p.faces.forEach(f => { f.name = ''; });
+                p.faces.forEach((f) => {
+                  if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+                    window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, f.box));
+                  }
+                  f.name = '';
+                  f.fsId = '';
+                  f.confirmed = false;
+                  f.recognized = false;
+                });
                 p.unnamedFaces = p.faces.length;
                 saveItemMetadata(p);
-                notify('Cleared all face tag assignments. Click any box to tag the correct relative!');
+                notify('Cleared face assignments on this photo. Click Tag Faces to pick names with 1 click!');
                 render();
               };
             }
@@ -5322,6 +5962,11 @@
               clearFacesBtn.onclick = () => {
                 if (!p.faces || p.faces.length === 0) return;
                 if (confirm(`Remove all ${p.faces.length} face boxes from this photo?`)) {
+                  p.faces.forEach((f) => {
+                    if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+                      window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, f.box));
+                    }
+                  });
                   p.faces = [];
                   p.unnamedFaces = 0;
                   saveItemMetadata(p);
@@ -5336,52 +5981,8 @@
                 if (e.target.closest('.btn-remove-face-box')) return;
                 e.stopPropagation();
                 const fIdx = parseInt(el.getAttribute('data-face-idx'), 10);
-                const f = p.faces && p.faces[fIdx];
-                if (!f) return;
-                const cur = (f.name || '').trim();
-                const relNames = (p.people || []).map(x => (typeof x === 'string' ? x : x.name || '')).filter(Boolean);
-
-                let promptMsg = `Tag Face #${fIdx + 1}:\n(Current: ${cur || 'Unassigned'})\n\n`;
-                if (relNames.length > 0) {
-                  promptMsg += `Relatives on this photo:\n` + relNames.map((n, i) => `  ${i + 1}. ${n}`).join('\n') + `\n\n`;
-                  promptMsg += `Type number (1-${relNames.length}) or name (or "clear" to unassign, "delete" to remove):`;
-                } else {
-                  promptMsg += `Type relative name (or "delete" to remove this box):`;
-                }
-
-                const choice = prompt(promptMsg, cur || '');
-                if (choice !== null) {
-                  let val = choice.trim();
-                  if (val.toLowerCase() === 'delete' || val.toLowerCase() === 'remove') {
-                    p.faces.splice(fIdx, 1);
-                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
-                    saveItemMetadata(p);
-                    notify(`✕ Removed Face #${fIdx + 1}.`);
-                    render();
-                  } else if (val.toLowerCase() === 'clear' || val.toLowerCase() === 'none' || val === '') {
-                    f.name = '';
-                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
-                    saveItemMetadata(p);
-                    notify(`Face #${fIdx + 1} marked unassigned.`);
-                    render();
-                  } else {
-                    const num = parseInt(val, 10);
-                    if (!isNaN(num) && num >= 1 && num <= relNames.length) {
-                      val = relNames[num - 1];
-                    }
-                    f.name = val;
-                    if (val) {
-                      if (!p.people) p.people = [];
-                      if (!p.people.some(pr => (pr.name || '').toLowerCase() === val.toLowerCase())) {
-                        p.people.push({ name: val, rel: 'Relative', branch: p.branch || '' });
-                      }
-                    }
-                    p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
-                    saveItemMetadata(p);
-                    notify(`Face #${fIdx + 1} assigned to ${f.name}.`);
-                    render();
-                  }
-                }
+                if (!p.faces || !p.faces[fIdx]) return;
+                openFaceTaggerModal(p, fIdx);
               };
             });
             // Wire Map Pin button with automatic address geocoding
@@ -5761,10 +6362,25 @@
             box.querySelector('#btn-insp-fs').onclick = async () => {
               commitInspectorInputs(p, false);
               if (p.fsSynced && p.fsMemoryId) {
+                let isMemoryLive = true;
+                if (window.FamilySearchClient && window.FamilySearchClient.getStoredToken() && window.FamilySearchClient.checkMemoryExists) {
+                  notify(`Checking Memory #${p.fsMemoryId} on FamilySearch...`);
+                  isMemoryLive = await window.FamilySearchClient.checkMemoryExists(p.fsMemoryId);
+                }
+                if (!isMemoryLive) {
+                  // Previous memory was deleted or broken on FamilySearch -> upload a fresh working copy automatically!
+                  const staleId = p.fsMemoryId;
+                  p.fsSynced = false;
+                  p.fsMemoryId = '';
+                  saveItemMetadata(p);
+                  await uploadPrintToFamilySearch(p, { replaceMemoryId: staleId });
+                  render();
+                  return;
+                }
                 showFamilySearchSuccessModal({
                   title: `Photo ${p.id} on FamilySearch`,
                   memoryId: p.fsMemoryId,
-                  memoryUrl: `https://beta.familysearch.org/memories/memory/${p.fsMemoryId}`,
+                  memoryUrl: `https://beta.familysearch.org/en/memories/memory/${p.fsMemoryId}`,
                   pidSummary: p.fsId || '',
                   message: `Photo ${p.id} is synced to FamilySearch Beta (Memory #${p.fsMemoryId}).\n\nClick "OK" to see your photo in FamilySearch, "Update / Re-upload" to send your updated face tags, or "Cancel" to close.`,
                   allowReupload: true,
@@ -7707,19 +8323,13 @@
                                       const linkedCount = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.length : (p.people && p.people.length > 0 ? p.people.length : 1);
                                       const pidSummary = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.join(', ') : (p.fsId || '');
 
-                                      if (oldMemoryId && oldMemoryId !== result.memoryId && window.FamilySearchClient.deleteMemory) {
-                                        notify(`Deleting older photo (Memory #${oldMemoryId}) from FamilySearch...`);
-                                        try {
-                                          await window.FamilySearchClient.deleteMemory(oldMemoryId);
-                                          notify(`✓ Replaced older photo! New Memory #${result.memoryId} is active and linked to all ${linkedCount} relatives.`);
-                                        } catch (delErr) {
-                                          console.warn('Could not delete older memory:', delErr);
-                                        }
+                                      if (oldMemoryId && oldMemoryId !== result.memoryId) {
+                                        notify(`✓ Replaced older photo! New Memory #${result.memoryId} is active and linked to all ${linkedCount} relatives.`);
                                       } else {
                                         notify(`✓ Uploaded 1 photo (Memory #${result.memoryId}) & linked to all ${linkedCount} relatives (${pidSummary})!`);
                                       }
                                       
-                                      const memUrl = result.memoryUrl || `https://beta.familysearch.org/memories/memory/${result.memoryId}`;
+                                      const memUrl = result.memoryUrl || `https://beta.familysearch.org/en/memories/memory/${result.memoryId}`;
                                       setTimeout(() => {
                                         showFamilySearchSuccessModal({
                                           title: '✓ Photo Uploaded to FamilySearch',
@@ -7951,6 +8561,11 @@
                   ${fsUser ? `Upload all ${unsynced.length} pending prints` : `Sign in & upload all ${unsynced.length} prints`}
                 </button>
               ` : ''}
+              ${p && p.fsSynced ? `
+                <button class="btn sm" type="button" id="btn-fs-resync-selected" style="margin-top:6px;width:100%;">
+                  ↻ Re-upload / Update Selected Photo (${esc(p.id)}) on FamilySearch
+                </button>
+              ` : ''}
             </article>
 
             <!-- SITE 2: ANCESTRY.COM (ASSISTED EXIF + CITATION PACK) -->
@@ -8052,6 +8667,15 @@
                                       if (window.FamilySearchClient) window.FamilySearchClient.clearToken();
                                       fsUser = null;
                                       notify('Signed out of FamilySearch.');
+                                      render();
+                                    };
+                                  }
+                                  const resyncSelectedBtn = host.querySelector('#btn-fs-resync-selected');
+                                  if (resyncSelectedBtn && p) {
+                                    resyncSelectedBtn.onclick = async () => {
+                                      resyncSelectedBtn.disabled = true;
+                                      resyncSelectedBtn.textContent = 'Updating on FamilySearch...';
+                                      await uploadPrintToFamilySearch(p, { replaceMemoryId: p.fsMemoryId });
                                       render();
                                     };
                                   }

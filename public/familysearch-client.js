@@ -491,21 +491,114 @@
   }
 
   /**
+   * Verifies that a FamilySearch Memory ID actually exists and has not been deleted/tombstoned.
+   */
+  async function checkMemoryExists(memoryId, tokenOpt) {
+    if (!memoryId || String(memoryId).indexOf('mem_') === 0) return false;
+    var token = tokenOpt || getStoredToken();
+    if (!token || !token.accessToken) return false;
+
+    try {
+      var res = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Authorization': 'Bearer ' + token.accessToken,
+          'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
+        }
+      });
+      if (!res.ok || res.status === 204 || res.status === 404 || res.status === 410) {
+        return false;
+      }
+      var entityState = (res.headers.get('X-entity-state') || res.headers.get('Warning') || '').toLowerCase();
+      if (entityState.indexOf('deleted') !== -1 || entityState.indexOf('deprecated') !== -1) {
+        return false;
+      }
+      var data = await res.json();
+      if (!data || !Array.isArray(data.sourceDescriptions) || data.sourceDescriptions.length === 0) {
+        return false;
+      }
+      var sd = data.sourceDescriptions[0];
+      if (!sd || sd.resourceType === 'http://gedcomx.org/Deleted') {
+        return false;
+      }
+      if (sd.identifiers && sd.identifiers['http://familysearch.org/v1/Deleted']) {
+        return false;
+      }
+      // Check if artifact screening or deletion state makes it unloadable
+      if (sd.Status === 'DELETED' || sd.status === 'deleted') {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.warn('FamilySearch checkMemoryExists error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Produces a fresh JPEG blob with an imperceptible 1-level corner pixel adjustment
+   * so FamilySearch's SHA-256 deduplicator issues a brand-new 201 Created Memory ID
+   * instead of returning HTTP 409 pointing to a previously deleted/tombstoned memory.
+   */
+  async function createFreshUploadBlob(blob) {
+    if (!blob || typeof document === 'undefined') return blob;
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var objUrl = URL.createObjectURL(blob);
+      img.onload = function () {
+        URL.revokeObjectURL(objUrl);
+        try {
+          var w = img.naturalWidth || img.width || 800;
+          var h = img.naturalHeight || img.height || 600;
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          // Imperceptibly nudge 2 corner pixels so the compressed JPEG has a unique hash
+          var patchW = Math.min(2, w);
+          var patchData = ctx.getImageData(w - patchW, h - 1, patchW, 1);
+          var d = patchData.data;
+          var delta = (Date.now() % 3) + 1;
+          for (var i = 0; i < d.length; i += 4) {
+            d[i] = d[i] < 245 ? d[i] + delta : d[i] - delta;
+            d[i + 1] = d[i + 1] < 245 ? d[i + 1] + 1 : d[i + 1] - 1;
+          }
+          ctx.putImageData(patchData, w - patchW, h - 1);
+          canvas.toBlob(function (newBlob) {
+            resolve(newBlob || blob);
+          }, 'image/jpeg', 0.95);
+        } catch (err) {
+          resolve(blob);
+        }
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(objUrl);
+        resolve(blob);
+      };
+      img.src = objUrl;
+    });
+  }
+
+  /**
    * Resolves the real numeric FamilySearch Memory ID if a photo was already uploaded (e.g. on 409 Conflict)
    */
   async function resolveExistingMemoryId(targetPersonId, title, filename, token) {
     var cleanTitle = (title || '').trim().toLowerCase();
+    var pidMatch = String(targetPersonId || '').match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+    var singlePid = pidMatch ? pidMatch[0].toUpperCase() : '';
 
     // 1. Check target person's attached memories
-    if (targetPersonId) {
+    if (singlePid) {
       try {
-        var pRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories', {
+        var pRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(singlePid) + '/memories', {
           headers: {
             'Authorization': 'Bearer ' + token.accessToken,
             'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
           }
         });
-        if (pRes.ok) {
+        if (pRes.ok && pRes.status !== 204) {
           var pJson = await pRes.json();
           var sds = pJson.sourceDescriptions || [];
           if (sds.length > 0) {
@@ -515,12 +608,11 @@
               return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
                 (filename && ab.includes(filename));
             });
-            var chosen = matched || sds[0];
-            if (chosen) {
-              var memIdFromAbout = (chosen.about && chosen.about.indexOf('/memories/') !== -1)
-                ? chosen.about.replace(/\/+$/, '').split('/').pop()
+            if (matched) {
+              var memIdFromAbout = (matched.about && matched.about.indexOf('/memories/') !== -1)
+                ? matched.about.replace(/\/+$/, '').split('/').pop()
                 : null;
-              var chosenId = memIdFromAbout || (chosen.id ? String(chosen.id) : null);
+              var chosenId = memIdFromAbout || (matched.id ? String(matched.id) : null);
               if (chosenId && chosenId.indexOf('SD-') !== -1 && memIdFromAbout) {
                 chosenId = memIdFromAbout;
               }
@@ -541,7 +633,7 @@
           'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json, application/json'
         }
       });
-      if (uRes.ok) {
+      if (uRes.ok && uRes.status !== 204) {
         var uJson = await uRes.json();
         var uSds = uJson.sourceDescriptions || [];
         if (uSds.length > 0) {
@@ -551,12 +643,11 @@
             return (cleanTitle && t.trim().toLowerCase() === cleanTitle) ||
               (filename && ab.includes(filename));
           });
-          var uChosen = uMatched || uSds[0];
-          if (uChosen) {
-            var uMemIdFromAbout = (uChosen.about && uChosen.about.indexOf('/memories/') !== -1)
-              ? uChosen.about.replace(/\/+$/, '').split('/').pop()
+          if (uMatched) {
+            var uMemIdFromAbout = (uMatched.about && uMatched.about.indexOf('/memories/') !== -1)
+              ? uMatched.about.replace(/\/+$/, '').split('/').pop()
               : null;
-            var uChosenId = uMemIdFromAbout || (uChosen.id ? String(uChosen.id) : null);
+            var uChosenId = uMemIdFromAbout || (uMatched.id ? String(uMatched.id) : null);
             if (uChosenId && uChosenId.indexOf('SD-') !== -1 && uMemIdFromAbout) {
               uChosenId = uMemIdFromAbout;
             }
@@ -723,12 +814,15 @@
     var isoDate = options.isoDate || photo.isoDate || '';
     var place = options.place || photo.place || '';
     var people = options.people || photo.people || [];
-    var targetPersonId = (options.targetPersonId || photo.fsId || '').trim().toUpperCase();
+    var rawTargetIds = (options.targetPersonId || photo.fsId || '').trim().toUpperCase();
+    var firstPidMatch = rawTargetIds.match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+    var targetPersonId = firstPidMatch ? firstPidMatch[0].toUpperCase() : '';
     var onProgress = options.onProgress || function () { };
 
     onProgress({ step: 'preparing', message: 'Preparing photo artifact for FamilySearch...' });
 
     // If replacing older copy requested, delete prior memory from FamilySearch first
+    // and refresh image blob hash so FamilySearch creates a live 201 Created memory
     if (options.replaceMemoryId) {
       onProgress({ step: 'replacing', message: 'Removing older copy (Memory #' + options.replaceMemoryId + ') from FamilySearch...' });
       try {
@@ -736,6 +830,7 @@
       } catch (delErr) {
         console.warn('Could not delete old memory before replace:', delErr);
       }
+      imageBlob = await createFreshUploadBlob(imageBlob);
     }
 
     // Parse date into ISO, normalized (e.g. "30 March 2003"), and formal (e.g. "+2003-03-30")
@@ -784,21 +879,24 @@
       uploadUrl += '?' + qParams.join('&');
     }
 
-    var formData = new FormData();
-    formData.append('artifact', imageBlob, filename);
-    formData.append('title', title);
-    if (fullDescription) {
-      formData.append('description', fullDescription);
-    }
-    if (normalizedDate) {
-      formData.append('date', normalizedDate);
-      formData.append('coverageDate', normalizedDate);
-      formData.append('temporal', normalizedDate);
-    }
-    if (effectivePlaceName) {
-      formData.append('place', effectivePlaceName);
-      formData.append('coveragePlace', effectivePlaceName);
-      formData.append('spatial', effectivePlaceName);
+    function buildUploadFormData(blobToSend) {
+      var fd = new FormData();
+      fd.append('artifact', blobToSend, filename);
+      fd.append('title', title);
+      if (fullDescription) {
+        fd.append('description', fullDescription);
+      }
+      if (normalizedDate) {
+        fd.append('date', normalizedDate);
+        fd.append('coverageDate', normalizedDate);
+        fd.append('temporal', normalizedDate);
+      }
+      if (effectivePlaceName) {
+        fd.append('place', effectivePlaceName);
+        fd.append('coveragePlace', effectivePlaceName);
+        fd.append('spatial', effectivePlaceName);
+      }
+      return fd;
     }
 
     onProgress({ step: 'uploading', message: 'Uploading photo to FamilySearch Beta Memories...' });
@@ -809,21 +907,50 @@
         'Authorization': 'Bearer ' + token.accessToken,
         'Accept': 'application/json'
       },
-      body: formData
+      body: buildUploadFormData(imageBlob)
     });
 
     var memoryId = null;
 
     if (!uploadRes.ok) {
       if (uploadRes.status === 409) {
-        // Conflict - memory already exists on FamilySearch
-        onProgress({ step: 'conflict', message: 'Photo is already on FamilySearch. Resolving existing memory record...' });
+        // Conflict - memory hash seen on FamilySearch before; verify it wasn't deleted!
+        onProgress({ step: 'conflict', message: 'Checking existing FamilySearch memory record...' });
         var loc = uploadRes.headers.get('Location') || '';
         var xId = uploadRes.headers.get('X-entity-id') || '';
-        memoryId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
+        var candidateId = xId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null) || options.memoryId;
+        if (candidateId && String(candidateId).indexOf('mem_') === 0) candidateId = null;
 
-        if (!memoryId) {
-          memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+        if (!candidateId) {
+          candidateId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
+        }
+
+        var isMemoryAlive = candidateId ? await checkMemoryExists(candidateId, token) : false;
+
+        if (candidateId && isMemoryAlive) {
+          memoryId = candidateId;
+        } else {
+          // Previous upload was deleted on FamilySearch (tombstoned SHA-256)!
+          // Upload a fresh JPEG blob so FamilySearch issues a brand-new working Memory ID.
+          onProgress({ step: 'recreating', message: 'Previous memory was removed on FamilySearch. Uploading fresh photo record...' });
+          var freshBlob = await createFreshUploadBlob(imageBlob);
+          imageBlob = freshBlob;
+          var retryRes = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Accept': 'application/json'
+            },
+            body: buildUploadFormData(freshBlob)
+          });
+          if (retryRes.ok) {
+            var rLoc = retryRes.headers.get('Location') || '';
+            var rXId = retryRes.headers.get('X-entity-id') || '';
+            memoryId = rXId || (rLoc ? rLoc.replace(/\/+$/, '').split('/').pop() : null);
+          } else {
+            var rErrText = await retryRes.text();
+            throw new Error('FamilySearch fresh re-upload failed (' + retryRes.status + '): ' + rErrText);
+          }
         }
       } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
         // Fallback attempt to person memories endpoint if universal rejected
@@ -835,7 +962,7 @@
             'Authorization': 'Bearer ' + token.accessToken,
             'Accept': 'application/json'
           },
-          body: formData
+          body: buildUploadFormData(imageBlob)
         });
         if (!personRes.ok && personRes.status !== 409) {
           var pErr = await personRes.text();
@@ -858,8 +985,8 @@
       memoryId = await resolveExistingMemoryId(targetPersonId, title, filename, token);
     }
 
-    if (!memoryId && photo.id) {
-      memoryId = 'mem_' + Date.now();
+    if (!memoryId || String(memoryId).indexOf('mem_') === 0) {
+      throw new Error('FamilySearch did not return a valid Memory ID. Please try syncing again.');
     }
 
     // 1b. Update Memory Date & Place Coverage metadata
@@ -867,8 +994,6 @@
       onProgress({ step: 'coverage', message: 'Saving memory Date (' + (normalizedDate || 'N/A') + ') and Place (' + (effectivePlaceName || 'N/A') + ') to FamilySearch...' });
       try {
         // Build cleanly typed GEDCOM X Coverage entries
-        // Notice: In GEDCOM X schema, temporal.normalized is List<TextValue>, not a string.
-        // formal must be strict ISO GEDCOM X (e.g. "+2003-03-30" or "+2003")
         var covClean = {};
         if (normalizedDate) {
           covClean.temporal = {
@@ -943,48 +1068,36 @@
         }
 
         var targetSdId = (liveSd && liveSd.id) || memoryId;
-        var memoryAbout = API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId);
+        var memoryAbout = (liveSd && liveSd.about) || (API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId));
 
-        // Target endpoints: coverage sub-resource, memory container, and artifact endpoints
+        // Target endpoints: non-destructive POST to SourceDescription first, then dedicated coverage sub-resources
         var targetEndpoints = [];
-        if (coverageHref) targetEndpoints.push({ url: coverageHref, isCoverageOnly: true });
-        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0/coverage', isCoverageOnly: true });
         targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), isCoverageOnly: false });
+        if (coverageHref) targetEndpoints.push({ url: coverageHref, isCoverageOnly: true });
         if (artifactHref) {
           targetEndpoints.push({ url: artifactHref + '/coverage', isCoverageOnly: true });
-          targetEndpoints.push({ url: artifactHref, isCoverageOnly: false });
         }
-        targetEndpoints.push({ url: API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/artifacts/0', isCoverageOnly: false });
         targetEndpoints.push({ url: API_BASE + '/platform/memories/artifacts/' + encodeURIComponent(memoryId) + '/description', isCoverageOnly: false });
 
         var coverageSaved = false;
 
-        // Dispatch coverage updates across endpoints until saved
+        // Dispatch coverage updates cleanly via POST (never partial PUT on memory container)
         for (var tIdx = 0; tIdx < targetEndpoints.length; tIdx++) {
           var target = targetEndpoints[tIdx];
           var epUrl = target.url;
           var payloads = [];
 
           if (target.isCoverageOnly) {
-            // Direct coverage payloads (tried with POST and PUT)
             var covVariants = [covClean, covWithNormalized, covMinimal];
             for (var cvIdx = 0; cvIdx < covVariants.length; cvIdx++) {
               var cv = covVariants[cvIdx];
-              payloads.push({ method: 'POST', body: cv });
-              payloads.push({ method: 'PUT', body: cv });
-              payloads.push({ method: 'POST', body: [cv] });
-              payloads.push({ method: 'PUT', body: [cv] });
-              payloads.push({ method: 'POST', body: { coverage: cv } });
-              payloads.push({ method: 'PUT', body: { coverage: cv } });
               payloads.push({ method: 'POST', body: { coverage: [cv] } });
-              payloads.push({ method: 'PUT', body: { coverage: [cv] } });
+              payloads.push({ method: 'POST', body: [cv] });
             }
           } else {
-            // Container / description payloads (SourceDescriptions)
             var covVariants2 = [covClean, covWithNormalized, covMinimal];
             for (var cv2Idx = 0; cv2Idx < covVariants2.length; cv2Idx++) {
               var cv2 = covVariants2[cv2Idx];
-              // Standard GEDCOM X SourceDescription with coverage array
               payloads.push({
                 method: 'POST',
                 body: {
@@ -997,43 +1110,12 @@
                   }]
                 }
               });
-              payloads.push({
-                method: 'POST',
-                body: {
-                  sourceDescriptions: [{
-                    id: targetSdId,
-                    about: memoryAbout,
-                    coverage: [cv2]
-                  }]
-                }
-              });
-              payloads.push({
-                method: 'POST',
-                body: {
-                  sourceDescriptions: [{
-                    id: targetSdId,
-                    about: memoryAbout,
-                    coverage: cv2
-                  }]
-                }
-              });
-              // Also try PUT on memory container
-              payloads.push({
-                method: 'PUT',
-                body: {
-                  sourceDescriptions: [{
-                    id: targetSdId,
-                    about: memoryAbout,
-                    coverage: [cv2]
-                  }]
-                }
-              });
             }
           }
 
           for (var pIdx = 0; pIdx < payloads.length; pIdx++) {
             var item = payloads[pIdx];
-            var contentTypes = ['application/x-fs-v1+json', 'application/x-gedcomx-v1+json', 'application/json'];
+            var contentTypes = ['application/x-fs-v1+json', 'application/x-gedcomx-v1+json'];
             for (var cIdx = 0; cIdx < contentTypes.length; cIdx++) {
               var cType = contentTypes[cIdx];
               try {
@@ -1046,11 +1128,7 @@
                   },
                   body: JSON.stringify(item.body)
                 });
-                var pText = '';
-                try { pText = await pRes.clone().text(); } catch (clErr) {}
-                console.log('FS coverage attempt:', item.method, epUrl, cType, pRes.status, pText);
                 if (pRes.ok) {
-                  console.log('FS coverage SUCCESS (' + pRes.status + ') at ' + epUrl);
                   coverageSaved = true;
                   break;
                 }
@@ -1058,10 +1136,9 @@
                 console.warn('FS coverage dispatch error:', pErr);
               }
             }
-            if (coverageSaved && target.isCoverageOnly) {
-              break;
-            }
+            if (coverageSaved) break;
           }
+          if (coverageSaved) break;
         }
         if (coverageSaved) {
           onProgress({ step: 'coverage', message: 'Memory Date & Place coverage saved to FamilySearch.' });
@@ -1075,8 +1152,11 @@
     var faces = options.faces || (photo && photo.faces) || [];
     if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
       try {
-        onProgress({ step: 'faces', message: 'Detecting faces on photo for FamilySearch tag coordinates...' });
+        onProgress({ step: 'faces', message: 'Detecting & recognizing faces on photo for FamilySearch tags...' });
         faces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
+        if (faces && faces.length > 0 && typeof window.FaceDetectorEngine.recognizeFaces === 'function') {
+          await window.FaceDetectorEngine.recognizeFaces(imageBlob || (photo && photo.file), faces, people);
+        }
         if (photo && faces && faces.length > 0) {
           photo.faces = faces;
         }
@@ -1111,7 +1191,7 @@
     var tagTargets = [];
     var seenTargetNames = new Set();
 
-    // A. Add all faces that have names or box coordinates
+    // A. Add all faces that have names or box coordinates (matching fsId strictly by person name, NEVER array index!)
     if (faces && faces.length > 0) {
       faces.forEach(function (f, fIdx) {
         var fName = (f.name || '').trim();
@@ -1119,9 +1199,17 @@
           fName = (typeof people[0] === 'string' ? people[0] : people[0].name || '').trim();
         }
         if (fName) {
+          var matchedPersonObj = (people || []).find(function (pRel) {
+            var pRelName = typeof pRel === 'string' ? pRel : (pRel && pRel.name ? pRel.name : '');
+            return isNameMatch(pRelName, fName);
+          });
+          var matchedPersonFsId = (matchedPersonObj && typeof matchedPersonObj === 'object' && matchedPersonObj.fsId)
+            ? matchedPersonObj.fsId
+            : null;
+
           tagTargets.push({
             name: fName,
-            fsId: f.fsId || (people && people[fIdx] && people[fIdx].fsId) || null,
+            fsId: f.fsId || matchedPersonFsId || null,
             box: f.box || (f.left !== undefined ? f : null),
             faceIdx: fIdx
           });
@@ -1157,20 +1245,8 @@
       tagTargets.push({
         name: title || 'Relative',
         fsId: targetPersonId,
-        box: (faces && faces[0] && (faces[0].box || faces[0])) || null,
-        faceIdx: (faces && faces[0]) ? 0 : -1
-      });
-    }
-
-    // D. If still empty but faces exist without names, create numbered targets
-    if (tagTargets.length === 0 && faces && faces.length > 0) {
-      faces.forEach(function (f, fIdx) {
-        tagTargets.push({
-          name: title ? (title + ' (Person ' + (fIdx + 1) + ')') : ('Person ' + (fIdx + 1)),
-          fsId: (fIdx === 0 ? targetPersonId : null),
-          box: f.box || (f.left !== undefined ? f : null),
-          faceIdx: fIdx
-        });
+        box: (faces && faces.length === 1 && (faces[0].box || faces[0])) || null,
+        faceIdx: (faces && faces.length === 1) ? 0 : -1
       });
     }
 
@@ -1178,8 +1254,8 @@
       var claimedPersonaIds = new Set();
       onProgress({ step: 'tagging', message: 'Tagging ' + tagTargets.length + ' relative(s) and face positions on FamilySearch memory...' });
 
-      for (var tIdx = 0; tIdx < tagTargets.length; tIdx++) {
-        var target = tagTargets[tIdx];
+      for (var tIdx2 = 0; tIdx2 < tagTargets.length; tIdx2++) {
+        var target = tagTargets[tIdx2];
         var personName = target.name;
         if (!personName) continue;
 
@@ -1196,7 +1272,7 @@
           }
         }
 
-        if (!personPid && targetPersonId && (tIdx === 0 || tagTargets.length === 1)) {
+        if (!personPid && targetPersonId && tagTargets.length === 1) {
           var targetPidMatch = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
           if (targetPidMatch) personPid = targetPidMatch[0].toUpperCase();
         }
@@ -1232,13 +1308,13 @@
             { name: 'http://familysearch.org/v1/RectangleRegion', value: regionBox }
           ] : undefined;
 
-          var media = [
+          var media = hasBox ? [
             {
               resource: API_BASE + '/platform/memories/memories/' + memoryId,
               description: 'http://gedcomx.org/Photograph',
               qualifiers: qualifiers
             }
-          ];
+          ] : undefined;
 
           var personNames = [
             {
@@ -1283,8 +1359,8 @@
             return false;
           });
 
-          // ONLY for the first target (tIdx === 0), if there is an unclaimed initial placeholder persona on the memory, we can adopt it
-          if (!matchedExisting && tIdx === 0 && existingPersonas.length > 0 && !claimedPersonaIds.has(existingPersonas[0].id)) {
+          // ONLY for the first target (tIdx2 === 0), if there is an unclaimed initial placeholder persona on the memory, we can adopt it
+          if (!matchedExisting && tIdx2 === 0 && existingPersonas.length === 1 && !claimedPersonaIds.has(existingPersonas[0].id)) {
             matchedExisting = existingPersonas[0];
           }
 
@@ -1296,9 +1372,9 @@
             var updatePerson = {
               id: matchedExisting.id,
               extracted: true,
-              names: personNames,
-              media: media
+              names: personNames
             };
+            if (media) updatePerson.media = media;
             if (hasIdentifiers) updatePerson.identifiers = identifiers;
 
             var updateRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas/' + matchedExisting.id, {
@@ -1337,9 +1413,9 @@
             // CREATE new persona with bounding box coordinates
             var createPerson = {
               extracted: true,
-              names: personNames,
-              media: media
+              names: personNames
             };
+            if (media) createPerson.media = media;
             if (hasIdentifiers) createPerson.identifiers = identifiers;
 
             var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
@@ -1356,9 +1432,9 @@
               // Retry without identifiers in case server prefers creating first then linking
               var fallbackPerson = {
                 extracted: true,
-                names: createPerson.names,
-                media: media
+                names: createPerson.names
               };
+              if (media) fallbackPerson.media = media;
               personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
                 method: 'POST',
                 headers: {
@@ -1461,6 +1537,25 @@
           console.warn('Persona tag creation notice:', tagErr);
         }
       }
+
+      // Clean up any stale/old personas on an updated memory that weren't claimed by current tags
+      if (existingPersonas && existingPersonas.length > 0) {
+        for (var epIdx = 0; epIdx < existingPersonas.length; epIdx++) {
+          var ep = existingPersonas[epIdx];
+          if (ep && ep.id && !claimedPersonaIds.has(ep.id)) {
+            try {
+              await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas/' + encodeURIComponent(ep.id), {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken
+                }
+              });
+            } catch (staleDelErr) {
+              console.warn('Stale persona cleanup notice:', staleDelErr);
+            }
+          }
+        }
+      }
     }
 
     // 5. Ensure EVERY person PID associated with this photo is linked to the single memory artifact
@@ -1486,9 +1581,9 @@
         }
       });
     }
-    if (targetPersonId) {
-      var tMatched = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
-      if (tMatched) tMatched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
+    if (rawTargetIds) {
+      var rMatched = String(rawTargetIds).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
+      if (rMatched) rMatched.forEach(function (id) { allUniquePids.add(id.toUpperCase()); });
     }
     if (photo && photo.fsId) {
       var pMatched = String(photo.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/g);
@@ -1546,7 +1641,7 @@
       }
     }
 
-    var memoryWebUrl = memoryId ? WEB_BASE + '/memories/memory/' + memoryId : WEB_BASE + '/memories/gallery';
+    var memoryWebUrl = memoryId ? WEB_BASE + '/en/memories/memory/' + memoryId : WEB_BASE + '/en/memories/gallery';
     var primaryPid = Array.from(allUniquePids)[0] || targetPersonId;
     var personMemoriesUrl = primaryPid ? WEB_BASE + '/en/tree/person/memories/' + primaryPid : null;
 
@@ -1774,7 +1869,10 @@
     getCurrentUser: getCurrentUser,
     uploadMemory: uploadMemory,
     deleteMemory: deleteMemory,
+    checkMemoryExists: checkMemoryExists,
+    createFreshUploadBlob: createFreshUploadBlob,
     searchPersons: searchPersons,
+    KNOWN_FAMILY: KNOWN_FAMILY,
     parseFamilySearchDate: parseFamilySearchDate,
     formatNormalizedDate: formatNormalizedDate,
     resolvePlaceDescription: resolvePlaceDescription,
@@ -1783,3 +1881,4 @@
     WEB_BASE: WEB_BASE
   };
 })(typeof window !== 'undefined' ? window : this);
+
