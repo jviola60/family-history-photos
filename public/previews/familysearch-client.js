@@ -1268,7 +1268,19 @@
         if (!personPid) {
           var kfMatches = rankMatches(KNOWN_FAMILY, personName);
           if (kfMatches && kfMatches.length > 0) {
-            personPid = kfMatches[0].id.toUpperCase();
+            var cand = kfMatches[0];
+            var candLower = (cand.name || '').toLowerCase();
+            var targetLower = personName.toLowerCase();
+            var cGiven = candLower.split(/\s+/)[0] || '';
+            var tGiven = targetLower.split(/\s+/)[0] || '';
+            // Strictly check given name AND surname/alias match - NEVER attach someone solely by surname!
+            if (candLower === targetLower || (cand.aliases && cand.aliases.includes(targetLower))) {
+              personPid = cand.id.toUpperCase();
+            } else if (cGiven && tGiven && (cGiven === tGiven || cGiven.startsWith(tGiven) || tGiven.startsWith(cGiven))) {
+              if (isNameMatch(candLower, targetLower)) {
+                personPid = cand.id.toUpperCase();
+              }
+            }
           }
         }
 
@@ -1319,8 +1331,7 @@
           var personNames = [
             {
               type: 'http://gedcomx.org/Preferred',
-              nameForms: [{ fullText: personName }],
-              forms: [{ fullText: personName }]
+              nameForms: [{ fullText: personName }]
             }
           ];
 
@@ -1350,8 +1361,8 @@
               }
             }
             var pName = p.names && p.names[0] && (
-              (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText) ||
-              (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText)
+              (p.names[0].nameForms && p.names[0].nameForms[0] && p.names[0].nameForms[0].fullText) ||
+              (p.names[0].forms && p.names[0].forms[0] && p.names[0].forms[0].fullText)
             );
             if (pName && isNameMatch(pName, personName)) {
               return true;
@@ -1368,7 +1379,7 @@
           var opSuccess = false;
 
           if (matchedExisting) {
-            // UPDATE existing persona with bounding box coordinates and identifiers
+            // UPDATE existing persona with bounding box coordinates
             var updatePerson = {
               id: matchedExisting.id,
               extracted: true,
@@ -1381,8 +1392,8 @@
               method: 'POST',
               headers: {
                 'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-fs-v1+json',
-                'Accept': 'application/x-fs-v1+json, application/json'
+                'Content-Type': 'application/x-gedcomx-v1+json',
+                'Accept': 'application/x-gedcomx-v1+json, application/json'
               },
               body: JSON.stringify({ persons: [updatePerson] })
             });
@@ -1396,8 +1407,8 @@
                 method: 'POST',
                 headers: {
                   'Authorization': 'Bearer ' + token.accessToken,
-                  'Content-Type': 'application/x-gedcomx-v1+json',
-                  'Accept': 'application/json'
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
                 },
                 body: JSON.stringify({ persons: [updatePerson] })
               });
@@ -1410,7 +1421,7 @@
           }
 
           if (!opSuccess) {
-            // CREATE new persona with bounding box coordinates
+            // CREATE new persona with bounding box coordinates (handles baby Kira and all group members)
             var createPerson = {
               extracted: true,
               names: personNames
@@ -1418,18 +1429,19 @@
             if (media) createPerson.media = media;
             if (hasIdentifiers) createPerson.identifiers = identifiers;
 
+            // Attempt 1: Standard GEDCOM X
             var personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
               method: 'POST',
               headers: {
                 'Authorization': 'Bearer ' + token.accessToken,
-                'Content-Type': 'application/x-fs-v1+json',
-                'Accept': 'application/x-fs-v1+json, application/json'
+                'Content-Type': 'application/x-gedcomx-v1+json',
+                'Accept': 'application/x-gedcomx-v1+json, application/json'
               },
               body: JSON.stringify({ persons: [createPerson] })
             });
 
+            // Attempt 2: If rejected with identifiers, retry without identifiers (link Tree PID afterwards)
             if (!personaRes.ok && hasIdentifiers) {
-              // Retry without identifiers in case server prefers creating first then linking
               var fallbackPerson = {
                 extracted: true,
                 names: createPerson.names
@@ -1439,16 +1451,29 @@
                 method: 'POST',
                 headers: {
                   'Authorization': 'Bearer ' + token.accessToken,
-                  'Content-Type': 'application/x-fs-v1+json',
-                  'Accept': 'application/x-fs-v1+json, application/json'
+                  'Content-Type': 'application/x-gedcomx-v1+json',
+                  'Accept': 'application/x-gedcomx-v1+json, application/json'
                 },
                 body: JSON.stringify({ persons: [fallbackPerson] })
               });
             }
 
+            // Attempt 3: Retry with application/x-fs-v1+json if GEDCOM X was rejected
+            if (!personaRes.ok) {
+              personaRes = await fetch(API_BASE + '/platform/memories/memories/' + memoryId + '/personas', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json, application/json'
+                },
+                body: JSON.stringify({ persons: [createPerson] })
+              });
+            }
+
             if (personaRes.ok || personaRes.status === 201) {
-              var entId = personaRes.headers.get('X-entity-id');
-              var loc = personaRes.headers.get('Location') || '';
+              var entId = personaRes.headers.get('X-entity-id') || personaRes.headers.get('x-entity-id');
+              var loc = personaRes.headers.get('Location') || personaRes.headers.get('location') || '';
               personaId = entId || (loc ? loc.replace(/\/+$/, '').split('/').pop() : null);
               if (personaId) claimedPersonaIds.add(personaId);
               opSuccess = true;
@@ -1693,12 +1718,12 @@
   }
 
   var KNOWN_FAMILY = [
-    { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'gill', 'mom', 'patricia gill', 'patricia josephine gill'] },
-    { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'viola', 'jeff viola', 'jeffrey alan viola'] },
-    { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'baber', 'rayna baber'] },
-    { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'viola', 'brittany viola'] },
-    { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'viola', 'kourtnie viola'] },
-    { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'viola', 'makinzie viola'] }
+    { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'mom', 'patricia gill', 'patricia josephine gill'] },
+    { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'jeff viola', 'jeffrey alan viola'] },
+    { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'rayna baber', 'rayna lee baber'] },
+    { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'brittany viola'] },
+    { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'kourtnie viola'] },
+    { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'makinzie viola'] }
   ];
 
   function rankMatches(candidates, query) {
@@ -1720,19 +1745,19 @@
       else if (cName.startsWith(q) || q.startsWith(cName)) score += 90;
       else if (cName.includes(q) || q.includes(cName)) score += 80;
       else {
-        if (qGiven && cGiven && (qGiven === cGiven || cGiven.startsWith(qGiven) || qGiven.startsWith(cGiven))) score += 40;
-        if (qSur && cSur && qSur === cSur) score += 30;
+        // A candidate only scores if the given name matches or starts with the query given name!
+        if (qGiven && cGiven && (qGiven === cGiven || cGiven.startsWith(qGiven) || qGiven.startsWith(cGiven))) {
+          score += 45;
+          if (qSur && cSur && qSur === cSur) score += 40;
+        }
         if (c.aliases && c.aliases.some(function (a) { return a.toLowerCase() === q; })) score += 60;
         else if (c.aliases && c.aliases.some(function (a) { return qGiven && a.toLowerCase() === qGiven; })) score += 35;
       }
       return { candidate: c, score: score };
     });
 
-    var hasStrong = scored.some(function (item) { return item.score >= 60; });
-    var minCutoff = hasStrong ? 45 : 25;
-
     return scored
-      .filter(function (item) { return item.score >= minCutoff; })
+      .filter(function (item) { return item.score >= 50; })
       .sort(function (a, b) { return b.score - a.score; })
       .map(function (item) { return item.candidate; });
   }
@@ -1740,7 +1765,6 @@
   async function searchPersons(query) {
     if (!query || !query.trim()) return [];
     var trimmed = query.trim();
-    var lower = trimmed.toLowerCase();
 
     // If query contains multiple comma or semicolon separated names, search each and combine
     if (trimmed.includes(',') && !trimmed.includes('-') && !/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed)) {

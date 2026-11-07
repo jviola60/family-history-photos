@@ -2577,6 +2577,9 @@
               ⚙️
             </button>
           </div>
+          <button class="btn sm" type="button" id="btn-top-fal-ai" style="border-color:rgba(168,85,247,0.45);color:#d8b4fe;font-weight:600;" title="Connect Fal.ai API Key for AI Face Restoration &amp; 4K Clarity">
+            <span style="color:#c084fc;">⚡</span> <span id="top-fal-label">Fal.ai Setup</span>
+          </button>
           <button class="btn sm desktop-only" type="button" id="btn-export-zip">Export 4K ZIP</button>
         </div>
       </div>
@@ -2718,6 +2721,10 @@
                 <button class="lab-btn" type="button" id="btn-lab-faces"
                   style="border-color:rgba(242,179,61,0.55);color:#fde68a;font-weight:600;"
                   title="Scan for faces or tag people in a large blown-up view">👤 Scan &amp; Tag Faces</button>
+
+                <button class="lab-btn" type="button" id="btn-lab-fal-ai"
+                  style="border-color:rgba(168,85,247,0.55);color:#d8b4fe;font-weight:600;"
+                  title="Connect your Fal.ai account or run Deep AI Face Restoration (CodeFormer / Clarity 4K)">🧠 AI Face Restore (Fal.ai)</button>
 
                 <div class="lab-seg" role="group" aria-label="Senior magnification">
                   <button type="button" data-zoom="1" aria-pressed="true">1x</button>
@@ -2896,6 +2903,57 @@
         <button type="button" class="btn share-action-btn" id="share-btn-download">
           <span data-icon="download"></span><span>Download JPEG Copy</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAL.AI API & FACE RESTORATION MODAL -->
+  <div id="fal-ai-modal" class="share-modal-backdrop" hidden>
+    <div class="share-modal-card" style="max-width: 540px; background: #0f172a; color: #f8fafc; border: 1px solid rgba(168,85,247,0.35); box-shadow: 0 24px 60px rgba(0,0,0,0.85); border-radius: 12px; overflow: hidden;">
+      <div class="share-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; background: rgba(168,85,247,0.08);">
+        <div class="share-modal-title-group" style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">⚡</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #f8fafc;">Fal.ai Setup — AI Face &amp; 4K Restore</h3>
+            <p style="margin: 2px 0 0; font-size: 12px; color: #cbd5e1;">Reconstruct blurry faces with GPU AI models (CodeFormer / Clarity 4K)</p>
+          </div>
+        </div>
+        <button type="button" class="btn sm" id="btn-fal-modal-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close dialog">✕</button>
+      </div>
+      <div style="padding: 18px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-size: 12.5px; line-height: 1.5; color: #cbd5e1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 8px;">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">How to connect your Fal.ai account:</div>
+          <ol style="margin: 0; padding-left: 18px;">
+            <li>Go to <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener" style="color: #c084fc; text-decoration: underline; font-weight: 600;">fal.ai/dashboard/keys</a> (opens in new tab).</li>
+            <li>Copy your Key (<code style="background: rgba(0,0,0,0.4); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;">Key_ID:Key_Secret</code>).</li>
+            <li>Paste it below and click <strong>Verify &amp; Save</strong>.</li>
+          </ol>
+        </div>
+
+        <div class="field" style="margin: 0;">
+          <label for="fal-modal-key-input" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: block; margin-bottom: 4px;">Fal.ai API Key <span style="font-weight: 400; color: #94a3b8;">(saved privately in your browser's localStorage)</span></label>
+          <div style="display: flex; gap: 6px;">
+            <input type="password" id="fal-modal-key-input" placeholder="Key_ID:Key_Secret from fal.ai/dashboard/keys" style="flex: 1; min-width: 0; font-size: 12px; padding: 7px 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; color: #f8fafc;">
+            <button class="btn sm" type="button" id="btn-fal-modal-verify" style="padding: 7px 14px; font-weight: 600; background: rgba(168,85,247,0.2); border: 1px solid rgba(168,85,247,0.5); color: #d8b4fe;">Verify Key</button>
+          </div>
+          <div id="fal-modal-verify-status" style="font-size: 11.5px; margin-top: 4px; min-height: 18px;"></div>
+        </div>
+
+        <div class="field" style="margin: 0;">
+          <label for="fal-modal-model-select" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: block; margin-bottom: 4px;">AI Model to Use</label>
+          <select id="fal-modal-model-select" style="width: 100%; font-size: 12.5px; padding: 7px 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; color: #f8fafc;">
+            <option value="fal-ai/codeformer">CodeFormer — Rebuild Blurry Group &amp; Portrait Faces (~$0.002/photo · Recommended for faces)</option>
+            <option value="fal-ai/clarity-upscaler">Clarity Ultra-HD — Generative 4K Detail &amp; Pores (~$0.015/photo)</option>
+            <option value="fal-ai/ccsr">CCSR — Full Photo 4K Super-Resolution (~$0.005/photo)</option>
+          </select>
+          <p class="muted" style="font-size: 11px; margin: 4px 0 0 0; color: #94a3b8;">
+            💡 <strong>CodeFormer</strong> is designed specifically for historical group portraits: it detects individual faces and synthesizes sharp eyes, noses, and smiles while maintaining facial identity.
+          </p>
+        </div>
+      </div>
+      <div class="share-modal-actions" style="padding: 14px 18px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.25);">
+        <button type="button" class="btn" id="btn-fal-modal-cancel" style="background: rgba(255,255,255,0.08); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.18); font-size: 13px; padding: 7px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
+        <button type="button" class="btn primary" id="btn-fal-modal-save" style="background: #7e22ce; color: #ffffff; font-weight: 600; border: none; font-size: 13px; padding: 7px 18px; border-radius: 6px; cursor: pointer;">Save &amp; Connect</button>
       </div>
     </div>
   </div>
@@ -8419,35 +8477,33 @@
             const fg = faceGuard ? faceGuard[idx] : 0;
             const pOff = idx * 4;
 
-            /* Inside human faces: protect eyes, smiles & catchlights; only heal tiny sharp dust pinholes */
-            if (fg > 0) {
-              if (x > 0 && x < srcW - 1 && y > 0 && y < srcH - 1 && sat[idx] < 38) {
-                let k = 0;
-                let sr = 0, sg = 0, sb = 0;
-                for (let dy = -1; dy <= 1; dy++) {
-                  for (let dx = -1; dx <= 1; dx++) {
-                    if (dx === 0 && dy === 0) continue;
-                    const n = (y + dy) * srcW + (x + dx);
-                    nbLum[k++] = lum[n];
-                    const nOff = n * 4;
-                    sr += origSnap[nOff];
-                    sg += origSnap[nOff + 1];
-                    sb += origSnap[nOff + 2];
+            /* Inside eye pupils & mouth line (fg === 2): protect catchlights & mouth contours */
+            if (fg === 2) {
+              if (x > 1 && x < srcW - 2 && y > 1 && y < srcH - 2) {
+                const ref = max2[idx];
+                const excess = lum[idx] - ref;
+                // Heal harsh white glare specks that are not natural dark pupils or lips
+                if (excess > 22 && lum[idx] > 185) {
+                  let k = 0, sr = 0, sg = 0, sb = 0;
+                  for (let dy = -2; dy <= 2; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                      if (dx === 0 && dy === 0) continue;
+                      const n = (y + dy) * srcW + (x + dx);
+                      if (lum[n] < 210) {
+                        const nOff = n * 4;
+                        sr += origSnap[nOff];
+                        sg += origSnap[nOff + 1];
+                        sb += origSnap[nOff + 2];
+                        k++;
+                      }
+                    }
                   }
-                }
-                for (let a = 1; a < 8; a++) {
-                  const v = nbLum[a];
-                  let b = a - 1;
-                  while (b >= 0 && nbLum[b] > v) { nbLum[b + 1] = nbLum[b]; b--; }
-                  nbLum[b + 1] = v;
-                }
-                const med3 = 0.5 * (nbLum[3] + nbLum[4]);
-                const facePinGap = fg === 2 ? 28 : 19;
-                if (lum[idx] - med3 > facePinGap) {
-                  data[pOff] = Math.round(origSnap[pOff] * 0.25 + (sr / 8) * 0.75);
-                  data[pOff + 1] = Math.round(origSnap[pOff + 1] * 0.25 + (sg / 8) * 0.75);
-                  data[pOff + 2] = Math.round(origSnap[pOff + 2] * 0.25 + (sb / 8) * 0.75);
-                  spotsHealed++;
+                  if (k >= 8) {
+                    data[pOff] = Math.round(origSnap[pOff] * 0.2 + (sr / k) * 0.8);
+                    data[pOff + 1] = Math.round(origSnap[pOff + 1] * 0.2 + (sg / k) * 0.8);
+                    data[pOff + 2] = Math.round(origSnap[pOff + 2] * 0.2 + (sb / k) * 0.8);
+                    spotsHealed++;
+                  }
                 }
               }
               continue;
@@ -8455,9 +8511,11 @@
 
             const ref = max2[idx];
             const excess = lum[idx] - ref;
-            if (excess <= thrLo || sat[idx] >= 66) continue;
+            // On faces (fg === 1: forehead, cheeks, chin, nose, hair), heal white dots with surrounding authentic skin tone
+            const curThr = (fg === 1) ? (thrLo * 1.05) : thrLo;
+            if (excess <= curThr || sat[idx] >= 66) continue;
 
-            let alpha = Math.min(1, (excess - thrLo) / 10.2);
+            let alpha = Math.min(1, (excess - curThr) / 10.2);
             if (sat[idx] > 42) {
               alpha *= (66 - sat[idx]) / 24;
             }
@@ -11087,6 +11145,18 @@
           authLabel.textContent = fsUser ? `FamilySearch: ${fsUser.name}` : 'Sign in: FamilySearch';
         }
 
+        const topFalBtn = document.getElementById('btn-top-fal-ai');
+        const topFalLabel = document.getElementById('top-fal-label');
+        if (topFalBtn && topFalLabel) {
+          const aiCfg = (window.ArchivalAiBridge && window.ArchivalAiBridge.getAiSettings)
+            ? window.ArchivalAiBridge.getAiSettings()
+            : null;
+          const hasKey = Boolean(aiCfg && aiCfg.falApiKey && aiCfg.falApiKey.trim());
+          topFalBtn.style.borderColor = hasKey ? 'rgba(74,222,128,0.55)' : 'rgba(168,85,247,0.45)';
+          topFalBtn.style.color = hasKey ? '#4ade80' : '#d8b4fe';
+          topFalLabel.textContent = hasKey ? 'Fal.ai: Connected' : 'Fal.ai Setup';
+        }
+
         const isCatalog = mode === 'catalog';
         const isLab = mode === 'lab';
         const isSync = mode === 'sync';
@@ -11365,6 +11435,136 @@
 
       const btnPanelFaces = document.getElementById('btn-panel-faces');
       if (btnPanelFaces) btnPanelFaces.onclick = () => triggerPhotoLabFaceStudio(currentPhoto());
+
+      function getFalSavedKey() {
+        const b = window.ArchivalAiBridge;
+        if (!b) return '';
+        const s = (b && b.getAiSettings) ? b.getAiSettings() : {};
+        return (b && b.sanitizeFalKey) ? b.sanitizeFalKey(s.falApiKey || '') : (s.falApiKey || '').trim();
+      }
+
+      function openFalAiModal() {
+        const modal = document.getElementById('fal-ai-modal');
+        if (!modal) return;
+        const b = window.ArchivalAiBridge;
+        const s = (b && b.getAiSettings) ? b.getAiSettings() : {};
+        const keyInput = document.getElementById('fal-modal-key-input');
+        const modelSel = document.getElementById('fal-modal-model-select');
+        const statusEl = document.getElementById('fal-modal-verify-status');
+        if (keyInput) keyInput.value = s.falApiKey || '';
+        if (modelSel) modelSel.value = s.falModel || 'fal-ai/codeformer';
+        if (statusEl) {
+          statusEl.textContent = s.falApiKey ? '✓ Key currently configured.' : '';
+          statusEl.style.color = '#4ade80';
+        }
+        modal.hidden = false;
+      }
+
+      function closeFalAiModal() {
+        const modal = document.getElementById('fal-ai-modal');
+        if (modal) modal.hidden = true;
+      }
+
+      const topFalBtnEl = document.getElementById('btn-top-fal-ai');
+      if (topFalBtnEl) topFalBtnEl.onclick = openFalAiModal;
+
+      const falModalClose = document.getElementById('btn-fal-modal-close');
+      if (falModalClose) falModalClose.onclick = closeFalAiModal;
+
+      const falModalCancel = document.getElementById('btn-fal-modal-cancel');
+      if (falModalCancel) falModalCancel.onclick = closeFalAiModal;
+
+      const btnFalVerify = document.getElementById('btn-fal-modal-verify');
+      if (btnFalVerify) {
+        btnFalVerify.onclick = async () => {
+          const b = window.ArchivalAiBridge;
+          const keyInput = document.getElementById('fal-modal-key-input');
+          const statusEl = document.getElementById('fal-modal-verify-status');
+          if (!b) {
+            if (statusEl) statusEl.textContent = 'AI module is still initializing...';
+            return;
+          }
+          const rawKey = keyInput ? keyInput.value : '';
+          const cleanKey = b.sanitizeFalKey ? b.sanitizeFalKey(rawKey) : rawKey.trim();
+          btnFalVerify.disabled = true;
+          btnFalVerify.textContent = 'Verifying...';
+          if (statusEl) {
+            statusEl.style.color = '#cbd5e1';
+            statusEl.textContent = 'Contacting Fal.ai servers...';
+          }
+          const testRes = await b.testFalConnection(cleanKey);
+          btnFalVerify.disabled = false;
+          btnFalVerify.textContent = 'Verify Key';
+          if (statusEl) {
+            statusEl.style.color = testRes.success ? '#4ade80' : '#f87171';
+            statusEl.textContent = testRes.message;
+          }
+        };
+      }
+
+      const btnFalSave = document.getElementById('btn-fal-modal-save');
+      if (btnFalSave) {
+        btnFalSave.onclick = async () => {
+          const b = window.ArchivalAiBridge;
+          const keyInput = document.getElementById('fal-modal-key-input');
+          const modelSel = document.getElementById('fal-modal-model-select');
+          if (!b) {
+            closeFalAiModal();
+            return;
+          }
+          const rawKey = keyInput ? keyInput.value : '';
+          const cleanKey = b.sanitizeFalKey ? b.sanitizeFalKey(rawKey) : rawKey.trim();
+          const chosenModel = modelSel ? modelSel.value : 'fal-ai/codeformer';
+          b.saveAiSettings({
+            provider: 'fal',
+            falApiKey: cleanKey,
+            falModel: chosenModel
+          });
+          closeFalAiModal();
+          render();
+          notify(cleanKey ? '✓ Fal.ai API key saved! Click "AI Face Restore" in Photo Lab to rebuild faces.' : 'Fal.ai key cleared.');
+        };
+      }
+
+      const btnLabFalAi = document.getElementById('btn-lab-fal-ai');
+      if (btnLabFalAi) {
+        btnLabFalAi.onclick = async () => {
+          const p = currentPhoto();
+          if (!p) return;
+          const key = getFalSavedKey();
+          if (!key) {
+            notify('Please paste your Fal.ai API key to enable AI face restoration.');
+            openFalAiModal();
+            return;
+          }
+          const b = window.ArchivalAiBridge;
+          if (!b) {
+            notify('Neural AI module is still loading. Please try again in a moment.');
+            return;
+          }
+          btnLabFalAi.disabled = true;
+          btnLabFalAi.textContent = '🧠 Rebuilding blurry faces...';
+          try {
+            const res = await runDeepAi4KRestore(p, 'cloud', (msg) => {
+              btnLabFalAi.textContent = msg;
+              const ro = document.getElementById('lab-status-readout');
+              if (ro) ro.textContent = msg;
+            });
+            try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+            document.getElementById('lab-status-readout').textContent = `✓ ${res.badgeLabel} complete (${p.width}×${p.height} px)`;
+            notify(`✓ Reconstructed blurry faces with Fal.ai ${res.badgeLabel} (${p.width}×${p.height} px)!`);
+            renderSidebarCounts();
+            renderPhotoLab();
+          } catch (err) {
+            console.error('Fal AI restore error:', err);
+            notify(`AI restoration notice: ${err && err.message ? err.message : err}`);
+            openFalAiModal();
+          } finally {
+            btnLabFalAi.disabled = false;
+            btnLabFalAi.textContent = '🧠 AI Face Restore (Fal.ai)';
+          }
+        };
+      }
 
       const btnLabFitEl = document.getElementById('btn-lab-fit');
       if (btnLabFitEl) {
