@@ -208,13 +208,18 @@
 
   async function getJpegBlobWithMetadata(photo, meta) {
     var buffer = null;
-    if (photo && photo._file && typeof photo._file.arrayBuffer === 'function') {
+    if (photo && photo._workingBlob && typeof photo._workingBlob.arrayBuffer === 'function') {
+      buffer = await photo._workingBlob.arrayBuffer();
+    } else if (photo && photo.workingSrc) {
+      var wRes = await fetch(photo.workingSrc);
+      buffer = await wRes.arrayBuffer();
+    } else if (photo && photo._file && typeof photo._file.arrayBuffer === 'function') {
       buffer = await photo._file.arrayBuffer();
     } else if (photo && photo._handle && typeof photo._handle.getFile === 'function') {
       var f = await photo._handle.getFile();
       buffer = await f.arrayBuffer();
-    } else if (photo && (photo.workingSrc || photo.src)) {
-      var res = await fetch(photo.workingSrc || photo.src);
+    } else if (photo && photo.src) {
+      var res = await fetch(photo.src);
       buffer = await res.arrayBuffer();
     }
 

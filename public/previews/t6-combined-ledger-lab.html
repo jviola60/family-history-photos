@@ -3248,8 +3248,12 @@
             bw: false,
             colorizeStrength: 82
           },
-          model: 'codeformer',
-          fidelity: 75,
+          model: 'gfpgan',
+          upscaleTarget: '4k',
+          denoise: 62,
+          fidelity: 68,
+          _pre4kSrc: null,
+          _workingBlob: null,
           scratchesFixed: true,
           descreen: false,
           deglare: false,
@@ -3559,6 +3563,8 @@
             const entry = { ...item };
             delete entry.src;
             delete entry.workingSrc;
+            delete entry._pre4kSrc;
+            entry.history = [];
             store.put(entry);
           });
 
@@ -3623,6 +3629,16 @@
             } else {
               p.src = 'sample.jpg';
             }
+            if (p._workingBlob) {
+              try {
+                p.workingSrc = URL.createObjectURL(p._workingBlob);
+              } catch {
+                p.workingSrc = null;
+              }
+            } else {
+              p.workingSrc = null;
+            }
+            if (!Array.isArray(p.history)) p.history = [];
           });
 
           return { items: photos, folderName: folder || 'Photo_Folder' };
@@ -3824,8 +3840,13 @@
         p.history.push(JSON.stringify({
           width: p.width,
           height: p.height,
+          kb: p.kb,
           restored4k: p.restored4k,
           workingSrc: p.workingSrc,
+          _pre4kSrc: p._pre4kSrc || null,
+          upscaleTarget: p.upscaleTarget || '4k',
+          denoise: typeof p.denoise === 'number' ? p.denoise : 62,
+          fidelity: typeof p.fidelity === 'number' ? p.fidelity : 68,
           crop: p.crop,
           scale: p.scale,
           edits: [...p.edits],
@@ -3886,13 +3907,14 @@
         const c = (p.tone.contrast / 100) * (1 + (p.tone.highlights || 0) / 420);
         const col = p.color || { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false };
 
+        const isDemoSample = p.src === 'sample.jpg';
         const useCleanBase = Boolean(p.workingSrc || p.restored4k || (inLab ? p.tone.defade : p.edits.length > 0 && p.tone.defade));
         const parts = [];
         if (!useCleanBase && p.filter && p.filter !== 'none') {
           parts.push(p.filter);
         }
-        const baseBoostC = useCleanBase ? 1.05 : 1;
-        const baseBoostS = useCleanBase ? 1.08 : 1;
+        const baseBoostC = (isDemoSample && useCleanBase) ? 1.05 : 1;
+        const baseBoostS = (isDemoSample && useCleanBase) ? 1.08 : 1;
         parts.push(`brightness(${b.toFixed(2)})`);
         parts.push(`contrast(${(c * baseBoostC).toFixed(2)})`);
 
@@ -3935,7 +3957,9 @@
         const rawScale = (typeof p.origScale === 'number' && p.origScale > 0) ? p.origScale : ((typeof p.scale === 'number' && p.scale > 0) ? p.scale : 1);
         const scale = ((inLab && labFitMode === 'fit' && p.src !== 'sample.jpg') ? 1 : rawScale) * extraZoom;
         const rawCrop = p.origCrop || p.crop || '50% 50%';
-        const rawFilter = p.filter === 'none' ? 'sepia(0.24) contrast(0.92) brightness(0.97)' : p.filter;
+        const rawFilter = p.filter === 'none'
+          ? (p.src === 'sample.jpg' ? 'sepia(0.24) contrast(0.92) brightness(0.97)' : 'none')
+          : p.filter;
         const tx = inLab && extraZoom > 1 ? panX : 0;
         const ty = inLab && extraZoom > 1 ? panY : 0;
         return `object-position:${rawCrop};transform-origin:${rawCrop};transform:translate(${tx.toFixed(1)}%, ${ty.toFixed(1)}%) scale(${scale.toFixed(3)});filter:${rawFilter};`;
@@ -7332,7 +7356,57 @@
         });
       }
 
-      async function loadWorkingCanvas(p, maxSide = 960) {
+      async function canvasToWorkingUrl(canvas, p, quality = 0.95, isPre4kEdit = false) {
+        const blob = await new Promise((resolve) => {
+          if (canvas.toBlob) {
+            canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+          } else {
+            resolve(null);
+          }
+        });
+        if (blob) {
+          p._workingBlob = blob;
+          p.workingSrc = URL.createObjectURL(blob);
+          p.kb = Math.max(1, Math.round(blob.size / 1024));
+        } else {
+          p.workingSrc = canvas.toDataURL('image/jpeg', quality);
+        }
+        if (isPre4kEdit) {
+          p._pre4kSrc = p.workingSrc;
+        }
+        return p.workingSrc;
+      }
+
+      function computeUpscaleTargetDims(baseW, baseH, upscaleTarget = '4k') {
+        const w0 = Math.max(64, Math.round(baseW || 1200));
+        const h0 = Math.max(64, Math.round(baseH || 900));
+        if (upscaleTarget === '1x') {
+          return { outW: w0, outH: h0 };
+        }
+        if (upscaleTarget === '2x') {
+          const max2x = 4096;
+          const sc = Math.min(2.0, max2x / Math.max(w0, h0));
+          const eff = Math.max(1.0, sc);
+          return {
+            outW: Math.max(64, Math.round(w0 * eff)),
+            outH: Math.max(64, Math.round(h0 * eff))
+          };
+        }
+        /* Default '4k': upscale longest side to 3840 px (4K Ultra HD) */
+        const longSide = Math.max(3840, Math.min(4096, Math.max(w0, h0)));
+        if (w0 >= h0) {
+          return {
+            outW: longSide,
+            outH: Math.max(120, Math.round((h0 / w0) * longSide))
+          };
+        }
+        return {
+          outW: Math.max(120, Math.round((w0 / h0) * longSide)),
+          outH: longSide
+        };
+      }
+
+      async function loadWorkingCanvas(p, maxSide = 2048) {
         const baseImg = await loadImageElement(afterSrc(p));
         const natW = baseImg.naturalWidth || 800;
         const natH = baseImg.naturalHeight || 600;
@@ -7343,6 +7417,8 @@
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(baseImg, 0, 0, W, H);
         const imgData = ctx.getImageData(0, 0, W, H);
         return { canvas, ctx, W, H, imgData, data: imgData.data };
@@ -7390,96 +7466,112 @@
         };
       }
 
-      /* 1. Real Canvas 4K Restoration Pass (Color Defade + Dust/Scratch Outlier Median + Descreen + Glare Roll-off + Unsharp Clarity) */
-      async function runCanvas4KRestore(p) {
-        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 1024);
-        const total = W * H;
-
-        /* Pass A: Gray-world archival color cast neutralization */
-        if (p.tone.defade) {
-          let sumR = 0, sumG = 0, sumB = 0;
-          for (let i = 0; i < total * 4; i += 4) {
-            sumR += data[i];
-            sumG += data[i + 1];
-            sumB += data[i + 2];
-          }
-          const avgR = sumR / total || 128;
-          const avgG = sumG / total || 128;
-          const avgB = sumB / total || 128;
-          const gray = (avgR + avgG + avgB) / 3;
-          const gainR = 1 + ((gray / avgR) - 1) * 0.45;
-          const gainG = 1 + ((gray / avgG) - 1) * 0.45;
-          const gainB = 1 + ((gray / avgB) - 1) * 0.52;
-          for (let i = 0; i < total * 4; i += 4) {
-            data[i] = Math.max(0, Math.min(255, Math.round(data[i] * gainR)));
-            data[i + 1] = Math.max(0, Math.min(255, Math.round(data[i + 1] * gainG)));
-            data[i + 2] = Math.max(0, Math.min(255, Math.round(data[i + 2] * gainB)));
-          }
+      /* 1. Multi-Stage 4K Super-Resolution Upscaler & YCbCr Edge-Preserving Grain Denoiser
+         - Always starts from clean pre-4K source so re-running never compounds grain or JPEG artifacts.
+         - Stage 1: Native-resolution dust pinhole repair + neutral-highlight cast defade + YCbCr 5×5 bilateral chroma/grain smoothing.
+         - Stage 2: Progressive stepped bicubic upscaling + Sobel edge-tangent anti-aliasing & clamped slope steepening.
+         - Stage 3: Full-4K Contrast-Adaptive Super-Resolution (CAS) micro-clarity with strict [min, max] halo prevention. */
+      async function runCanvas4KRestore(p, onStageProgress = null) {
+        if (!p.restored4k && p.workingSrc && !p._pre4kSrc) {
+          p._pre4kSrc = p.workingSrc;
         }
+        const cleanSrc = p._pre4kSrc || p.src || 'sample.jpg';
+        const baseImg = await loadImageElement(cleanSrc);
+        const natW = baseImg.naturalWidth || p.origWidth || p.width || 1200;
+        const natH = baseImg.naturalHeight || p.origHeight || p.height || 900;
 
-        /* Pass B: Impulse dust speck & scratch pit outlier repair */
+        /* Keep 100% of native source pixels up to 2400px before super-resolution upscaling */
+        const preScale = Math.min(1, 2400 / Math.max(natW, natH));
+        const srcW = Math.max(64, Math.round(natW * preScale));
+        const srcH = Math.max(64, Math.round(natH * preScale));
+
+        const srcCanvas = document.createElement('canvas');
+        srcCanvas.width = srcW;
+        srcCanvas.height = srcH;
+        const srcCtx = srcCanvas.getContext('2d');
+        srcCtx.imageSmoothingEnabled = true;
+        srcCtx.imageSmoothingQuality = 'high';
+        srcCtx.drawImage(baseImg, 0, 0, srcW, srcH);
+
+        const srcImgData = srcCtx.getImageData(0, 0, srcW, srcH);
+        const data = srcImgData.data;
+        const total = srcW * srcH;
+
+        if (onStageProgress) onStageProgress('1/3 Smoothing grain & cleaning scan...');
+        await new Promise((r) => setTimeout(r, 0));
+
+        /* Stage 1A: True isolated dust speck & pinhole repair (preserves eyes, catchlights & lace) */
         if (p.scratchesFixed) {
           const copy = new Uint8ClampedArray(data);
-          for (let y = 1; y < H - 1; y++) {
-            for (let x = 1; x < W - 1; x++) {
-              const idx = (y * W + x) * 4;
-              let sr = 0, sg = 0, sb = 0;
+          for (let y = 1; y < srcH - 1; y++) {
+            for (let x = 1; x < srcW - 1; x++) {
+              const idx = (y * srcW + x) * 4;
+              const cLum = (copy[idx] * 77 + copy[idx + 1] * 150 + copy[idx + 2] * 29) >> 8;
+              let minL = 255, maxL = 0, sr = 0, sg = 0, sb = 0;
               for (let ky = -1; ky <= 1; ky++) {
+                const rOff = (y + ky) * srcW + x;
                 for (let kx = -1; kx <= 1; kx++) {
                   if (kx === 0 && ky === 0) continue;
-                  const n = ((y + ky) * W + (x + kx)) * 4;
+                  const n = (rOff + kx) * 4;
+                  const nl = (copy[n] * 77 + copy[n + 1] * 150 + copy[n + 2] * 29) >> 8;
+                  if (nl < minL) minL = nl;
+                  if (nl > maxL) maxL = nl;
                   sr += copy[n];
                   sg += copy[n + 1];
                   sb += copy[n + 2];
                 }
               }
-              const mr = sr >> 3, mg = sg >> 3, mb = sb >> 3;
-              const diff = Math.abs(copy[idx] - mr) + Math.abs(copy[idx + 1] - mg) + Math.abs(copy[idx + 2] - mb);
-              if (diff > 96) {
-                data[idx] = mr;
-                data[idx + 1] = mg;
-                data[idx + 2] = mb;
+              if ((maxL - minL) < 52 && (cLum > maxL + 28 || cLum < minL - 28)) {
+                data[idx] = sr >> 3;
+                data[idx + 1] = sg >> 3;
+                data[idx + 2] = sb >> 3;
               }
             }
           }
         }
 
-        /* Pass C: Halftone newspaper / yearbook descreen bilateral filter */
-        if (p.descreen) {
-          const copy = new Uint8ClampedArray(data);
-          for (let y = 1; y < H - 1; y++) {
-            for (let x = 1; x < W - 1; x++) {
-              const idx = (y * W + x) * 4;
-              const r0 = copy[idx], g0 = copy[idx + 1], b0 = copy[idx + 2];
-              let sr = r0 * 2, sg = g0 * 2, sb = b0 * 2, sw = 2;
-              for (let ky = -1; ky <= 1; ky++) {
-                for (let kx = -1; kx <= 1; kx++) {
-                  if (kx === 0 && ky === 0) continue;
-                  const n = ((y + ky) * W + (x + kx)) * 4;
-                  const d = Math.abs(copy[n] - r0) + Math.abs(copy[n + 1] - g0) + Math.abs(copy[n + 2] - b0);
-                  if (d < 68) {
-                    sr += copy[n];
-                    sg += copy[n + 1];
-                    sb += copy[n + 2];
-                    sw += 1;
-                  }
-                }
+        /* Stage 1B: Smart neutral-paper yellowed cast defade (ignores blue skies/studio backdrops so skin never turns orange) */
+        if (p.tone.defade) {
+          let sumR = 0, sumG = 0, sumB = 0, countN = 0;
+          for (let i = 0; i < total * 4; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            const lum = (r * 77 + g * 150 + b * 29) >> 8;
+            if (lum >= 130 && lum <= 244 && (mx - mn) <= 32) {
+              sumR += r;
+              sumG += g;
+              sumB += b;
+              countN++;
+            }
+          }
+          if (countN > total * 0.025) {
+            const avgR = sumR / countN;
+            const avgG = sumG / countN;
+            const avgB = sumB / countN;
+            /* Only correct aged warm/yellow/magenta cast on neutral highlights, clamped gently */
+            if (avgR > avgB + 4 || avgG > avgB + 4) {
+              const gray = (avgR + avgG + avgB) / 3;
+              const gainR = Math.max(0.93, Math.min(1.06, 1 + ((gray / avgR) - 1) * 0.35));
+              const gainG = Math.max(0.94, Math.min(1.06, 1 + ((gray / avgG) - 1) * 0.35));
+              const gainB = Math.max(0.94, Math.min(1.08, 1 + ((gray / avgB) - 1) * 0.40));
+              for (let i = 0; i < total * 4; i += 4) {
+                data[i] = Math.max(0, Math.min(255, Math.round(data[i] * gainR)));
+                data[i + 1] = Math.max(0, Math.min(255, Math.round(data[i + 1] * gainG)));
+                data[i + 2] = Math.max(0, Math.min(255, Math.round(data[i + 2] * gainB)));
               }
-              data[idx] = Math.round(sr / sw);
-              data[idx + 1] = Math.round(sg / sw);
-              data[idx + 2] = Math.round(sb / sw);
             }
           }
         }
 
-        /* Pass D: Glossy album print flash-glare suppression */
+        /* Stage 1C: Glossy album print flash-glare suppression */
         if (p.deglare) {
           for (let i = 0; i < total * 4; i += 4) {
             const r = data[i], g = data[i + 1], b = data[i + 2];
             const mx = Math.max(r, g, b);
             const mn = Math.min(r, g, b);
-            if (mx > 220 && (mx - mn) < 28) {
-              const pull = (mx - 220) * 0.55;
+            if (mx > 224 && (mx - mn) < 26) {
+              const pull = (mx - 224) * 0.52;
               data[i] = Math.round(r - pull);
               data[i + 1] = Math.round(g - pull);
               data[i + 2] = Math.round(b - pull * 0.9);
@@ -7487,41 +7579,247 @@
           }
         }
 
-        /* Pass E: Detail recovery unsharp mask weighted by Face Fidelity & Engine */
-        const copy = new Uint8ClampedArray(data);
-        const engineGain = p.model === 'fal' ? 0.65 : (p.model === 'gfpgan' ? 0.52 : 0.58);
-        const amount = engineGain * (0.55 + (p.fidelity / 100) * 0.65);
-        for (let y = 1; y < H - 1; y++) {
-          for (let x = 1; x < W - 1; x++) {
-            const idx = (y * W + x) * 4;
-            const l = idx - 4, r = idx + 4, u = idx - W * 4, d = idx + W * 4;
-            for (let c = 0; c < 3; c++) {
-              const blur = (copy[l + c] + copy[r + c] + copy[u + c] + copy[d + c]) * 0.25;
-              const val = copy[idx + c] + (copy[idx + c] - blur) * amount;
-              data[idx + c] = Math.max(0, Math.min(255, Math.round(val)));
+        /* Stage 1D: Edge-Preserving YCbCr 5×5 Bilateral Grain & Color-Blotch Denoiser */
+        const denoiseVal = typeof p.denoise === 'number' ? p.denoise : 62;
+        if (denoiseVal > 0 || p.descreen) {
+          const Y = new Float32Array(total);
+          const Cb = new Float32Array(total);
+          const Cr = new Float32Array(total);
+          for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
+            const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
+            Y[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+            Cb[i] = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+            Cr[i] = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+          }
+          const modelSmoothBonus = p.model === 'gfpgan' ? 2.2 : 0;
+          const sigY = Math.max(2.5, (denoiseVal / 100) * 14.5 + modelSmoothBonus + (p.descreen ? 8.5 : 0));
+          const sigC = Math.max(10.0, 14.0 + (denoiseVal / 100) * 18.0 + (p.descreen ? 8.0 : 0));
+          const lutY = new Float32Array(256);
+          const lutC = new Float32Array(256);
+          for (let d = 0; d < 256; d++) {
+            lutY[d] = Math.exp(-(d * d) / (2 * sigY * sigY));
+            lutC[d] = Math.exp(-(d * d) / (2 * sigC * sigC));
+          }
+          const spWeights = [
+            1, 2, 3, 2, 1,
+            2, 4, 6, 4, 2,
+            3, 6, 8, 6, 3,
+            2, 4, 6, 4, 2,
+            1, 2, 3, 2, 1
+          ];
+          for (let y = 2; y < srcH - 2; y++) {
+            const row = y * srcW;
+            for (let x = 2; x < srcW - 2; x++) {
+              const idx = row + x;
+              const y0 = Y[idx];
+              let sumY = y0 * 8, wSumY = 8;
+              let sumCb = Cb[idx] * 8, sumCr = Cr[idx] * 8, wSumC = 8;
+              let k = 0;
+              for (let ky = -2; ky <= 2; ky++) {
+                const rOff = (y + ky) * srcW + x;
+                for (let kx = -2; kx <= 2; kx++, k++) {
+                  if (kx === 0 && ky === 0) continue;
+                  const j = rOff + kx;
+                  const y1 = Y[j];
+                  const ad = Math.min(255, (y0 > y1 ? (y0 - y1) : (y1 - y0)) | 0);
+                  const sp = spWeights[k];
+                  if (denoiseVal > 0 || p.descreen) {
+                    const wy = sp * lutY[ad];
+                    sumY += y1 * wy;
+                    wSumY += wy;
+                  }
+                  const wc = sp * lutC[ad];
+                  sumCb += Cb[j] * wc;
+                  sumCr += Cr[j] * wc;
+                  wSumC += wc;
+                }
+              }
+              const ny = sumY / wSumY;
+              const ncb = (sumCb / wSumC) - 128;
+              const ncr = (sumCr / wSumC) - 128;
+              const pOff = idx * 4;
+              data[pOff] = Math.max(0, Math.min(255, Math.round(ny + 1.402 * ncr)));
+              data[pOff + 1] = Math.max(0, Math.min(255, Math.round(ny - 0.344136 * ncb - 0.714136 * ncr)));
+              data[pOff + 2] = Math.max(0, Math.min(255, Math.round(ny + 1.772 * ncb)));
             }
           }
         }
 
-        ctx.putImageData(imgData, 0, 0);
-        pushSnapshot(p);
-        p.workingSrc = canvas.toDataURL('image/jpeg', 0.93);
-        p.restored4k = true;
-        const longSide = 3840;
-        if (W >= H) {
-          p.width = longSide;
-          p.height = Math.max(240, Math.round((H / W) * longSide));
-        } else {
-          p.height = longSide;
-          p.width = Math.max(240, Math.round((W / H) * longSide));
+        srcCtx.putImageData(srcImgData, 0, 0);
+
+        /* Stage 2: Progressive Multi-Step Super-Resolution Pixel Upscaling */
+        const upMode = p.upscaleTarget || '4k';
+        const { outW, outH } = computeUpscaleTargetDims(natW, natH, upMode);
+        const scaleFactor = Math.max(outW / srcW, outH / srcH);
+        const fidelityVal = typeof p.fidelity === 'number' ? p.fidelity : 68;
+
+        if (onStageProgress) onStageProgress(`2/3 Upscaling pixels to ${outW}×${outH}...`);
+        await new Promise((r) => setTimeout(r, 0));
+
+        let stageSourceCanvas = srcCanvas;
+        if (scaleFactor > 1.35) {
+          const stepScale = Math.sqrt(scaleFactor);
+          const midW = Math.max(64, Math.round(srcW * stepScale));
+          const midH = Math.max(64, Math.round(srcH * stepScale));
+          const midCanvas = document.createElement('canvas');
+          midCanvas.width = midW;
+          midCanvas.height = midH;
+          const midCtx = midCanvas.getContext('2d');
+          midCtx.imageSmoothingEnabled = true;
+          midCtx.imageSmoothingQuality = 'high';
+          midCtx.drawImage(srcCanvas, 0, 0, midW, midH);
+
+          /* Intermediate Edge-Directed Tangent Anti-Aliasing & Clamped Edge Steepening */
+          const midImgData = midCtx.getImageData(0, 0, midW, midH);
+          const mData = midImgData.data;
+          const mTotal = midW * midH;
+          const mY = new Float32Array(mTotal);
+          for (let i = 0, pOff = 0; i < mTotal; i++, pOff += 4) {
+            mY[i] = 0.299 * mData[pOff] + 0.587 * mData[pOff + 1] + 0.114 * mData[pOff + 2];
+          }
+          const midEdgeGain = 0.22 + (fidelityVal / 100) * 0.36;
+          const sampleBilinearY = (fx, fy) => {
+            const ix = fx | 0;
+            const iy = fy | 0;
+            const dx = fx - ix;
+            const dy = fy - iy;
+            const base = iy * midW + ix;
+            const top = mY[base] * (1 - dx) + mY[base + 1] * dx;
+            const bot = mY[base + midW] * (1 - dx) + mY[base + midW + 1] * dx;
+            return top * (1 - dy) + bot * dy;
+          };
+
+          for (let y = 2; y < midH - 2; y++) {
+            const r0 = y * midW;
+            for (let x = 2; x < midW - 2; x++) {
+              const i = r0 + x;
+              const tl = mY[i - midW - 1], tc = mY[i - midW], tr = mY[i - midW + 1];
+              const ml = mY[i - 1], c0 = mY[i], mr = mY[i + 1];
+              const bl = mY[i + midW - 1], bc = mY[i + midW], br = mY[i + midW + 1];
+              const gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl);
+              const gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr);
+              const magSq = gx * gx + gy * gy;
+              /* Skip smooth skin, sky & fabric completely so grain is never amplified */
+              if (magSq < 324) continue;
+              const mag = Math.sqrt(magSq);
+              const tx = (-gy / mag) * 0.85;
+              const ty = (gx / mag) * 0.85;
+              const tAvg = 0.5 * (sampleBilinearY(x + tx, y + ty) + sampleBilinearY(x - tx, y - ty));
+              const deJagged = c0 * 0.72 + tAvg * 0.28;
+
+              let mn = tl;
+              if (tc < mn) mn = tc; if (tr < mn) mn = tr;
+              if (ml < mn) mn = ml; if (c0 < mn) mn = c0; if (mr < mn) mn = mr;
+              if (bl < mn) mn = bl; if (bc < mn) mn = bc; if (br < mn) mn = br;
+
+              let mx = tl;
+              if (tc > mx) mx = tc; if (tr > mx) mx = tr;
+              if (ml > mx) mx = ml; if (c0 > mx) mx = c0; if (mr > mx) mx = mr;
+              if (bl > mx) mx = bl; if (bc > mx) mx = bc; if (br > mx) mx = br;
+
+              const blur = (tl + tc + tr + ml + mr + bl + bc + br) * 0.125;
+              const edgeWeight = Math.min(1, (mag - 18) / 60);
+              let ny = deJagged + (deJagged - blur) * midEdgeGain * edgeWeight;
+              if (ny < mn) ny = mn;
+              if (ny > mx) ny = mx;
+
+              const dLum = ny - c0;
+              const pOff = i * 4;
+              mData[pOff] = Math.max(0, Math.min(255, Math.round(mData[pOff] + dLum)));
+              mData[pOff + 1] = Math.max(0, Math.min(255, Math.round(mData[pOff + 1] + dLum)));
+              mData[pOff + 2] = Math.max(0, Math.min(255, Math.round(mData[pOff + 2] + dLum)));
+            }
+          }
+          midCtx.putImageData(midImgData, 0, 0);
+          stageSourceCanvas = midCanvas;
         }
-        const label = p.model === 'gfpgan' ? '4K GFPGAN' : (p.model === 'fal' ? '4K Clarity' : '4K CodeFormer');
+
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = outW;
+        outCanvas.height = outH;
+        const outCtx = outCanvas.getContext('2d');
+        outCtx.imageSmoothingEnabled = true;
+        outCtx.imageSmoothingQuality = 'high';
+        outCtx.drawImage(stageSourceCanvas, 0, 0, outW, outH);
+
+        /* Stage 3: Final 4K Contrast-Adaptive Super-Resolution (CAS) Micro-Clarity (Halo-Free & Grain-Free) */
+        if (fidelityVal > 5) {
+          if (onStageProgress) onStageProgress(`3/3 Refining ${outW}×${outH} fine detail...`);
+          await new Promise((r) => setTimeout(r, 0));
+
+          const outImgData = outCtx.getImageData(0, 0, outW, outH);
+          const oData = outImgData.data;
+          const oTotal = outW * outH;
+          const lum = new Uint8Array(oTotal);
+          for (let i = 0, pOff = 0; i < oTotal; i++, pOff += 4) {
+            lum[i] = (oData[pOff] * 77 + oData[pOff + 1] * 150 + oData[pOff + 2] * 29) >> 8;
+          }
+
+          const spanMin = p.model === 'gfpgan' ? 12 : (p.model === 'fal' ? 9 : 10);
+          const baseCasGain = p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.36);
+          const casGain = baseCasGain * (0.45 + (fidelityVal / 100) * 0.85);
+          const w2 = outW * 2;
+
+          for (let y = 2; y < outH - 2; y++) {
+            let idx = y * outW + 2;
+            for (let x = 2; x < outW - 2; x++, idx++) {
+              const c = lum[idx];
+              const n1 = lum[idx - outW], s1 = lum[idx + outW], w1 = lum[idx - 1], e1 = lum[idx + 1];
+              const tl = lum[idx - outW - 1], tr = lum[idx - outW + 1], bl = lum[idx + outW - 1], br = lum[idx + outW + 1];
+
+              let mn = c;
+              if (n1 < mn) mn = n1; if (s1 < mn) mn = s1; if (w1 < mn) mn = w1; if (e1 < mn) mn = e1;
+              if (tl < mn) mn = tl; if (tr < mn) mn = tr; if (bl < mn) mn = bl; if (br < mn) mn = br;
+
+              let mx = c;
+              if (n1 > mx) mx = n1; if (s1 > mx) mx = s1; if (w1 > mx) mx = w1; if (e1 > mx) mx = e1;
+              if (tl > mx) mx = tl; if (tr > mx) mx = tr; if (bl > mx) mx = bl; if (br > mx) mx = br;
+
+              const span = mx - mn;
+              if (span < spanMin) continue;
+
+              const n2 = lum[idx - w2], s2 = lum[idx + w2], wl2 = lum[idx - 2], er2 = lum[idx + 2];
+              if (n2 < mn) mn = n2; if (s2 < mn) mn = s2; if (wl2 < mn) mn = wl2; if (er2 < mn) mn = er2;
+              if (n2 > mx) mx = n2; if (s2 > mx) mx = s2; if (wl2 > mx) mx = wl2; if (er2 > mx) mx = er2;
+
+              const blur = ((n1 + s1 + w1 + e1) * 2 + tl + tr + bl + br + n2 + s2 + wl2 + er2) * 0.0625;
+              const headroom = Math.min(c - mn, mx - c) / Math.max(1, mx - mn);
+              const ramp = Math.min(1, (span - spanMin) / 20);
+              let ny = Math.round(c + (c - blur) * casGain * (0.45 + headroom * 1.15) * ramp);
+              if (ny < mn) ny = mn;
+              if (ny > mx) ny = mx;
+
+              const d = ny - c;
+              if (d !== 0) {
+                const pOff = idx << 2;
+                const nr = oData[pOff] + d;
+                const ng = oData[pOff + 1] + d;
+                const nb = oData[pOff + 2] + d;
+                oData[pOff] = nr < 0 ? 0 : (nr > 255 ? 255 : nr);
+                oData[pOff + 1] = ng < 0 ? 0 : (ng > 255 ? 255 : ng);
+                oData[pOff + 2] = nb < 0 ? 0 : (nb > 255 ? 255 : nb);
+              }
+            }
+          }
+          outCtx.putImageData(outImgData, 0, 0);
+        }
+
+        pushSnapshot(p);
+        await canvasToWorkingUrl(outCanvas, p, 0.95, false);
+        p.restored4k = upMode !== '1x';
+        p.width = outW;
+        p.height = outH;
+        const label = upMode === '1x'
+          ? 'Denoised & Restored'
+          : (upMode === '2x'
+            ? '2× Super-Res'
+            : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res')));
         addEditLabel(p, label);
       }
 
       /* 2. Real Canvas B&W-to-Color Archival Colorizer */
       async function runCanvasColorize(p) {
-        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 960);
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
         const strength = (p.color.colorizeStrength || 82) / 100;
 
         for (let y = 0; y < H; y++) {
@@ -7553,16 +7851,15 @@
 
         ctx.putImageData(imgData, 0, 0);
         pushSnapshot(p);
-        p.workingSrc = canvas.toDataURL('image/jpeg', 0.92);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
         p.color.bw = false;
         p.color.sepia = 0;
-        p.tone.defade = true;
         addEditLabel(p, 'AI Colorized');
       }
 
       /* 3. Real Canvas 1st–99th Percentile Histogram Auto-Levels */
       async function runCanvasAutoLevels(p) {
-        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 960);
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
         const total = W * H;
         const histR = new Uint32Array(256);
         const histG = new Uint32Array(256);
@@ -7599,8 +7896,7 @@
 
         ctx.putImageData(imgData, 0, 0);
         pushSnapshot(p);
-        p.workingSrc = canvas.toDataURL('image/jpeg', 0.93);
-        p.tone.defade = true;
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
         addEditLabel(p, 'Auto-Levels');
       }
 
@@ -7609,11 +7905,14 @@
         const baseImg = await loadImageElement(afterSrc(p));
         const iw = baseImg.naturalWidth || 800;
         const ih = baseImg.naturalHeight || 600;
-        const { cw: stageW, ch: stageH } = getLabPaneCanvasSize(p, iw, ih, 960);
+        const cropMaxSide = Math.min(3840, Math.max(1600, Math.max(iw, ih)));
+        const { cw: stageW, ch: stageH } = getLabPaneCanvasSize(p, iw, ih, cropMaxSide);
         const stageCanvas = document.createElement('canvas');
         stageCanvas.width = stageW;
         stageCanvas.height = stageH;
         const sctx = stageCanvas.getContext('2d');
+        sctx.imageSmoothingEnabled = true;
+        sctx.imageSmoothingQuality = 'high';
 
         const cropParts = String(p.crop || '50% 50%').trim().split(/\s+/);
         const cx = (parseFloat(cropParts[0]) || 50) / 100;
@@ -7651,12 +7950,15 @@
         const outCanvas = document.createElement('canvas');
         outCanvas.width = sw;
         outCanvas.height = sh;
-        outCanvas.getContext('2d').drawImage(stageCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        const octx = outCanvas.getContext('2d');
+        octx.imageSmoothingEnabled = true;
+        octx.imageSmoothingQuality = 'high';
+        octx.drawImage(stageCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
 
         pushSnapshot(p);
-        p.workingSrc = outCanvas.toDataURL('image/jpeg', 0.93);
-        p.width = Math.max(120, Math.round(p.width * (box.w / 100)));
-        p.height = Math.max(120, Math.round(p.height * (box.h / 100)));
+        await canvasToWorkingUrl(outCanvas, p, 0.95, true);
+        p.width = sw;
+        p.height = sh;
         p.crop = '50% 50%';
         p.scale = 1;
         p.rotation = 0;
@@ -7674,7 +7976,7 @@
           return false;
         }
 
-        const { canvas: workCanvas, ctx: wctx, W, H, imgData, data } = await loadWorkingCanvas(p, 960);
+        const { canvas: workCanvas, ctx: wctx, W, H, imgData, data } = await loadWorkingCanvas(p, 1440);
         const origData = new Uint8ClampedArray(data);
         const rawMask = new Uint8Array(W * H);
         let hitCount = 0;
@@ -7779,7 +8081,7 @@
                 const lamaImg = await loadImageElement(aiData.image);
                 wctx.drawImage(lamaImg, 0, 0, W, H);
                 pushSnapshot(p);
-                p.workingSrc = workCanvas.toDataURL('image/jpeg', 0.92);
+                await canvasToWorkingUrl(workCanvas, p, 0.94, true);
                 p.blemishesErased += 1;
                 addEditLabel(p, presetRect ? 'Date-Stamp Removed' : 'Object Removed (LaMa AI)');
                 hasPaintedMask = false;
@@ -7979,7 +8281,7 @@
 
         wctx.putImageData(imgData, 0, 0);
         pushSnapshot(p);
-        p.workingSrc = workCanvas.toDataURL('image/jpeg', 0.92);
+        await canvasToWorkingUrl(workCanvas, p, 0.94, true);
         p.blemishesErased += 1;
         addEditLabel(p, presetRect ? 'Date-Stamp Removed' : 'Object Removed');
         hasPaintedMask = false;
@@ -8030,7 +8332,7 @@
 
       /* 6. Real Canvas Red-Eye Glare Neutralization + Catchlight Preservation */
       async function runCanvasRedEye(p, spotPct = null) {
-        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 960);
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
         const irisMap = {
           'Warm brown': [74, 48, 34],
           'Hazel': [82, 74, 44],
@@ -8066,7 +8368,7 @@
           }
           ctx.putImageData(imgData, 0, 0);
           pushSnapshot(p);
-          p.workingSrc = canvas.toDataURL('image/jpeg', 0.93);
+          await canvasToWorkingUrl(canvas, p, 0.94, true);
           p.eyePins.push({ x: spotPct.x, y: spotPct.y });
           p.redEyesFixed += 1;
           addEditLabel(p, 'Red-Eye');
@@ -8085,7 +8387,7 @@
         }
         ctx.putImageData(imgData, 0, 0);
         pushSnapshot(p);
-        p.workingSrc = canvas.toDataURL('image/jpeg', 0.93);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
         p.redEyesFixed += 2;
         addEditLabel(p, 'Red-Eye');
       }
@@ -8093,21 +8395,49 @@
       function renderLabToolBody(p) {
         const body = document.getElementById('lab-tool-body');
 
-        /* TAB 1: 4K AI RESTORE & PRINT REPAIR */
+        /* TAB 1: 4K SUPER-RESOLUTION UPSCALE & SMOOTH GRAIN RESTORATION */
         if (activeTool === 'restore') {
+          const upTarget = p.upscaleTarget || '4k';
+          const denoiseVal = typeof p.denoise === 'number' ? p.denoise : 62;
+          const fidelityVal = typeof p.fidelity === 'number' ? p.fidelity : 68;
+          const baseW = p.origWidth || p.width || 1200;
+          const baseH = p.origHeight || p.height || 900;
+          const { outW: targetW, outH: targetH } = computeUpscaleTargetDims(baseW, baseH, upTarget);
+          const origMp = ((baseW * baseH) / 1e6).toFixed(1);
+          const targetMp = ((targetW * targetH) / 1e6).toFixed(1);
+          const addedPixelsM = Math.max(0, ((targetW * targetH) - (baseW * baseH)) / 1e6).toFixed(1);
+
           body.innerHTML = `
-            <p class="muted" style="font-size:12px;margin-bottom:10px;">Offline CodeFormer / GFPGAN face recovery, dust &amp; silvering removal, halftone descreen, and 4K upscaling.</p>
+            <p class="muted" style="font-size:12px;margin-bottom:8px;">Smooths film grain &amp; compression noise first, then upscales with edge-guided super-resolution to add clean, natural pixels without harsh halos.</p>
+            <div style="padding:8px 10px;border-radius:7px;background:var(--raised);border:1px solid var(--border);margin-bottom:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <div>
+                <div style="font-weight:700;color:var(--text);" id="upscale-readout-dims">${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span></div>
+                <div class="muted" style="font-size:11px;margin-top:2px;" id="upscale-readout-note">${Number(addedPixelsM) > 0 ? `+${addedPixelsM} million clean pixels added · zero compounding grain` : 'Native dimensions · grain cleanup & clarity pass'}</div>
+              </div>
+            </div>
             <div class="field" style="margin-top:0;">
-              <label for="lab-model">Restoration engine</label>
+              <label for="lab-upscale-target">Upscale &amp; pixel resolution</label>
+              <select id="lab-upscale-target">
+                <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Add pixels up to 3840 px (Recommended)</option>
+                <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double width &amp; height (4× pixels)</option>
+                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size (1×) — Smooth grain &amp; restore clarity only</option>
+              </select>
+            </div>
+            <div class="field" style="margin-top:8px;">
+              <label for="lab-model">Restoration profile</label>
               <select id="lab-model">
-                <option value="codeformer" ${p.model === 'codeformer' ? 'selected' : ''}>CodeFormer + Real-ESRGAN (Offline)</option>
-                <option value="gfpgan" ${p.model === 'gfpgan' ? 'selected' : ''}>GFPGAN Portrait Restore (Offline)</option>
-                <option value="fal" ${p.model === 'fal' ? 'selected' : ''}>Clarity Upscaler (Cloud API)</option>
+                <option value="gfpgan" ${p.model === 'gfpgan' ? 'selected' : ''}>Portrait &amp; Faces — Silky skin + crisp eyes &amp; hair</option>
+                <option value="codeformer" ${p.model === 'codeformer' ? 'selected' : ''}>Balanced Family Print — Smooth grain + natural detail</option>
+                <option value="fal" ${p.model === 'fal' ? 'selected' : ''}>High-Definition Clarity — Crisp group &amp; scenery detail</option>
               </select>
             </div>
             <div class="slider-row">
-              <div class="slider-head"><span>Face identity fidelity</span><span class="mono" id="val-fid">${(p.fidelity / 100).toFixed(2)}</span></div>
-              <input type="range" id="rng-fid" min="30" max="100" value="${p.fidelity}">
+              <div class="slider-head"><span>Smooth grain &amp; JPEG noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
+              <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
+            </div>
+            <div class="slider-row">
+              <div class="slider-head"><span>Edge &amp; face detail crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
+              <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
             </div>
             <div style="margin-top:10px;">
               <label class="check-row"><span>Repair dust &amp; silvering specks</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
@@ -8116,13 +8446,43 @@
               <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
             </div>
             <button class="btn accent" type="button" id="btn-run-4k" style="width:100%;margin-top:12px;">
-              ${p.restored4k ? 'Re-run 4K Print Restoration' : 'Restore print to 4K (3840×2880)'}
+              ${p.restored4k ? `✨ Re-run Clean Upscale (${targetW}×${targetH})` : `✨ Upscale & Restore to ${targetW}×${targetH}`}
             </button>
           `;
+
+          const refreshUpscaleReadout = () => {
+            const modeVal = body.querySelector('#lab-upscale-target').value;
+            p.upscaleTarget = modeVal;
+            const { outW: tw, outH: th } = computeUpscaleTargetDims(baseW, baseH, modeVal);
+            const tMp = ((tw * th) / 1e6).toFixed(1);
+            const addM = Math.max(0, ((tw * th) - (baseW * baseH)) / 1e6).toFixed(1);
+            const dimsEl = body.querySelector('#upscale-readout-dims');
+            const noteEl = body.querySelector('#upscale-readout-note');
+            const runBtn = body.querySelector('#btn-run-4k');
+            if (dimsEl) {
+              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
+            }
+            if (noteEl) {
+              noteEl.textContent = Number(addM) > 0
+                ? `+${addM} million clean pixels added · zero compounding grain`
+                : 'Native dimensions · grain cleanup & clarity pass';
+            }
+            if (runBtn && !runBtn.disabled) {
+              runBtn.textContent = p.restored4k
+                ? `✨ Re-run Clean Upscale (${tw}×${th})`
+                : `✨ Upscale & Restore to ${tw}×${th}`;
+            }
+          };
+
+          body.querySelector('#lab-upscale-target').onchange = refreshUpscaleReadout;
           body.querySelector('#lab-model').onchange = (e) => { p.model = e.target.value; };
+          body.querySelector('#rng-denoise').oninput = (e) => {
+            p.denoise = Number(e.target.value);
+            body.querySelector('#val-denoise').textContent = `${p.denoise}%`;
+          };
           body.querySelector('#rng-fid').oninput = (e) => {
             p.fidelity = Number(e.target.value);
-            body.querySelector('#val-fid').textContent = (p.fidelity / 100).toFixed(2);
+            body.querySelector('#val-fid').textContent = `${p.fidelity}%`;
           };
           body.querySelector('#chk-scratch').onchange = (e) => { p.scratchesFixed = e.target.checked; };
           body.querySelector('#chk-defade').onchange = (e) => {
@@ -8134,16 +8494,21 @@
           body.querySelector('#btn-run-4k').onclick = async () => {
             const btn = body.querySelector('#btn-run-4k');
             btn.disabled = true;
-            btn.textContent = 'Restoring pixels to 4K...';
+            btn.textContent = '1/3 Smoothing grain & cleaning scan...';
             try {
-              await runCanvas4KRestore(p);
-              document.getElementById('lab-status-readout').textContent = 'Restored to 3840×2880 4K — drag Split curtain to inspect';
-              notify(`Restored ${p.id} to 3840×2880 4K.`);
+              await runCanvas4KRestore(p, (stageMsg) => {
+                btn.textContent = stageMsg;
+                const ro = document.getElementById('lab-status-readout');
+                if (ro) ro.textContent = stageMsg;
+              });
+              try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+              document.getElementById('lab-status-readout').textContent = `Upscaled & restored to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP) — drag Split curtain to compare`;
+              notify(`✓ Upscaled & restored ${p.id} to ${p.width}×${p.height} px with smooth grain cleanup!`);
               renderSidebarCounts();
               renderPhotoLab();
             } catch (_) {
               btn.disabled = false;
-              btn.textContent = 'Restore print to 4K (3840×2880)';
+              refreshUpscaleReadout();
               notify('Could not process pixels on this image.');
             }
           };
@@ -9252,6 +9617,20 @@
           return;
         }
         Object.assign(p, JSON.parse(prev));
+        if (!p.workingSrc) {
+          p._workingBlob = null;
+          saveArchiveToDb(items, rootFolderName).catch(() => {});
+        } else {
+          fetch(p.workingSrc)
+            .then((r) => r.blob())
+            .then((b) => {
+              p._workingBlob = b;
+              saveArchiveToDb(items, rootFolderName).catch(() => {});
+            })
+            .catch(() => {
+              p._workingBlob = null;
+            });
+        }
         notify(`Undid last edit on ${p.id}.`);
         document.getElementById('lab-status-readout').textContent = `Undid edit on ${p.id} (${p.edits.length} edit(s) remaining)`;
         renderSidebarCounts();
@@ -9295,20 +9674,27 @@
         const p = currentPhoto();
         pushSnapshot(p);
         p.workingSrc = null;
+        p._pre4kSrc = null;
+        p._workingBlob = null;
         p.width = p.origWidth || p.width;
         p.height = p.origHeight || p.height;
+        p.kb = p.origKb || (p._file ? Math.max(1, Math.round(p._file.size / 1024)) : p.kb);
         p.crop = p.origCrop || '50% 50%';
         p.scale = p.origScale || (p.src === 'sample.jpg' ? 1.05 : 1);
         p.restored4k = Boolean(p.origRestored4k);
+        p.upscaleTarget = '4k';
+        p.denoise = 62;
+        p.fidelity = 68;
         p.rotation = 0;
         p.straighten = 0;
         p.flipH = false;
         p.cropRatio = 'Original';
         p.cropBox = { x: 8, y: 8, w: 84, h: 84 };
+        const isSample = p.src === 'sample.jpg';
         p.tone = {
           brightness: 100,
-          contrast: 102,
-          shadows: 12,
+          contrast: isSample ? 102 : 100,
+          shadows: isSample ? 12 : 0,
           highlights: 0,
           sharpen: 0,
           smooth: 0,
@@ -9326,12 +9712,13 @@
         p.scratchesFixed = true;
         p.descreen = false;
         p.deglare = false;
-        p.edits = p.origRestored4k ? ['4K CodeFormer'] : [];
+        p.edits = p.origRestored4k ? ['4K Super-Res'] : [];
         p.eyePins = [];
         p.redEyesFixed = 0;
         p.blemishesErased = 0;
         panX = 0;
         panY = 0;
+        saveArchiveToDb(items, rootFolderName).catch(() => {});
         document.getElementById('lab-status-readout').textContent = 'Reset to untouched original';
         notify(`Reset ${p.id} to untouched original scan.`);
         renderSidebarCounts();
@@ -9353,10 +9740,12 @@
 
             const probe = new Image();
             probe.onload = () => {
-              rec.width = probe.naturalWidth || rec.width;
-              rec.height = probe.naturalHeight || rec.height;
-              rec.origWidth = rec.width;
-              rec.origHeight = rec.height;
+              rec.origWidth = probe.naturalWidth || rec.origWidth || rec.width;
+              rec.origHeight = probe.naturalHeight || rec.origHeight || rec.height;
+              if (!rec.workingSrc) {
+                rec.width = rec.origWidth;
+                rec.height = rec.origHeight;
+              }
               if (rec.id === selectedId) {
                 renderSidebarCounts();
                 if (mode === 'catalog') renderInspector();
@@ -9472,6 +9861,12 @@
             if (p.src && p.src.startsWith('blob:')) {
               try { URL.revokeObjectURL(p.src); } catch (e) {}
             }
+            if (p.workingSrc && p.workingSrc.startsWith('blob:')) {
+              try { URL.revokeObjectURL(p.workingSrc); } catch (e) {}
+            }
+            if (p._pre4kSrc && p._pre4kSrc.startsWith('blob:')) {
+              try { URL.revokeObjectURL(p._pre4kSrc); } catch (e) {}
+            }
           });
         }
 
@@ -9501,6 +9896,7 @@
           const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
           const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
           const url = URL.createObjectURL(file);
+          const fileKb = Math.max(1, Math.round(file.size / 1024));
 
           newItems.push({
             id: `FH-${String(i + 1).padStart(5, '0')}`,
@@ -9517,10 +9913,11 @@
             height: 900,
             origWidth: 1200,
             origHeight: 900,
+            origKb: fileKb,
             origCrop: '50% 50%',
             origScale: 1,
             origRestored4k: false,
-            kb: Math.max(1, Math.round(file.size / 1024)),
+            kb: fileKb,
             restored4k: false,
             fsId: '',
             fsSynced: false,
@@ -9533,6 +9930,8 @@
             story: '',
             src: url,
             workingSrc: null,
+            _pre4kSrc: null,
+            _workingBlob: null,
             _file: file,
             edits: [],
             rotation: 0,
@@ -9542,8 +9941,10 @@
             cropBox: { x: 8, y: 8, w: 84, h: 84 },
             tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
             color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
-            model: 'codeformer',
-            fidelity: 75,
+            model: 'gfpgan',
+            upscaleTarget: '4k',
+            denoise: 62,
+            fidelity: 68,
             scratchesFixed: true,
             descreen: false,
             deglare: false,
@@ -9894,6 +10295,7 @@
           const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
           const url = URL.createObjectURL(file);
           const id = `PH-${String(i + 1).padStart(3, '0')}`;
+          const fileKb = Math.max(1, Math.round(file.size / 1024));
 
           newItems.push({
             id,
@@ -9912,10 +10314,11 @@
             height: 900,
             origWidth: 1200,
             origHeight: 900,
+            origKb: fileKb,
             origCrop: '50% 50%',
             origScale: 1,
             origRestored4k: false,
-            kb: Math.max(1, Math.round(file.size / 1024)),
+            kb: fileKb,
             restored4k: false,
             fsId: '',
             fsSynced: false,
@@ -9928,6 +10331,8 @@
             story: '',
             src: url,
             workingSrc: null,
+            _pre4kSrc: null,
+            _workingBlob: null,
             _file: file,
             edits: [],
             rotation: 0,
@@ -9937,8 +10342,10 @@
             cropBox: { x: 8, y: 8, w: 84, h: 84 },
             tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
             color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
-            model: 'codeformer',
-            fidelity: 75,
+            model: 'gfpgan',
+            upscaleTarget: '4k',
+            denoise: 62,
+            fidelity: 68,
             scratchesFixed: true,
             descreen: false,
             deglare: false,
