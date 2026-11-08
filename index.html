@@ -2734,24 +2734,12 @@
                   <button type="button" data-compare="after" aria-pressed="false">Edited only</button>
                 </div>
 
-                <button class="lab-btn primary" type="button" id="btn-lab-master-restore"
-                  style="background:linear-gradient(135deg, #1d4ed8, #7c3aed);border-color:#60a5fa;color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(37,99,235,0.4);"
-                  title="Foolproof 1-Click: Erases white dots, protects faces from blur, sharpens eyes, and upscales to 4K automatically without tweaking settings!">✨ 1-Click Master Restore</button>
-
                 <button class="lab-btn" type="button" id="btn-lab-fit" aria-pressed="true"
                   title="Fit the entire uncropped photo on screen or fill the stage width">⛶ Fit photo</button>
 
-                <button class="lab-btn" type="button" id="btn-lab-snow-top"
-                  style="border-color:rgba(56,189,248,0.55);color:#7dd3fc;font-weight:600;"
-                  title="1-Click: Remove white dots, snow specks &amp; textured photo paper glare">❄️ Remove Snow / Dots</button>
-
                 <button class="lab-btn" type="button" id="btn-lab-faces"
                   style="border-color:rgba(242,179,61,0.55);color:#fde68a;font-weight:600;"
-                  title="Scan for faces or tag people in a large blown-up view">👤 Scan &amp; Tag Faces</button>
-
-                <button class="lab-btn" type="button" id="btn-lab-fal-ai"
-                  style="border-color:rgba(168,85,247,0.55);color:#d8b4fe;font-weight:600;"
-                  title="Connect your Fal.ai account or run Deep AI Face Restoration (CodeFormer / Clarity 4K)">🧠 AI Face Restore (Fal.ai)</button>
+                  title="Tag people or adjust face boxes on a large view">👤 Tag People</button>
 
                 <div class="lab-seg" role="group" aria-label="Senior magnification">
                   <button type="button" data-zoom="1" aria-pressed="true">1x</button>
@@ -2784,27 +2772,6 @@
             <div class="lab-panel-head">
               <h2 class="lab-panel-title">Photo Lab Repairs</h2>
               <span class="pill info" id="lab-edit-badge">0 edits</span>
-            </div>
-
-            <!-- Always-Visible 1-Click Master Restore + Quick Fix Strip -->
-            <div id="lab-pinned-quickfixes" style="padding:10px;border-radius:8px;background:var(--pill-info-bg);border:1.5px solid rgba(29,95,191,0.28);margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">
-              <button class="btn primary" type="button" id="btn-pinned-master-restore"
-                style="font-size:12.5px;font-weight:700;padding:8px 10px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.25);width:100%;cursor:pointer;"
-                title="1-Click: Erases white dots, protects faces from blur, restores faded 1980s color, and upscales to 4K automatically without tweaking settings">
-                ✨ 1-Click Master Restore (No Guesswork)
-              </button>
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                <span style="font-size:11.5px;font-weight:700;color:var(--pill-info-ink);">Quick Controls:</span>
-                <select id="sel-quick-snow-str" aria-label="Snow and white dot removal strength" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--control);background:var(--surface);color:var(--text);font-weight:600;width:auto;">
-                  <option value="92" selected>Heavy 80s Snow</option>
-                  <option value="74">Medium Dots</option>
-                  <option value="50">Gentle Dust</option>
-                </select>
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                <button class="btn sm accent" type="button" id="btn-quick-snow" style="font-size:11.5px;font-weight:600;padding:4px 6px;" title="Remove white snow specks &amp; glare dots without touching faces">❄️ Remove White Dots</button>
-                <button class="btn sm" type="button" id="btn-panel-faces" style="font-size:11.5px;font-weight:600;padding:4px 6px;" title="Scan &amp; tag faces on a large blown-up photo">👤 Scan &amp; Tag Faces</button>
-              </div>
             </div>
 
             <!-- All 6 Archival Repair Engines in One Unified 3×2 Tab Grid -->
@@ -8267,8 +8234,20 @@
       function loadImageElement(src) {
         return new Promise((resolve, reject) => {
           const img = new Image();
+          if (typeof src === 'string' && !src.startsWith('data:') && !src.startsWith('blob:')) {
+            img.crossOrigin = 'anonymous';
+          }
           img.onload = () => resolve(img);
-          img.onerror = reject;
+          img.onerror = () => {
+            if (img.crossOrigin) {
+              const retry = new Image();
+              retry.onload = () => resolve(retry);
+              retry.onerror = reject;
+              retry.src = src;
+            } else {
+              reject(new Error('Failed to load image element'));
+            }
+          };
           img.src = src;
         });
       }
@@ -9420,7 +9399,27 @@
         const upMode = p.upscaleTarget || '4k';
         const { outW, outH } = computeUpscaleTargetDims(natW, natH, upMode);
 
-        const cleanedBlob = await new Promise((resolve) => srcCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.95));
+        let cleanedBlob = null;
+        try {
+          cleanedBlob = await new Promise((resolve, reject) => {
+            try {
+              srcCanvas.toBlob((b) => {
+                if (b) resolve(b);
+                else reject(new Error('Canvas export produced null'));
+              }, 'image/jpeg', 0.95);
+            } catch (ce) {
+              reject(ce);
+            }
+          });
+        } catch (canvasErr) {
+          console.warn('Canvas toBlob fallback due to:', canvasErr);
+          try {
+            const rawResp = await fetch(afterSrc(p));
+            cleanedBlob = await rawResp.blob();
+          } catch (_) {
+            throw new Error('Could not export photo pixels for AI. Please use the built-in 4K restore.');
+          }
+        }
         const cleanedUrl = URL.createObjectURL(cleanedBlob);
 
         try {
@@ -10075,102 +10074,87 @@
           const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
 
           body.innerHTML = `
-            <button class="btn primary" type="button" id="btn-tab-master-restore"
-              style="width:100%;margin-bottom:12px;font-size:13px;font-weight:700;padding:10px 12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.25);cursor:pointer;"
-              title="Runs white dot removal, zero-face-blur protection, shadow defade, face de-blur, and 4K super-resolution automatically!">
-              ✨ 1-Click Master Restore (Dots + Faces + 4K)
+            <button class="btn primary" type="button" id="btn-run-master-restore"
+              style="width:100%;font-size:14px;font-weight:700;padding:12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;border-radius:8px;box-shadow:0 3px 10px rgba(37,99,235,0.35);cursor:pointer;"
+              title="Removes white dots, keeps faces sharp, fixes faded color, and adds 4K pixels in one step.">
+              ${p.restored4k ? `✨ Re-run Restore to ${targetW}×${targetH}` : `✨ Restore Photo to 4K (${targetW}×${targetH})`}
             </button>
-            <p class="muted" style="font-size:12px;margin-bottom:8px;">Erases white dots &amp; dust specks first, restores faded 1970s–80s shadows, de-blurs soft lenses, and adds clean 4K super-resolution pixels.</p>
-            <div class="field" style="margin-top:0;margin-bottom:10px;">
-              <label>Quick 1-Click Photo Mode</label>
-              <div class="preset-grid-2">
-                <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow/dust specks, faded brown blacks, and soft camera focus">🕰️ 1970s–80s Spotted Print</button>
-                <button class="btn sm ${p.model !== 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans (Smart Auto still heals heavy dots if detected)">✨ Smart Portrait 4K</button>
-              </div>
-            </div>
-            <div style="padding:8px 10px;border-radius:7px;background:var(--raised);border:1px solid var(--border);margin-bottom:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-              <div>
-                <div style="font-weight:700;color:var(--text);" id="upscale-readout-dims">${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span></div>
-                <div class="muted" style="font-size:11px;margin-top:2px;" id="upscale-readout-note">${Number(addedPixelsM) > 0 ? `+${addedPixelsM} million clean pixels · dots & grain cleaned BEFORE upscaling` : 'Native dimensions · dot removal, grain cleanup & de-blur pass'}</div>
-              </div>
-            </div>
-            <div class="field" style="margin-top:0;">
-              <label for="lab-upscale-target">Upscale &amp; pixel resolution</label>
-              <select id="lab-upscale-target">
-                <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Add pixels up to 3840 px (Recommended)</option>
-                <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double width &amp; height (4× pixels)</option>
-                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size (1×) — Erase dots, smooth grain &amp; de-blur only</option>
-              </select>
-            </div>
-            <div class="field" style="margin-top:8px;">
-              <label for="lab-model">Restoration profile</label>
-              <select id="lab-model">
-                <option value="vintage80s" ${p.model === 'vintage80s' ? 'selected' : ''}>1970s–80s Vintage Print — Heavy white-dot erase + fade &amp; focus fix</option>
-                <option value="gfpgan" ${p.model === 'gfpgan' ? 'selected' : ''}>Portrait &amp; Faces — Silky skin + crisp eyes &amp; hair</option>
-                <option value="codeformer" ${p.model === 'codeformer' ? 'selected' : ''}>Balanced Family Print — Smooth grain + natural detail</option>
-                <option value="fal" ${p.model === 'fal' ? 'selected' : ''}>High-Definition Clarity — Crisp group &amp; scenery detail</option>
-              </select>
-            </div>
-            <div class="slider-row">
-              <div class="slider-head">
-                <span>Erase white dots, dust &amp; snow spots</span>
-                <span class="mono" style="display:inline-flex;align-items:center;gap:6px;">
-                  <span id="val-spot">${spotVal < 0 ? 'Smart Auto' : `${spotVal}%`}</span>
-                  <button type="button" id="btn-spot-auto" style="display:${spotVal < 0 ? 'none' : 'inline-block'};font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;">Auto</button>
-                </span>
-              </div>
-              <input type="range" id="rng-spot" min="0" max="100" value="${spotSliderPos}">
-            </div>
-            <div class="slider-row">
-              <div class="slider-head"><span>Smooth grain &amp; JPEG noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
-              <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
-            </div>
-            <div class="slider-row">
-              <div class="slider-head"><span>Optical de-blur &amp; face crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
-              <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
-            </div>
-            <div style="margin-top:10px;">
-              <label class="check-row"><span>Repair dust &amp; emulsion pits</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
-              <label class="check-row"><span>Defade 1970s–80s cast &amp; shadows</span><input type="checkbox" id="chk-defade" ${(p.tone.defade || p.model === 'vintage80s') ? 'checked' : ''}></label>
-              <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
-              <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
-            </div>
-            <button class="btn" type="button" id="btn-restore-snow" style="width:100%;margin-top:10px;font-weight:600;border-color:rgba(56,189,248,0.5);color:var(--text);" title="Erase white dots, snow specks &amp; pebble/silk paper flash glare across the whole photo">
-              ❄️ 1-Click Remove White Dots / Snow Specks
-            </button>
-            <button class="btn accent" type="button" id="btn-run-4k" style="width:100%;margin-top:8px;">
-              ${p.restored4k ? `✨ Re-run Clean 4K Restore (${targetW}×${targetH})` : `✨ Clean Dots & Upscale to ${targetW}×${targetH}`}
-            </button>
+            <p class="muted" style="font-size:11.5px;margin:6px 0 14px 0;text-align:center;">
+              Erases white dots, protects faces from blur, fixes faded dyes &amp; adds 4K resolution.
+            </p>
 
-            <details id="ai-deep-panel" ${hasFalKey ? 'open' : ''} style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);">
+            <div class="field" style="margin-top:0;margin-bottom:12px;">
+              <label style="font-size:12px;font-weight:700;">1. Choose Photo Type</label>
+              <div class="preset-grid-2">
+                <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks, faded color &amp; soft focus">🕰️ 1960s–90s Spotted Print</button>
+                <button class="btn sm ${p.model !== 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans">📸 Clean Portrait / Modern</button>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:0;margin-bottom:12px;">
+              <label for="lab-upscale-target" style="font-size:12px;font-weight:700;">2. Choose Output Resolution</label>
+              <select id="lab-upscale-target">
+                <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Up to 3840 px (Recommended)</option>
+                <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double pixels</option>
+                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size — Clean dots &amp; sharpen only</option>
+              </select>
+              <div class="muted" style="font-size:11.5px;margin-top:5px;" id="upscale-readout-dims">
+                ${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span>
+              </div>
+            </div>
+
+            <details id="advanced-restore-panel" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);margin-top:14px;">
               <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text);user-select:none;">
-                🧠 Very Blurry Faces? Deep AI Face &amp; 4K Rebuild ${hasFalKey ? '<span style="color:var(--positive);font-weight:700;">· Ready</span>' : '<span class="muted" style="font-weight:400;">(Optional)</span>'}
+                ⚙️ Advanced Manual Sliders &amp; Cloud AI (Optional)
               </summary>
-              <div style="margin-top:8px;font-size:11.5px;line-height:1.45;">
-                <p class="muted" style="margin:0 0 8px 0;">Adding pixels alone cannot invent missing eyes or eyelashes on out-of-focus 1980s photos. Deep AI cleans all white dots first, then uses GPU neural networks (<strong>CodeFormer</strong> / <strong>Clarity 4K</strong>) to rebuild blurry faces.</p>
-                <div id="local-ai-banner" style="display:none;margin-bottom:8px;padding:6px 8px;border-radius:6px;background:var(--pill-positive-bg);color:var(--pill-positive-ink);font-size:11px;">
-                  ✓ Offline Local AI Server detected on port 8008!
-                  <button class="btn sm" type="button" id="btn-run-local-ai" style="width:100%;margin-top:6px;">⚡ Run Offline Local AI Face &amp; 4K Rebuild</button>
-                </div>
-                <div class="field" style="margin-top:4px;">
-                  <label for="ai-cloud-model">Cloud AI GPU Model (Fal.ai)</label>
-                  <select id="ai-cloud-model">
-                    <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Rebuild Blurry Group &amp; Portrait Faces (~$0.002/photo)</option>
-                    <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative 4K Photo Detail (~$0.015/photo)</option>
-                    <option value="fal-ai/ccsr" ${selFalModel === 'fal-ai/ccsr' ? 'selected' : ''}>CCSR — Full-Photo 4K Super-Resolution (~$0.005/photo)</option>
-                  </select>
-                </div>
-                <div class="field" style="margin-top:6px;">
-                  <label for="ai-fal-key">Fal.ai API Key <span class="muted" style="font-weight:400;">(saved privately in your browser)</span></label>
-                  <div style="display:flex;gap:6px;">
-                    <input type="password" id="ai-fal-key" placeholder="Key_ID:Key_Secret from fal.ai/dashboard/keys" value="${esc(aiSaved.falApiKey || '')}" style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;">
-                    <button class="btn sm" type="button" id="btn-test-fal">Verify</button>
+              <div style="margin-top:10px;">
+                <div class="slider-row">
+                  <div class="slider-head">
+                    <span>Erase white dots &amp; snow specks</span>
+                    <span class="mono" style="display:inline-flex;align-items:center;gap:6px;">
+                      <span id="val-spot">${spotVal < 0 ? 'Smart Auto' : `${spotVal}%`}</span>
+                      <button type="button" id="btn-spot-auto" style="display:${spotVal < 0 ? 'none' : 'inline-block'};font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;">Auto</button>
+                    </span>
                   </div>
-                  <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
+                  <input type="range" id="rng-spot" min="0" max="100" value="${spotSliderPos}">
                 </div>
-                <button class="btn primary" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
-                  🧠 Clean White Dots + AI Rebuild Faces to 4K
-                </button>
+                <div class="slider-row">
+                  <div class="slider-head"><span>Smooth grain &amp; noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
+                  <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
+                </div>
+                <div class="slider-row">
+                  <div class="slider-head"><span>Optical de-blur &amp; face crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
+                  <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
+                </div>
+                <div style="margin-top:8px;">
+                  <label class="check-row"><span>Repair dust &amp; emulsion pits</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
+                  <label class="check-row"><span>Defade 1970s–80s cast &amp; shadows</span><input type="checkbox" id="chk-defade" ${(p.tone.defade || p.model === 'vintage80s') ? 'checked' : ''}></label>
+                  <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
+                  <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
+                </div>
+
+                <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+                  <div style="font-weight:600;font-size:12px;margin-bottom:6px;">🧠 Fal.ai Cloud AI (Optional)</div>
+                  <p class="muted" style="font-size:11px;margin:0 0 6px 0;">Use GPU neural networks (CodeFormer / Clarity 4K) to rebuild severely degraded portraits.</p>
+                  <div class="field" style="margin-top:4px;">
+                    <label for="ai-cloud-model">Model</label>
+                    <select id="ai-cloud-model">
+                      <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Face Restoration (~$0.002/photo)</option>
+                      <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative Detail (~$0.015/photo)</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-top:6px;">
+                    <label for="ai-fal-key">Fal.ai API Key</label>
+                    <div style="display:flex;gap:6px;">
+                      <input type="password" id="ai-fal-key" placeholder="Key_ID:Key_Secret" value="${esc(aiSaved.falApiKey || '')}" style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;">
+                      <button class="btn sm" type="button" id="btn-test-fal">Verify</button>
+                    </div>
+                    <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
+                  </div>
+                  <button class="btn accent sm" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
+                    🧠 Run Cloud AI Restore (Fal.ai)
+                  </button>
+                </div>
               </div>
             </details>
           `;
@@ -10180,53 +10164,41 @@
             p.upscaleTarget = modeVal;
             const { outW: tw, outH: th } = computeUpscaleTargetDims(baseW, baseH, modeVal);
             const tMp = ((tw * th) / 1e6).toFixed(1);
-            const addM = Math.max(0, ((tw * th) - (baseW * baseH)) / 1e6).toFixed(1);
             const dimsEl = body.querySelector('#upscale-readout-dims');
-            const noteEl = body.querySelector('#upscale-readout-note');
-            const runBtn = body.querySelector('#btn-run-4k');
+            const runBtn = body.querySelector('#btn-run-master-restore');
             if (dimsEl) {
-              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
-            }
-            if (noteEl) {
-              noteEl.textContent = Number(addM) > 0
-                ? `+${addM} million clean pixels · dots & grain cleaned BEFORE upscaling`
-                : 'Native dimensions · dot removal, grain cleanup & de-blur pass';
+              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
             }
             if (runBtn && !runBtn.disabled) {
               runBtn.textContent = p.restored4k
-                ? `✨ Re-run Clean 4K Restore (${tw}×${th})`
-                : `✨ Clean Dots & Upscale to ${tw}×${th}`;
+                ? `✨ Re-run Restore to ${tw}×${th}`
+                : `✨ Restore Photo to 4K (${tw}×${th})`;
             }
           };
 
           body.querySelector('#btn-preset-vintage80s').onclick = () => {
             p.model = 'vintage80s';
             p.spotRemove = 88;
-            p.denoise = 68;
+            p.denoise = 60;
             p.fidelity = 78;
             p.scratchesFixed = true;
             p.tone.defade = true;
             renderLabToolBody(p);
-            notify('Selected 1970s–80s Spotted Print mode — click "Clean Dots & Upscale" below!');
+            notify('Selected 1960s–90s Spotted Print mode — click "Restore Photo to 4K" to run!');
           };
           body.querySelector('#btn-preset-cleanport').onclick = () => {
             p.model = 'gfpgan';
-            p.spotRemove = -1;
-            p.denoise = 62;
-            p.fidelity = 68;
+            p.spotRemove = 25;
+            p.denoise = 45;
+            p.fidelity = 65;
+            p.scratchesFixed = false;
             p.tone.defade = false;
             renderLabToolBody(p);
+            notify('Selected Clean Portrait mode — click "Restore Photo to 4K" to run!');
           };
 
           body.querySelector('#lab-upscale-target').onchange = refreshUpscaleReadout;
-          body.querySelector('#lab-model').onchange = (e) => {
-            p.model = e.target.value;
-            if (p.model === 'vintage80s' && (typeof p.spotRemove !== 'number' || p.spotRemove < 75)) {
-              p.spotRemove = 88;
-              p.tone.defade = true;
-            }
-            renderLabToolBody(p);
-          };
+
           body.querySelector('#rng-spot').oninput = (e) => {
             p.spotRemove = Number(e.target.value);
             body.querySelector('#val-spot').textContent = `${p.spotRemove}%`;
@@ -10255,18 +10227,8 @@
           body.querySelector('#chk-descreen').onchange = (e) => { p.descreen = e.target.checked; };
           body.querySelector('#chk-deglare').onchange = (e) => { p.deglare = e.target.checked; };
 
-          const btnTabMaster = body.querySelector('#btn-tab-master-restore');
-          if (btnTabMaster) {
-            btnTabMaster.onclick = () => triggerPhotoLabMasterRestore(p);
-          }
-
-          const btnRestSnow = body.querySelector('#btn-restore-snow');
-          if (btnRestSnow) {
-            btnRestSnow.onclick = () => triggerPhotoLabSnowSpeckleClean(p);
-          }
-
-          body.querySelector('#btn-run-4k').onclick = async () => {
-            const btn = body.querySelector('#btn-run-4k');
+          body.querySelector('#btn-run-master-restore').onclick = async () => {
+            const btn = body.querySelector('#btn-run-master-restore');
             btn.disabled = true;
             btn.textContent = '1/3 Cleaning white dots, dust & grain...';
             try {
@@ -10276,11 +10238,14 @@
                 if (ro) ro.textContent = stageMsg;
               });
               try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+              compareMode = 'split';
+              const splitBar = document.querySelector('.split-bar');
+              if (splitBar) splitBar.style.left = '50%';
               const spotMsg = diag && diag.spotsHealed > 120
-                ? `healed ${diag.spotsHealed.toLocaleString()} spot pixels & upscaled`
-                : 'upscaled & restored';
-              document.getElementById('lab-status-readout').textContent = `✓ ${spotMsg.charAt(0).toUpperCase() + spotMsg.slice(1)} to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP)`;
-              notify(`✓ ${p.id}: ${spotMsg} to ${p.width}×${p.height} px!`);
+                ? `healed ${diag.spotsHealed.toLocaleString()} dots & restored`
+                : 'restored';
+              document.getElementById('lab-status-readout').textContent = `✓ ${spotMsg.charAt(0).toUpperCase() + spotMsg.slice(1)} to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP) — drag split curtain to compare`;
+              notify(`✓ ${p.id}: ${spotMsg} to ${p.width}×${p.height} px! Drag split curtain to compare.`);
               renderSidebarCounts();
               renderPhotoLab();
             } catch (_) {
@@ -10503,9 +10468,6 @@
         if (activeTool === 'tone') {
           body.innerHTML = `
             <p class="muted" style="font-size:12px;margin-bottom:8px;">Rescue faded contrast, dark porch shadows, blown dress highlights, film grain, and dark antique lens corners.</p>
-            <button class="btn" type="button" id="btn-tone-snow" style="width:100%;margin-bottom:8px;font-weight:600;border-color:rgba(56,189,248,0.5);color:var(--text);" title="Erase white dots, snow specks &amp; pebble/silk paper flash glare across the whole photo">
-              ❄️ 1-Click Remove White Dots / Snow Specks
-            </button>
             <button class="btn accent" type="button" id="btn-auto-levels" style="width:100%;margin-bottom:8px;">
               1-Click Auto-Levels (Histogram Stretch)
             </button>
@@ -10543,10 +10505,6 @@
               <input type="range" data-tone="vignette" min="-50" max="50" value="${p.tone.vignette || 0}">
             </div>
           `;
-          const btnToneSnow = body.querySelector('#btn-tone-snow');
-          if (btnToneSnow) {
-            btnToneSnow.onclick = () => triggerPhotoLabSnowSpeckleClean(p);
-          }
           body.querySelector('#btn-auto-levels').onclick = async () => {
             const btn = body.querySelector('#btn-auto-levels');
             btn.disabled = true;
@@ -11676,23 +11634,8 @@
 
       document.getElementById('btn-lab-undo').onclick = triggerLabUndo;
 
-      const btnLabMasterTop = document.getElementById('btn-lab-master-restore');
-      if (btnLabMasterTop) btnLabMasterTop.onclick = () => triggerPhotoLabMasterRestore(currentPhoto());
-
-      const btnPinnedMaster = document.getElementById('btn-pinned-master-restore');
-      if (btnPinnedMaster) btnPinnedMaster.onclick = () => triggerPhotoLabMasterRestore(currentPhoto());
-
-      const btnLabSnowTop = document.getElementById('btn-lab-snow-top');
-      if (btnLabSnowTop) btnLabSnowTop.onclick = () => triggerPhotoLabSnowSpeckleClean(currentPhoto());
-
-      const btnQuickSnow = document.getElementById('btn-quick-snow');
-      if (btnQuickSnow) btnQuickSnow.onclick = () => triggerPhotoLabSnowSpeckleClean(currentPhoto());
-
       const btnLabFaces = document.getElementById('btn-lab-faces');
       if (btnLabFaces) btnLabFaces.onclick = () => triggerPhotoLabFaceStudio(currentPhoto());
-
-      const btnPanelFaces = document.getElementById('btn-panel-faces');
-      if (btnPanelFaces) btnPanelFaces.onclick = () => triggerPhotoLabFaceStudio(currentPhoto());
 
       function getFalSavedKey() {
         const b = window.ArchivalAiBridge;
