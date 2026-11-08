@@ -892,7 +892,12 @@
 
       existing.name = name.trim();
       if (personInfo && typeof personInfo === 'object') {
-        if (personInfo.fsId) existing.fsId = personInfo.fsId;
+        if (personInfo.fsId) {
+          var isPidValid = (typeof window !== 'undefined' && window.FamilySearchClient && typeof window.FamilySearchClient.isPidValidForPersonName === 'function')
+            ? window.FamilySearchClient.isPidValidForPersonName(personInfo.fsId, name)
+            : true;
+          existing.fsId = isPidValid ? personInfo.fsId : '';
+        }
         if (personInfo.rel) existing.rel = personInfo.rel;
         if (personInfo.branch) existing.branch = personInfo.branch;
       }
@@ -1055,6 +1060,27 @@
     return faces;
   }
 
+  function cleanupMismatchedPids() {
+    var db = loadFaceDb();
+    var changed = false;
+    var isPidValid = (typeof window !== 'undefined' && window.FamilySearchClient && typeof window.FamilySearchClient.isPidValidForPersonName === 'function')
+      ? window.FamilySearchClient.isPidValidForPersonName
+      : null;
+    if (!isPidValid) return;
+
+    Object.keys(db.people).forEach(function (k) {
+      var p = db.people[k];
+      if (p && p.fsId) {
+        if (!isPidValid(p.fsId, p.name)) {
+          console.warn('[FaceDetectorEngine] Purging mismatched PID ' + p.fsId + ' from learned record: ' + p.name);
+          p.fsId = '';
+          changed = true;
+        }
+      }
+    });
+    if (changed) saveFaceDb(db);
+  }
+
   window.FaceDetectorEngine = {
     detectFaces: detectFaces,
     loadCascade: loadCascade,
@@ -1065,7 +1091,8 @@
     learnFace: learnFace,
     forgetFace: forgetFace,
     getLearnedPeople: getLearnedPeople,
-    recognizeFaces: recognizeFaces
+    recognizeFaces: recognizeFaces,
+    cleanupMismatchedPids: cleanupMismatchedPids
   };
 
 })(typeof window !== 'undefined' ? window : this);

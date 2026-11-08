@@ -107,8 +107,17 @@ export async function searchFamilySearchPersons(query) {
   ];
 
   const lowerQuery = trimmed.toLowerCase();
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  const qGiven = tokens[0] ? tokens[0].toLowerCase() : '';
   const localMatches = KNOWN_FAMILY.filter(f => {
-    const nameMatch = f.name.toLowerCase().includes(lowerQuery);
+    const fLower = f.name.toLowerCase();
+    const fGiven = fLower.split(/\s+/)[0] || '';
+    if (tokens.length >= 2) {
+      if (fGiven !== qGiven && !fGiven.startsWith(qGiven) && !qGiven.startsWith(fGiven)) {
+        return false;
+      }
+    }
+    const nameMatch = fLower.includes(lowerQuery);
     const idMatch = f.id.toLowerCase() === lowerQuery;
     const aliasMatch = f.aliases && f.aliases.some(a => lowerQuery.includes(a));
     return nameMatch || idMatch || aliasMatch;
@@ -116,7 +125,6 @@ export async function searchFamilySearchPersons(query) {
 
   // 2. Name search with standard GEDCOM X q.givenName and q.surname parameters
   const searchParams = new URLSearchParams();
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
 
   if (tokens.length === 1) {
     // Single term: search as surname

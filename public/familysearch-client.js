@@ -794,6 +794,31 @@
     return false;
   }
 
+  function isPidValidForPersonName(pid, personName) {
+    if (!pid || !personName) return false;
+    var cleanPid = String(pid).trim().toUpperCase();
+    if (!/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(cleanPid)) return false;
+    var pLower = String(personName).trim().toLowerCase();
+    if (!pLower || /^face\s*#?\d+/i.test(pLower) || /^unidentified/i.test(pLower)) return false;
+
+    // Check against KNOWN_FAMILY
+    if (typeof KNOWN_FAMILY !== 'undefined' && Array.isArray(KNOWN_FAMILY)) {
+      var kf = KNOWN_FAMILY.find(function (k) { return k.id && k.id.toUpperCase() === cleanPid; });
+      if (kf) {
+        var kName = (kf.name || '').toLowerCase();
+        var kGiven = kName.split(/\s+/)[0] || '';
+        var pGiven = pLower.split(/\s+/)[0] || '';
+        var kAliases = (kf.aliases || []).map(function (a) { return a.toLowerCase(); });
+        var match = (kName === pLower) ||
+          (kAliases.indexOf(pLower) !== -1) ||
+          (kAliases.indexOf(pGiven) !== -1) ||
+          (kGiven && pGiven && (kGiven === pGiven || kGiven.startsWith(pGiven) || pGiven.startsWith(kGiven)));
+        if (!match) return false; // Known PID strictly belongs to someone else!
+      }
+    }
+    return true;
+  }
+
   /**
    * Upload an image to FamilySearch Beta Memories, link to Person, and attach persona tags
    */
@@ -1254,15 +1279,47 @@
       var claimedPersonaIds = new Set();
       onProgress({ step: 'tagging', message: 'Tagging ' + tagTargets.length + ' relative(s) and face positions on FamilySearch memory...' });
 
+      // Strict PID verification & photo uniqueness:
+      // A FamilyTree PID can only belong to ONE person in a single photo.
+      // If a PID's given name does not match the person's given name, discard the PID and upload as a named persona.
+      var claimedPidsInPhoto = new Map();
+      tagTargets.forEach(function (tgt) {
+        var tName = (tgt.name || '').trim();
+        var rawPid = tgt.fsId ? String(tgt.fsId).trim().toUpperCase() : null;
+        var directMatch = rawPid ? rawPid.match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/) : null;
+        var candPid = directMatch ? directMatch[0] : null;
+
+        if (candPid) {
+          if (!isPidValidForPersonName(candPid, tName)) {
+            console.warn('[FamilySearch] Stripping mismatched PID ' + candPid + ' from "' + tName + '" — persona will be tagged with real name without wrong tree link');
+            candPid = null;
+            tgt.fsId = null;
+          } else if (claimedPidsInPhoto.has(candPid) && claimedPidsInPhoto.get(candPid).toLowerCase() !== tName.toLowerCase()) {
+            console.warn('[FamilySearch] Stripping duplicate PID ' + candPid + ' from second relative "' + tName + '" (already linked to "' + claimedPidsInPhoto.get(candPid) + '")');
+            candPid = null;
+            tgt.fsId = null;
+          } else {
+            claimedPidsInPhoto.set(candPid, tName);
+          }
+        }
+        tgt.validatedPid = candPid;
+      });
+
       for (var tIdx2 = 0; tIdx2 < tagTargets.length; tIdx2++) {
         var target = tagTargets[tIdx2];
         var personName = target.name;
         if (!personName) continue;
 
-        var personPid = null;
-        if (target.fsId) {
+        var personPid = target.validatedPid || null;
+        if (!personPid && target.fsId) {
           var directPidMatch = String(target.fsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
-          if (directPidMatch) personPid = directPidMatch[0].toUpperCase();
+          if (directPidMatch && isPidValidForPersonName(directPidMatch[0], personName)) {
+            var dpMatch = directPidMatch[0].toUpperCase();
+            if (!claimedPidsInPhoto.has(dpMatch) || claimedPidsInPhoto.get(dpMatch).toLowerCase() === personName.toLowerCase()) {
+              personPid = dpMatch;
+              claimedPidsInPhoto.set(personPid, personName);
+            }
+          }
         }
 
         if (!personPid) {
@@ -1274,11 +1331,16 @@
             var cGiven = candLower.split(/\s+/)[0] || '';
             var tGiven = targetLower.split(/\s+/)[0] || '';
             // Strictly check given name AND surname/alias match - NEVER attach someone solely by surname!
-            if (candLower === targetLower || (cand.aliases && cand.aliases.includes(targetLower))) {
-              personPid = cand.id.toUpperCase();
-            } else if (cGiven && tGiven && (cGiven === tGiven || cGiven.startsWith(tGiven) || tGiven.startsWith(cGiven))) {
-              if (isNameMatch(candLower, targetLower)) {
-                personPid = cand.id.toUpperCase();
+            var candPid = cand.id.toUpperCase();
+            if (isPidValidForPersonName(candPid, personName) && (!claimedPidsInPhoto.has(candPid) || claimedPidsInPhoto.get(candPid).toLowerCase() === personName.toLowerCase())) {
+              if (candLower === targetLower || (cand.aliases && cand.aliases.includes(targetLower))) {
+                personPid = candPid;
+                claimedPidsInPhoto.set(personPid, personName);
+              } else if (cGiven && tGiven && (cGiven === tGiven || cGiven.startsWith(tGiven) || tGiven.startsWith(cGiven))) {
+                if (isNameMatch(candLower, targetLower)) {
+                  personPid = candPid;
+                  claimedPidsInPhoto.set(personPid, personName);
+                }
               }
             }
           }
@@ -1286,7 +1348,9 @@
 
         if (!personPid && targetPersonId && tagTargets.length === 1) {
           var targetPidMatch = String(targetPersonId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
-          if (targetPidMatch) personPid = targetPidMatch[0].toUpperCase();
+          if (targetPidMatch && isPidValidForPersonName(targetPidMatch[0], personName)) {
+            personPid = targetPidMatch[0].toUpperCase();
+          }
         }
 
         try {
@@ -1757,7 +1821,13 @@
     });
 
     return scored
-      .filter(function (item) { return item.score >= 50; })
+      .filter(function (item) {
+        if (item.score < 50) return false;
+        if (qParts.length >= 2 && item.candidate && item.candidate.id) {
+          return isPidValidForPersonName(item.candidate.id, query);
+        }
+        return true;
+      })
       .sort(function (a, b) { return b.score - a.score; })
       .map(function (item) { return item.candidate; });
   }
@@ -1896,6 +1966,7 @@
     checkMemoryExists: checkMemoryExists,
     createFreshUploadBlob: createFreshUploadBlob,
     searchPersons: searchPersons,
+    isPidValidForPersonName: isPidValidForPersonName,
     KNOWN_FAMILY: KNOWN_FAMILY,
     parseFamilySearchDate: parseFamilySearchDate,
     formatNormalizedDate: formatNormalizedDate,

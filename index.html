@@ -3778,6 +3778,7 @@
               if (typeof saved.rotation === 'number') p.rotation = saved.rotation;
               if (Array.isArray(saved.edits)) p.edits = saved.edits;
             }
+            sanitizePhotoPersonPids(p);
           });
         } catch (e) {
           console.warn('Could not restore metadata:', e);
@@ -4151,6 +4152,10 @@
             resultsByPerson.forEach(group => {
               if (group.matches && group.matches.length > 0) {
                 const topPid = group.matches[0].id;
+                if (!isPidValidForPersonName(topPid, group.personName)) {
+                  console.warn(`Skipping mismatched PID ${topPid} for relative "${group.personName}"`);
+                  return;
+                }
                 allPids.push(topPid);
                 let personObj = (p.people || []).find(x => x.name.toLowerCase() === group.personName.toLowerCase());
                 if (!personObj) {
@@ -4167,11 +4172,7 @@
               }
             });
 
-            if (allPids.length > 0) {
-              p.fsId = allPids.join(', ');
-              const fFs = document.getElementById('f-fs');
-              if (fFs) fFs.value = p.fsId;
-            }
+            sanitizePhotoPersonPids(p);
             saveItemMetadata(p);
             notify(`✓ Linked ${linkedCount} FamilySearch PID${linkedCount > 1 ? 's' : ''} to photo & relatives!`);
             showFsPidSuggestions(p, resultsByPerson);
@@ -4195,15 +4196,7 @@
               const faceObj = p.faces.find(f => f.name && f.name.toLowerCase() === personName.toLowerCase());
               if (faceObj) faceObj.fsId = selectedPid;
             }
-            if (!p.fsId || !p.fsId.includes(',')) {
-              p.fsId = selectedPid;
-            } else {
-              const currentPids = p.fsId.split(',').map(s => s.trim()).filter(Boolean);
-              if (!currentPids.includes(selectedPid)) currentPids.push(selectedPid);
-              p.fsId = currentPids.join(', ');
-            }
-            const fFs = document.getElementById('f-fs');
-            if (fFs) fFs.value = p.fsId;
+            sanitizePhotoPersonPids(p);
             saveItemMetadata(p);
             notify(`Linked ${personName} → PID ${selectedPid}.`);
             showFsPidSuggestions(p, resultsByPerson);
@@ -5727,22 +5720,65 @@
         overlayEl.style.height = `${rh.toFixed(1)}px`;
       }
 
-      function resolveKnownPidForName(personName, fallbackFsId) {
-        if (fallbackFsId) {
-          const m = String(fallbackFsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
-          if (m) return m[0].toUpperCase();
+      function isPidValidForPersonName(pid, personName) {
+        if (!pid || !personName) return false;
+        const cleanPid = String(pid).trim().toUpperCase();
+        if (!/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(cleanPid)) return false;
+        const pLower = String(personName).trim().toLowerCase();
+        if (!pLower || /^face\s*#?\d+/i.test(pLower) || /^unidentified/i.test(pLower)) return false;
+
+        if (window.FamilySearchClient && typeof window.FamilySearchClient.isPidValidForPersonName === 'function') {
+          return window.FamilySearchClient.isPidValidForPersonName(cleanPid, personName);
         }
+
+        if (window.FamilySearchClient && Array.isArray(window.FamilySearchClient.KNOWN_FAMILY)) {
+          const kf = window.FamilySearchClient.KNOWN_FAMILY.find(k => k.id && k.id.toUpperCase() === cleanPid);
+          if (kf) {
+            const kName = (kf.name || '').toLowerCase();
+            const kGiven = kName.split(/\s+/)[0] || '';
+            const pGiven = pLower.split(/\s+/)[0] || '';
+            const kAliases = (kf.aliases || []).map(a => a.toLowerCase());
+            const match = (kName === pLower) ||
+              kAliases.includes(pLower) ||
+              kAliases.includes(pGiven) ||
+              (kGiven && pGiven && (kGiven === pGiven || kGiven.startsWith(pGiven) || pGiven.startsWith(kGiven)));
+            if (!match) return false;
+          }
+        }
+        return true;
+      }
+
+      function resolveKnownPidForName(personName, fallbackFsId) {
         const lower = String(personName || '').trim().toLowerCase();
         if (!lower) return '';
+
+        if (fallbackFsId) {
+          const m = String(fallbackFsId).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}/);
+          if (m && isPidValidForPersonName(m[0], personName)) {
+            return m[0].toUpperCase();
+          }
+        }
+
         if (window.FamilySearchClient && Array.isArray(window.FamilySearchClient.KNOWN_FAMILY)) {
-          const kf = window.FamilySearchClient.KNOWN_FAMILY.find(k =>
-            (k.name && k.name.toLowerCase() === lower) ||
-            (Array.isArray(k.aliases) && k.aliases.includes(lower))
-          );
-          if (kf && kf.id) return kf.id.toUpperCase();
+          const pGiven = lower.split(/\s+/)[0] || '';
+          const kf = window.FamilySearchClient.KNOWN_FAMILY.find(k => {
+            const kName = (k.name || '').toLowerCase();
+            const kGiven = kName.split(/\s+/)[0] || '';
+            const aliases = (k.aliases || []).map(a => a.toLowerCase());
+            if (kName === lower || aliases.includes(lower)) return true;
+            if (kGiven && pGiven && (kGiven === pGiven) && isNameMatch(kName, lower)) return true;
+            return false;
+          });
+          if (kf && kf.id && isPidValidForPersonName(kf.id, personName)) {
+            return kf.id.toUpperCase();
+          }
         }
         for (const it of items) {
-          const hit = (it.people || []).find(pr => pr && pr.name && pr.name.trim().toLowerCase() === lower && pr.fsId);
+          const hit = (it.people || []).find(pr => {
+            if (!pr || !pr.name || !pr.fsId) return false;
+            if (pr.name.trim().toLowerCase() !== lower) return false;
+            return isPidValidForPersonName(pr.fsId, personName);
+          });
           if (hit && hit.fsId) return hit.fsId.toUpperCase();
         }
         return '';
@@ -5760,9 +5796,82 @@
         }
       }
 
+      function sanitizePhotoPersonPids(p) {
+        if (!p) return;
+        let modified = false;
+
+        // 1. Sanitize p.people
+        if (Array.isArray(p.people)) {
+          const seenPids = new Map(); // cleanPid -> name
+          p.people.forEach(pr => {
+            if (!pr || !pr.name) return;
+            if (pr.fsId) {
+              const cleanPid = String(pr.fsId).trim().toUpperCase();
+              if (!isPidValidForPersonName(cleanPid, pr.name)) {
+                console.warn(`Sanitizing mismatched PID ${cleanPid} from relative "${pr.name}"`);
+                delete pr.fsId;
+                modified = true;
+              } else if (seenPids.has(cleanPid) && seenPids.get(cleanPid).toLowerCase() !== pr.name.trim().toLowerCase()) {
+                console.warn(`Sanitizing duplicate PID ${cleanPid} from "${pr.name}" (already assigned to "${seenPids.get(cleanPid)}")`);
+                delete pr.fsId;
+                modified = true;
+              } else {
+                seenPids.set(cleanPid, pr.name.trim());
+              }
+            }
+          });
+        }
+
+        // 2. Sanitize p.faces
+        if (Array.isArray(p.faces)) {
+          p.faces.forEach(f => {
+            if (!f || !f.name) return;
+            if (f.fsId) {
+              const cleanPid = String(f.fsId).trim().toUpperCase();
+              if (!isPidValidForPersonName(cleanPid, f.name)) {
+                console.warn(`Sanitizing mismatched PID ${cleanPid} from face "${f.name}"`);
+                f.fsId = '';
+                modified = true;
+              }
+              // If relative in p.people has no fsId, ensure face fsId doesn't retain old mismatched PID
+              if (Array.isArray(p.people)) {
+                const rel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === f.name.trim().toLowerCase());
+                if (rel && !rel.fsId && f.fsId) {
+                  f.fsId = '';
+                  modified = true;
+                }
+              }
+            }
+          });
+        }
+
+        // 3. Rebuild p.fsId from only valid unique PIDs on people
+        if (Array.isArray(p.people)) {
+          const validPids = Array.from(new Set(
+            p.people
+              .filter(pr => pr && pr.fsId && isPidValidForPersonName(pr.fsId, pr.name))
+              .map(pr => String(pr.fsId).trim().toUpperCase())
+          ));
+          const newFsIdStr = validPids.join(', ');
+          if (newFsIdStr !== (p.fsId || '')) {
+            p.fsId = newFsIdStr;
+            modified = true;
+          }
+        }
+
+        if (window.FaceDetectorEngine && typeof window.FaceDetectorEngine.cleanupMismatchedPids === 'function') {
+          window.FaceDetectorEngine.cleanupMismatchedPids();
+        }
+
+        if (modified) {
+          saveItemMetadata(p);
+        }
+      }
+
       function syncRecognizedFacesIntoPeople(p) {
         if (!p || !Array.isArray(p.faces)) return;
         if (!Array.isArray(p.people)) p.people = [];
+        sanitizePhotoPersonPids(p);
         p.faces.forEach((f) => {
           const fName = (f.name || '').trim();
           if (!fName) return;
@@ -5777,11 +5886,13 @@
           }
           if (resolvedPid) appendPidToPhoto(p, resolvedPid);
         });
+        sanitizePhotoPersonPids(p);
       }
 
       async function openFaceTaggerModal(p, startIdx = 0, opts = {}) {
         const modal = document.getElementById('face-tagger-modal');
         if (!modal || !p) return;
+        sanitizePhotoPersonPids(p);
         if (!Array.isArray(p.faces)) p.faces = [];
 
         let activeIdx = p.faces.length > 0 ? Math.max(0, Math.min(p.faces.length - 1, startIdx || 0)) : 0;
@@ -6266,15 +6377,19 @@
             window.FamilySearchClient.searchPersons(chosenName).then((matches) => {
               if (matches && matches.length > 0 && matches[0].id) {
                 const foundId = matches[0].id.toUpperCase();
-                targetFace.fsId = foundId;
-                if (existingRel) existingRel.fsId = foundId;
-                appendPidToPhoto(p, foundId);
-                saveItemMetadata(p);
-                refreshHostViews();
+                if (isPidValidForPersonName(foundId, chosenName)) {
+                  targetFace.fsId = foundId;
+                  if (existingRel) existingRel.fsId = foundId;
+                  appendPidToPhoto(p, foundId);
+                  sanitizePhotoPersonPids(p);
+                  saveItemMetadata(p);
+                  refreshHostViews();
+                }
               }
             }).catch(() => {});
           }
 
+          sanitizePhotoPersonPids(p);
           notify(`✓ Tagged ${chosenName} (Face #${activeIdx + 1}) — Face Recognition learned!`);
           refreshHostViews();
 
@@ -6585,6 +6700,7 @@
       function renderInspector() {
             const p = currentPhoto();
             const box = document.getElementById('catalog-inspector');
+            if (p) sanitizePhotoPersonPids(p);
 
             if (!p) {
               box.innerHTML = `
@@ -7374,15 +7490,18 @@
                   const matches = await window.FamilySearchClient.searchPersons(name);
                   if (matches && matches.length > 0) {
                     const topMatch = matches[0];
-                    const pObj = p.people.find(x => x.name.toLowerCase() === name.toLowerCase());
-                    if (pObj) pObj.fsId = topMatch.id;
-                    if (!p.fsId) {
-                      p.fsId = topMatch.id;
+                    if (isPidValidForPersonName(topMatch.id, name)) {
+                      const pObj = p.people.find(x => x.name.toLowerCase() === name.toLowerCase());
+                      if (pObj) pObj.fsId = topMatch.id;
+                      if (!p.fsId) {
+                        p.fsId = topMatch.id;
+                      }
+                      sanitizePhotoPersonPids(p);
+                      saveItemMetadata(p);
+                      notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
+                      render();
+                      showFsPidSuggestions(p, [{ personName: name, matches }]);
                     }
-                    saveItemMetadata(p);
-                    notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
-                    render();
-                    showFsPidSuggestions(p, [{ personName: name, matches }]);
                   }
                 } catch (e) {
                   console.warn('FamilySearch PID lookup failed:', e);
