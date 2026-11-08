@@ -2734,6 +2734,10 @@
                   <button type="button" data-compare="after" aria-pressed="false">Edited only</button>
                 </div>
 
+                <button class="lab-btn primary" type="button" id="btn-lab-master-restore"
+                  style="background:linear-gradient(135deg, #1d4ed8, #7c3aed);border-color:#60a5fa;color:#ffffff;font-weight:700;box-shadow:0 2px 8px rgba(37,99,235,0.4);"
+                  title="Foolproof 1-Click: Erases white dots, protects faces from blur, sharpens eyes, and upscales to 4K automatically without tweaking settings!">✨ 1-Click Master Restore</button>
+
                 <button class="lab-btn" type="button" id="btn-lab-fit" aria-pressed="true"
                   title="Fit the entire uncropped photo on screen or fill the stage width">⛶ Fit photo</button>
 
@@ -2782,19 +2786,24 @@
               <span class="pill info" id="lab-edit-badge">0 edits</span>
             </div>
 
-            <!-- Always-Visible Quick Fix Strip: Snow/White-Dot Remover + Group Face Scanner -->
-            <div id="lab-pinned-quickfixes" style="padding:9px 10px;border-radius:8px;background:var(--pill-info-bg);border:1.5px solid rgba(29,95,191,0.28);margin-bottom:10px;display:flex;flex-direction:column;gap:7px;">
+            <!-- Always-Visible 1-Click Master Restore + Quick Fix Strip -->
+            <div id="lab-pinned-quickfixes" style="padding:10px;border-radius:8px;background:var(--pill-info-bg);border:1.5px solid rgba(29,95,191,0.28);margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">
+              <button class="btn primary" type="button" id="btn-pinned-master-restore"
+                style="font-size:12.5px;font-weight:700;padding:8px 10px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.25);width:100%;cursor:pointer;"
+                title="1-Click: Erases white dots, protects faces from blur, restores faded 1980s color, and upscales to 4K automatically without tweaking settings">
+                ✨ 1-Click Master Restore (No Guesswork)
+              </button>
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                <span style="font-size:12px;font-weight:700;color:var(--pill-info-ink);">❄️ Snow / White-Dot Fix &amp; Group Faces</span>
-                <select id="sel-quick-snow-str" aria-label="Snow and white dot removal strength" style="font-size:11.5px;padding:2px 6px;border-radius:5px;border:1px solid var(--control);background:var(--surface);color:var(--text);font-weight:600;width:auto;">
+                <span style="font-size:11.5px;font-weight:700;color:var(--pill-info-ink);">Quick Controls:</span>
+                <select id="sel-quick-snow-str" aria-label="Snow and white dot removal strength" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--control);background:var(--surface);color:var(--text);font-weight:600;width:auto;">
                   <option value="92" selected>Heavy 80s Snow</option>
                   <option value="74">Medium Dots</option>
                   <option value="50">Gentle Dust</option>
                 </select>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                <button class="btn sm accent" type="button" id="btn-quick-snow" style="font-size:12px;font-weight:600;padding:5px 8px;" title="Remove dense white snow specks, paper glare dots &amp; vintage dust across the whole photo">❄️ Remove White Dots</button>
-                <button class="btn sm primary" type="button" id="btn-panel-faces" style="font-size:12px;font-weight:600;padding:5px 8px;" title="Scan &amp; tag faces on a large blown-up photo">👤 Scan &amp; Tag Faces</button>
+                <button class="btn sm accent" type="button" id="btn-quick-snow" style="font-size:11.5px;font-weight:600;padding:4px 6px;" title="Remove white snow specks &amp; glare dots without touching faces">❄️ Remove White Dots</button>
+                <button class="btn sm" type="button" id="btn-panel-faces" style="font-size:11.5px;font-weight:600;padding:4px 6px;" title="Scan &amp; tag faces on a large blown-up photo">👤 Scan &amp; Tag Faces</button>
               </div>
             </div>
 
@@ -8628,19 +8637,25 @@
             const fg = faceGuard ? faceGuard[idx] : 0;
             const pOff = idx * 4;
 
-            /* Inside eye pupils & mouth line (fg === 2): protect catchlights & mouth contours */
-            if (fg === 2) {
-              if (x > 1 && x < srcW - 2 && y > 1 && y < srcH - 2) {
-                const ref = max2[idx];
-                const excess = lum[idx] - ref;
-                // Heal harsh white glare specks that are not natural dark pupils or lips
-                if (excess > 22 && lum[idx] > 185) {
+            const r = origSnap[pOff];
+            const g = origSnap[pOff + 1];
+            const b = origSnap[pOff + 2];
+            const isSkin = r > g && g >= (b - 3) && r >= (b + 6) && lum[idx] > 38 && lum[idx] < 232;
+
+            /* Strict Face & Skin Protection: Small group faces (30-45px) must NEVER be smeared with 21px box-average or velvet blur! */
+            if (fg > 0 || isSkin) {
+              // Only heal genuine white speck / paper glare spikes on faces/skin
+              const ref = max2[idx];
+              const excess = lum[idx] - ref;
+              if (excess > 16 && lum[idx] > 165 && sat[idx] < 38) {
+                if (x > 1 && x < srcW - 2 && y > 1 && y < srcH - 2) {
                   let k = 0, sr = 0, sg = 0, sb = 0;
-                  for (let dy = -2; dy <= 2; dy++) {
-                    for (let dx = -2; dx <= 2; dx++) {
+                  for (let dy = -1; dy <= 1; dy++) {
+                    const nr = (y + dy) * srcW;
+                    for (let dx = -1; dx <= 1; dx++) {
                       if (dx === 0 && dy === 0) continue;
-                      const n = (y + dy) * srcW + (x + dx);
-                      if (lum[n] < 210) {
+                      const n = nr + (x + dx);
+                      if (lum[n] < 190 && (lum[n] - max2[n]) < 12) {
                         const nOff = n * 4;
                         sr += origSnap[nOff];
                         sg += origSnap[nOff + 1];
@@ -8649,24 +8664,23 @@
                       }
                     }
                   }
-                  if (k >= 8) {
-                    data[pOff] = Math.round(origSnap[pOff] * 0.2 + (sr / k) * 0.8);
-                    data[pOff + 1] = Math.round(origSnap[pOff + 1] * 0.2 + (sg / k) * 0.8);
-                    data[pOff + 2] = Math.round(origSnap[pOff + 2] * 0.2 + (sb / k) * 0.8);
+                  if (k >= 3) {
+                    data[pOff] = Math.round(origSnap[pOff] * 0.15 + (sr / k) * 0.85);
+                    data[pOff + 1] = Math.round(origSnap[pOff + 1] * 0.15 + (sg / k) * 0.85);
+                    data[pOff + 2] = Math.round(origSnap[pOff + 2] * 0.15 + (sb / k) * 0.85);
                     spotsHealed++;
                   }
                 }
               }
+              // Skip 21px box sum entirely for face and skin pixels — NEVER smear facial features!
               continue;
             }
 
             const ref = max2[idx];
             const excess = lum[idx] - ref;
-            // On faces (fg === 1: forehead, cheeks, chin, nose, hair), heal white dots with surrounding authentic skin tone
-            const curThr = (fg === 1) ? (thrLo * 1.05) : thrLo;
-            if (excess <= curThr || sat[idx] >= 66) continue;
+            if (excess <= thrLo || sat[idx] >= 66) continue;
 
-            let alpha = Math.min(1, (excess - curThr) / 10.2);
+            let alpha = Math.min(1, (excess - thrLo) / 10.2);
             if (sat[idx] > 42) {
               alpha *= (66 - sat[idx]) / 24;
             }
@@ -8693,7 +8707,7 @@
           }
         }
 
-        /* Velvet 3×3 seam polish ONLY on healed snow/dot pixels so suits & overhangs blend seamlessly */
+        /* Velvet 3×3 seam polish ONLY on healed snow/dot pixels outside faces so suits & overhangs blend seamlessly */
         if (spotsHealed > 0) {
           const midSnap = new Uint8ClampedArray(data);
           for (let y = 1; y < srcH - 1; y++) {
@@ -8701,6 +8715,7 @@
             for (let x = 1; x < srcW - 1; x++) {
               const idx = row + x;
               if (!healedMask[idx]) continue;
+              if (faceGuard && faceGuard[idx] > 0) continue;
               let sr = 0, sg = 0, sb = 0;
               for (let dy = -1; dy <= 1; dy++) {
                 const nr = (y + dy) * srcW;
@@ -9044,6 +9059,11 @@
             const row = y * srcW;
             for (let x = 2; x < srcW - 2; x++) {
               const idx = row + x;
+              /* Never blur faces or delicate skin features in bilateral denoiser! */
+              if (faceGuard && faceGuard[idx] > 0) continue;
+              const r0 = data[idx * 4], g0 = data[idx * 4 + 1], b0 = data[idx * 4 + 2];
+              if (r0 > g0 && g0 >= (b0 - 3) && r0 >= (b0 + 6)) continue;
+
               const y0 = Y[idx];
               let sumY = y0 * 8, wSumY = 8;
               let sumCb = Cb[idx] * 8, sumCr = Cr[idx] * 8, wSumC = 8;
@@ -9130,6 +9150,7 @@
             const row = y * srcW;
             for (let x = 3; x < srcW - 3; x++) {
               const idx = row + x;
+              const pOff = idx * 4;
               const c = lum[idx];
               let mn = c, mx = c;
               for (let dy = -2; dy <= 2; dy++) {
@@ -9143,15 +9164,18 @@
               const span = mx - mn;
               if (span < 10) continue;
               const gate = Math.min(1, (span - 10) / 24);
-              const dFine = (c - blurFine[idx]) * 0.44 * fScale * gate;
-              const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.34 * fScale * gate;
+              const isFace = (faceGuard && faceGuard[idx] > 0);
+              const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
+              const isSkin = r > g && g >= (b - 3) && r >= (b + 6);
+              const faceMult = isFace ? 1.55 : (isSkin ? 1.35 : 1.0);
+              const dFine = (c - blurFine[idx]) * 0.44 * fScale * gate * faceMult;
+              const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.34 * fScale * gate * faceMult;
               let ny = c + dFine + dMeso;
               const loClamp = Math.max(0, mn - 2);
               const hiClamp = Math.min(252, mx + 2);
               if (ny < loClamp) ny = loClamp;
               if (ny > hiClamp) ny = hiClamp;
               const d = ny - c;
-              const pOff = idx * 4;
               data[pOff] = Math.max(0, Math.min(255, Math.round(data[pOff] + d)));
               data[pOff + 1] = Math.max(0, Math.min(255, Math.round(data[pOff + 1] + d)));
               data[pOff + 2] = Math.max(0, Math.min(255, Math.round(data[pOff + 2] + d)));
@@ -9355,6 +9379,33 @@
               : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res'))));
         addEditLabel(p, label);
         return { spotsHealed, isAutoSpotted, hasVintageWarmFade };
+      }
+
+      /* Foolproof 1-Click Master Restore:
+         Automatically configures zero-face-blur white speckle removal, 1980s shadow defade,
+         optical de-blur face feature sharpening (+55% boost), and 4K Ultra HD super-resolution.
+         No manual sliders or guessing needed! */
+      async function run1ClickMasterRestore(p, onStageProgress = null) {
+        if (!p) p = currentPhoto();
+        if (!p) return;
+
+        // Auto-configure optimal master restoration settings:
+        p.model = 'vintage80s';
+        p.spotRemove = 88;
+        p.scratchesFixed = true;
+        p.tone.defade = true;
+        p.upscaleTarget = '4k';
+        p.fidelity = 78;
+        p.denoise = 60;
+
+        const diag = await runCanvas4KRestore(p, onStageProgress);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        compareMode = 'split';
+        const splitBar = document.querySelector('.split-bar');
+        if (splitBar) splitBar.style.left = '50%';
+        renderSidebarCounts();
+        renderPhotoLab();
+        return diag;
       }
 
       /* 1B. Deep Neural AI Face & 4K Reconstruction (Pre-cleans white dots & fade FIRST, then runs CodeFormer / Clarity GPU AI) */
@@ -10024,6 +10075,11 @@
           const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
 
           body.innerHTML = `
+            <button class="btn primary" type="button" id="btn-tab-master-restore"
+              style="width:100%;margin-bottom:12px;font-size:13px;font-weight:700;padding:10px 12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.25);cursor:pointer;"
+              title="Runs white dot removal, zero-face-blur protection, shadow defade, face de-blur, and 4K super-resolution automatically!">
+              ✨ 1-Click Master Restore (Dots + Faces + 4K)
+            </button>
             <p class="muted" style="font-size:12px;margin-bottom:8px;">Erases white dots &amp; dust specks first, restores faded 1970s–80s shadows, de-blurs soft lenses, and adds clean 4K super-resolution pixels.</p>
             <div class="field" style="margin-top:0;margin-bottom:10px;">
               <label>Quick 1-Click Photo Mode</label>
@@ -10198,6 +10254,11 @@
           };
           body.querySelector('#chk-descreen').onchange = (e) => { p.descreen = e.target.checked; };
           body.querySelector('#chk-deglare').onchange = (e) => { p.deglare = e.target.checked; };
+
+          const btnTabMaster = body.querySelector('#btn-tab-master-restore');
+          if (btnTabMaster) {
+            btnTabMaster.onclick = () => triggerPhotoLabMasterRestore(p);
+          }
 
           const btnRestSnow = body.querySelector('#btn-restore-snow');
           if (btnRestSnow) {
@@ -11453,6 +11514,46 @@
       holdBtn.onpointerleave = endHoldOrig;
       holdBtn.onpointercancel = endHoldOrig;
 
+      async function triggerPhotoLabMasterRestore(p) {
+        if (!p) p = currentPhoto();
+        if (!p) return;
+        const statusEl = document.getElementById('lab-status-readout');
+        const topBtn = document.getElementById('btn-lab-master-restore');
+        const pinnedBtn = document.getElementById('btn-pinned-master-restore');
+        const tabBtn = document.getElementById('btn-tab-master-restore');
+        [topBtn, pinnedBtn, tabBtn].forEach((b) => {
+          if (b) {
+            b.disabled = true;
+            b.dataset.prevText = b.textContent;
+            b.textContent = '✨ Restoring 4K...';
+          }
+        });
+        if (statusEl) statusEl.textContent = '1/3 Erasing white dots & protecting faces...';
+        try {
+          const diag = await run1ClickMasterRestore(p, (msg) => {
+            if (statusEl) statusEl.textContent = msg;
+            [topBtn, pinnedBtn, tabBtn].forEach((b) => {
+              if (b) b.textContent = msg.length > 25 ? msg.slice(0, 25) + '…' : msg;
+            });
+          });
+          const count = diag && diag.spotsHealed ? diag.spotsHealed.toLocaleString() : '0';
+          const msg = `✓ 1-Click Master Restore complete (${p.width}×${p.height} px, ${count} dots healed) — drag Split curtain to compare!`;
+          if (statusEl) statusEl.textContent = msg;
+          notify(`✓ Master Restore complete on ${p.id}! White dots erased, faces kept crisp & upscaled to 4K.`);
+        } catch (err) {
+          console.error('Master restore failed:', err);
+          notify(`Master restore notice: ${err && err.message ? err.message : err}`);
+        } finally {
+          [topBtn, pinnedBtn, tabBtn].forEach((b) => {
+            if (b) {
+              b.disabled = false;
+              if (b.dataset.prevText) b.textContent = b.dataset.prevText;
+            }
+          });
+          renderPhotoLab();
+        }
+      }
+
       async function triggerPhotoLabSnowSpeckleClean(p, strengthVal) {
         if (!p) p = currentPhoto();
         if (!p) return;
@@ -11574,6 +11675,12 @@
       }
 
       document.getElementById('btn-lab-undo').onclick = triggerLabUndo;
+
+      const btnLabMasterTop = document.getElementById('btn-lab-master-restore');
+      if (btnLabMasterTop) btnLabMasterTop.onclick = () => triggerPhotoLabMasterRestore(currentPhoto());
+
+      const btnPinnedMaster = document.getElementById('btn-pinned-master-restore');
+      if (btnPinnedMaster) btnPinnedMaster.onclick = () => triggerPhotoLabMasterRestore(currentPhoto());
 
       const btnLabSnowTop = document.getElementById('btn-lab-snow-top');
       if (btnLabSnowTop) btnLabSnowTop.onclick = () => triggerPhotoLabSnowSpeckleClean(currentPhoto());
