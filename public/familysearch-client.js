@@ -369,124 +369,363 @@
   }
 
   /**
-   * Helper to parse any user date format (ISO, US M/D/YYYY, Month Day Year, Year, etc.)
-   * returns { normalized: "30 March 2003", formal: "+2003-03-30", iso: "2003-03-30", year: 2003, decade: "2000s" }
+   * Helper to parse any user date format (ISO, US M/D/YYYY, 2-digit years, European D/M/YYYY, Month Day Year, Year, Decades, Approximate dates, Holidays, etc.)
+   * returns { normalized: "30 March 2003", formal: "+2003-03-30", iso: "2003-03-30", year: 2003, decade: "2000s", quality: "exact" }
    */
-  function parseFamilySearchDate(input) {
-    if (!input) return { normalized: '', formal: '', iso: '', decade: '' };
-    var clean = String(input).trim();
+  function parseFamilySearchDate(input, fallbackContext) {
+    if (!input && !fallbackContext) {
+      return { normalized: '', formal: '', iso: '', year: null, decade: '', quality: 'none' };
+    }
+
+    var raw = String(input || '').trim();
+
+    // If no date provided in input, try fallbackContext (e.g. filename, title, story, exif)
+    if (!raw && fallbackContext) {
+      var ctxStr = typeof fallbackContext === 'string' ? fallbackContext : [
+        fallbackContext.filename || fallbackContext.file,
+        fallbackContext.title,
+        fallbackContext.story,
+        fallbackContext.date,
+        fallbackContext.exifDate
+      ].filter(Boolean).join(' ');
+
+      // Look for YYYY-MM-DD or YYYY_MM_DD or YYYY.MM.DD
+      var m1 = ctxStr.match(/(?:^|[^0-9])(18\d{2}|19\d{2}|20\d{2})[-_:.](0[1-9]|1[0-2])[-_:.](0[1-9]|[12]\d|3[01])(?:[^0-9]|$)/);
+      if (m1) {
+        raw = m1[1] + '-' + m1[2] + '-' + m1[3];
+      } else {
+        // Look for compact YYYYMMDD
+        var m2 = ctxStr.match(/(?:^|[^0-9])(18\d{2}|19\d{2}|20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:[^0-9]|$)/);
+        if (m2) {
+          raw = m2[1] + '-' + m2[2] + '-' + m2[3];
+        } else {
+          // Look for M/D/YYYY
+          var m3 = ctxStr.match(/(?:^|[^0-9])(0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])[-/.](18\d{2}|19\d{2}|20\d{2})(?:[^0-9]|$)/);
+          if (m3) {
+            raw = m3[3] + '-' + m3[1].padStart(2, '0') + '-' + m3[2].padStart(2, '0');
+          } else {
+            // Look for Year in context
+            var mYear = ctxStr.match(/(?:^|[^0-9])(18\d{2}|19\d{2}|20\d{2})(?:[^0-9]|$)/);
+            if (mYear) {
+              raw = mYear[1];
+            }
+          }
+        }
+      }
+    }
+
+    if (!raw) {
+      return { normalized: '', formal: '', iso: '', year: null, decade: '', quality: 'none' };
+    }
+
     var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     var monthNames = {
-      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
-      may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
-      oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+      jan: 1, january: 1, janv: 1,
+      feb: 2, february: 2, febr: 2,
+      mar: 3, march: 3,
+      apr: 4, april: 4,
+      may: 5,
+      jun: 6, june: 6,
+      jul: 7, july: 7,
+      aug: 8, august: 8,
+      sep: 9, sept: 9, september: 9,
+      oct: 10, october: 10,
+      nov: 11, november: 11,
+      dec: 12, december: 12
     };
+
+    var clean = raw
+      .replace(/^date\s*[:=\-]\s*/i, '') // strip "Date: "
+      .replace(/^taken\s*(?:on|in|at)?\s*/i, '') // strip "Taken on "
+      .replace(/T\d{2}:\d{2}(?::\d{2})?.*$/, '') // strip ISO time portion "T14:30:00Z"
+      .replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/, '') // strip time portion " 14:30:00"
+      .trim();
+
+    // Detect approximate qualifiers
+    var approx = false;
+    var isBefore = false;
+    var isAfter = false;
+    var isRange = false;
+    var rangeEndYear = null;
+
+    if (/\b(?:circa|ca\.?|c\.?|abt\.?|about|approx\.?|estimated|est\.?)\b/i.test(clean)) {
+      approx = true;
+      clean = clean.replace(/\b(?:circa|ca\.?|c\.?|abt\.?|about|approx\.?|estimated|est\.?)\b/gi, '').trim();
+    } else if (/\b(?:before|bef\.?|prior to)\b/i.test(clean)) {
+      isBefore = true;
+      clean = clean.replace(/\b(?:before|bef\.?|prior to)\b/gi, '').trim();
+    } else if (/\b(?:after|aft\.?|since)\b/i.test(clean)) {
+      isAfter = true;
+      clean = clean.replace(/\b(?:after|aft\.?|since)\b/gi, '').trim();
+    } else if (/\b(?:between)\s+(\d{4})\s+(?:and|&|-)\s+(\d{4})\b/i.test(clean)) {
+      var rm = clean.match(/\b(?:between)\s+(\d{4})\s+(?:and|&|-)\s+(\d{4})\b/i);
+      isRange = true;
+      clean = rm[1];
+      rangeEndYear = parseInt(rm[2], 10);
+    } else if (/^(\d{4})\s*[-–/]\s*(\d{4})$/.test(clean)) {
+      var rm2 = clean.match(/^(\d{4})\s*[-–/]\s*(\d{4})$/);
+      isRange = true;
+      clean = rm2[1];
+      rangeEndYear = parseInt(rm2[2], 10);
+    }
+
+    // Check for common holidays
+    if (/\bchristmas(?:\s+day)?\b/i.test(clean)) {
+      clean = clean.replace(/\bchristmas(?:\s+day)?\b/i, 'December 25').trim();
+    } else if (/\b(?:new\s*year'?s?(?:\s+day)?)\b/i.test(clean)) {
+      clean = clean.replace(/\b(?:new\s*year'?s?(?:\s+day)?)\b/i, 'January 1').trim();
+    } else if (/\b(?:4th\s+of\s+july|july\s+4th?)\b/i.test(clean)) {
+      clean = clean.replace(/\b(?:4th\s+of\s+july|july\s+4th?)\b/i, 'July 4').trim();
+    } else if (/\bhalloween\b/i.test(clean)) {
+      clean = clean.replace(/\bhalloween\b/i, 'October 31').trim();
+    } else if (/\bthanksgiving\b/i.test(clean)) {
+      clean = clean.replace(/\bthanksgiving\b/i, 'November').trim();
+    } else if (/\beaster\b/i.test(clean)) {
+      clean = clean.replace(/\beaster\b/i, 'April').trim();
+    }
+
+    // Remove ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) and "of"
+    clean = clean.replace(/(\d+)(?:st|nd|rd|th)\b/gi, '$1');
+    clean = clean.replace(/\bof\b/gi, ' ');
+    clean = clean.replace(/,/g, ' '); // replace commas with spaces
+    clean = clean.replace(/\s+/g, ' ').trim();
+
+    // Helper to expand 2-digit year (e.g. "03" -> 2003, "74" -> 1974)
+    function expand2DigitYear(yr) {
+      var n = parseInt(yr, 10);
+      if (isNaN(n)) return null;
+      if (n >= 1000) return n;
+      var cur2Digit = (new Date().getFullYear()) % 100;
+      if (n <= (cur2Digit + 1)) {
+        return 2000 + n;
+      } else {
+        return 1900 + n;
+      }
+    }
 
     var y = null, m = null, d = null;
 
-    // 1. Check ISO format YYYY-MM-DD or YYYY-MM or YYYY (with optional +/- prefix)
-    var isoMatch = clean.match(/^([+-]?\d{4})(?:[-/](\d{1,2}))?(?:[-/](\d{1,2}))?$/);
+    // Pattern 1: ISO or EXIF format: YYYY-MM-DD or YYYY:MM:DD or YYYY/MM/DD or YYYY.MM.DD
+    var isoMatch = clean.match(/^([+-]?\d{4})[-/:.]([01]?\d)[-/:.]([0-3]?\d)$/);
     if (isoMatch) {
       y = parseInt(isoMatch[1], 10);
-      if (isoMatch[2]) m = parseInt(isoMatch[2], 10);
-      if (isoMatch[3]) d = parseInt(isoMatch[3], 10);
+      m = parseInt(isoMatch[2], 10);
+      d = parseInt(isoMatch[3], 10);
     }
 
-    // 2. Check US format M/D/YYYY or MM/DD/YYYY
+    // Pattern 2: Compact 8-digit YYYYMMDD
     if (!y) {
-      var usMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-      if (usMatch) {
-        m = parseInt(usMatch[1], 10);
-        d = parseInt(usMatch[2], 10);
-        y = parseInt(usMatch[3], 10);
+      var compactMatch = clean.match(/^(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/);
+      if (compactMatch) {
+        y = parseInt(compactMatch[1], 10);
+        m = parseInt(compactMatch[2], 10);
+        d = parseInt(compactMatch[3], 10);
       }
     }
 
-    // 3. Check "March 30, 2003" or "30 March 2003"
+    // Pattern 3: US or European numeric date: A / B / YYYY or A / B / YY
     if (!y) {
-      var wordMatch1 = clean.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
-      if (wordMatch1) {
-        var mn = wordMatch1[1].toLowerCase();
-        if (monthNames[mn]) {
-          m = monthNames[mn];
-          d = parseInt(wordMatch1[2], 10);
-          y = parseInt(wordMatch1[3], 10);
+      var slashMatch = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+      if (slashMatch) {
+        var n1 = parseInt(slashMatch[1], 10);
+        var n2 = parseInt(slashMatch[2], 10);
+        var rawYr = slashMatch[3];
+        var resolvedYr = rawYr.length === 2 ? expand2DigitYear(rawYr) : parseInt(rawYr, 10);
+
+        // Disambiguate Month/Day vs Day/Month:
+        if (n1 > 12 && n2 <= 12) {
+          // Day / Month / Year (e.g. 25/03/2003)
+          d = n1;
+          m = n2;
+          y = resolvedYr;
+        } else if (n2 > 12 && n1 <= 12) {
+          // Month / Day / Year (e.g. 03/25/2003)
+          m = n1;
+          d = n2;
+          y = resolvedYr;
+        } else if (n1 <= 12 && n2 <= 12) {
+          // Default to US Month / Day / Year
+          m = n1;
+          d = n2;
+          y = resolvedYr;
         }
       }
     }
+
+    // Pattern 4: "Month Day Year" (e.g. "March 30 2003" or "Mar 30 03" or "March 30 '03")
     if (!y) {
-      var wordMatch2 = clean.match(/^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{4})$/);
+      var wordMatch1 = clean.match(/^([A-Za-z]+)\.?\s+(\d{1,2})\s+'?(\d{2,4})$/);
+      if (wordMatch1) {
+        var mn1 = wordMatch1[1].toLowerCase().replace(/\./g, '');
+        if (monthNames[mn1]) {
+          m = monthNames[mn1];
+          d = parseInt(wordMatch1[2], 10);
+          var yr1 = wordMatch1[3];
+          y = yr1.length === 2 ? expand2DigitYear(yr1) : parseInt(yr1, 10);
+        }
+      }
+    }
+
+    // Pattern 5: "Day Month Year" (e.g. "30 March 2003" or "30-Mar-2003" or "30Mar2003")
+    if (!y) {
+      var wordMatch2 = clean.match(/^(\d{1,2})\s*[-]?\s*([A-Za-z]+)\.?\s*[-]?\s*'?(\d{2,4})$/);
       if (wordMatch2) {
-        var mn2 = wordMatch2[2].toLowerCase();
+        var mn2 = wordMatch2[2].toLowerCase().replace(/\./g, '');
         if (monthNames[mn2]) {
           d = parseInt(wordMatch2[1], 10);
           m = monthNames[mn2];
-          y = parseInt(wordMatch2[3], 10);
-        }
-      }
-    }
-    if (!y) {
-      var monthYearMatch = clean.match(/^([A-Za-z]+)\s+(\d{4})$/);
-      if (monthYearMatch) {
-        var mn3 = monthYearMatch[1].toLowerCase();
-        if (monthNames[mn3]) {
-          m = monthNames[mn3];
-          y = parseInt(monthYearMatch[2], 10);
+          var yr2 = wordMatch2[3];
+          y = yr2.length === 2 ? expand2DigitYear(yr2) : parseInt(yr2, 10);
         }
       }
     }
 
-    // Fallback 4-digit year search (e.g. "Circa 2003")
+    // Pattern 6: "Month Year" (e.g. "March 2003" or "Mar 2003" or "March '03")
     if (!y) {
-      var yearMatch = clean.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
-      if (yearMatch) {
-        y = parseInt(yearMatch[1], 10);
+      var wordMatch3 = clean.match(/^([A-Za-z]+)\.?\s+'?(\d{2,4})$/);
+      if (wordMatch3) {
+        var mn3 = wordMatch3[1].toLowerCase().replace(/\./g, '');
+        if (monthNames[mn3]) {
+          m = monthNames[mn3];
+          var yr3 = wordMatch3[2];
+          y = yr3.length === 2 ? expand2DigitYear(yr3) : parseInt(yr3, 10);
+        }
       }
+    }
+
+    // Pattern 7: Numeric "Month/Year" (e.g. "03/2003" or "3-2003")
+    if (!y) {
+      var monthYrNum = clean.match(/^([01]?\d)[-/.](\d{4})$/);
+      if (monthYrNum) {
+        var possibleM = parseInt(monthYrNum[1], 10);
+        if (possibleM >= 1 && possibleM <= 12) {
+          m = possibleM;
+          y = parseInt(monthYrNum[2], 10);
+        }
+      }
+    }
+
+    // Pattern 8: Decade (e.g. "1980s", "1980's", "80s", "'80s")
+    if (!y) {
+      var decadeMatch = clean.match(/^'?(\d{2,4})'?[sS]$/);
+      if (decadeMatch) {
+        var decYr = decadeMatch[1];
+        if (decYr.length === 2) decYr = String(expand2DigitYear(decYr));
+        var decNum = parseInt(decYr, 10);
+        if (!isNaN(decNum)) {
+          var baseDec = Math.floor(decNum / 10) * 10;
+          return {
+            normalized: baseDec + 's',
+            formal: '+' + baseDec + '/+' + (baseDec + 9),
+            iso: String(baseDec),
+            year: baseDec,
+            decade: baseDec + 's',
+            quality: 'decade'
+          };
+        }
+      }
+    }
+
+    // Pattern 9: Standalone 4-digit Year (e.g. "2003", "1974") or 2-digit with quote "'03"
+    if (!y) {
+      var standaloneYr = clean.match(/^(?:'|\b)(18\d{2}|19\d{2}|20\d{2})\b/);
+      if (standaloneYr) {
+        y = parseInt(standaloneYr[1], 10);
+      } else {
+        var standalone2Digit = clean.match(/^'(\d{2})$/);
+        if (standalone2Digit) {
+          y = expand2DigitYear(standalone2Digit[1]);
+        }
+      }
+    }
+
+    // Pattern 10: General text search for year in messy string (e.g. "Lake trip in summer 1968")
+    if (!y) {
+      var embeddedYear = clean.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+      if (embeddedYear) {
+        y = parseInt(embeddedYear[1], 10);
+        for (var k in monthNames) {
+          var reK = new RegExp('\\b' + k + '\\b', 'i');
+          if (reK.test(clean)) {
+            m = monthNames[k];
+            break;
+          }
+        }
+      }
+    }
+
+    // Validate year range
+    if (y && (y < 1700 || y > 2099)) {
+      y = null;
     }
 
     if (y) {
-      var decade = Math.floor(y / 10) * 10 + 's';
+      if (m && (m < 1 || m > 12)) m = null;
+      if (d && (d < 1 || d > 31)) d = null;
+
+      var decadeStr = Math.floor(y / 10) * 10 + 's';
+      var norm = '';
+      var formal = '';
+      var iso = '';
+
       if (m && d) {
         var padM = String(m).padStart(2, '0');
         var padD = String(d).padStart(2, '0');
-        var isoStr = y + '-' + padM + '-' + padD;
-        return {
-          normalized: d + ' ' + months[m - 1] + ' ' + y,
-          formal: '+' + isoStr,
-          iso: isoStr,
-          year: y,
-          decade: decade
-        };
+        iso = y + '-' + padM + '-' + padD;
+        norm = d + ' ' + months[m - 1] + ' ' + y;
+        formal = '+' + iso;
       } else if (m) {
         var padM2 = String(m).padStart(2, '0');
-        var isoStr2 = y + '-' + padM2;
-        return {
-          normalized: months[m - 1] + ' ' + y,
-          formal: '+' + isoStr2,
-          iso: isoStr2,
-          year: y,
-          decade: decade
-        };
+        iso = y + '-' + padM2;
+        norm = months[m - 1] + ' ' + y;
+        formal = '+' + iso;
       } else {
-        return {
-          normalized: String(y),
-          formal: '+' + y,
-          iso: String(y),
-          year: y,
-          decade: decade
-        };
+        iso = String(y);
+        norm = String(y);
+        formal = '+' + y;
       }
+
+      // Apply qualifiers if present
+      if (approx) {
+        norm = 'about ' + norm;
+        formal = 'A' + formal;
+      } else if (isBefore) {
+        norm = 'before ' + norm;
+        formal = '/' + formal;
+      } else if (isAfter) {
+        norm = 'after ' + norm;
+        formal = formal + '/';
+      } else if (isRange && rangeEndYear) {
+        norm = 'between ' + y + ' and ' + rangeEndYear;
+        formal = '+' + y + '/+' + rangeEndYear;
+      }
+
+      return {
+        normalized: norm,
+        formal: formal,
+        iso: iso,
+        year: y,
+        decade: decadeStr,
+        quality: (m && d) ? 'exact' : (m ? 'month' : 'year')
+      };
     }
 
-    return { normalized: clean, formal: '', iso: clean, decade: '' };
+    return {
+      normalized: raw,
+      formal: '',
+      iso: raw,
+      year: null,
+      decade: '',
+      quality: 'unparsed'
+    };
   }
 
   /**
    * Helper to convert ISO or text date into FamilySearch normalized date string (e.g. "30 March 2003")
    */
-  function formatNormalizedDate(iso) {
-    if (!iso) return '';
-    var parsed = parseFamilySearchDate(iso);
+  function formatNormalizedDate(iso, fallbackContext) {
+    if (!iso && !fallbackContext) return '';
+    var parsed = parseFamilySearchDate(iso, fallbackContext);
     return parsed.normalized || String(iso).trim();
   }
 
@@ -695,8 +934,8 @@
       var csMatches = combined.matchAll(/([A-Z][a-zA-Z\s.-]+?),\s*([A-Z]{2})\b/g);
       for (var m of csMatches) {
         var rawCity = m[1].replace(/.*?(?:lot\s*#?\d+|rd|road|street|st|ave|avenue|dr|drive|lane|ln|blvd|way)\s*,?\s*/i, '')
-                          .replace(/^\d+[^,]*?,?\s*/, '')
-                          .trim();
+          .replace(/^\d+[^,]*?,?\s*/, '')
+          .trim();
         if (rawCity.length >= 3 && !/fireplace|home|house|church/i.test(rawCity)) {
           addCandidate(rawCity + ', ' + m[2]);
         }
@@ -709,9 +948,9 @@
           addCandidate(parts.slice(-2).join(', '));
         }
         var cleaned = placeText.replace(/^\d+[^,]+,\s*/, '')
-                               .replace(/lot\s*#?\d+,?\s*/i, '')
-                               .replace(/\s+\d{5}(-\d{4})?$/, '')
-                               .trim();
+          .replace(/lot\s*#?\d+,?\s*/i, '')
+          .replace(/\s+\d{5}(-\d{4})?$/, '')
+          .trim();
         if (cleaned && cleaned !== placeText) {
           addCandidate(cleaned);
         }
@@ -749,7 +988,7 @@
               var rawDescHref = (matchedPlace.links && matchedPlace.links.description && matchedPlace.links.description.href)
                 ? matchedPlace.links.description.href
                 : (matchedPlace.id ? (API_BASE + '/platform/places/description/' + matchedPlace.id) : null);
-              
+
               // Strip query params like ?flag=fsh from place description URI for standard GEDCOM X compliance
               var descHref = rawDescHref ? rawDescHref.replace(/\?.*$/, '') : null;
 
@@ -859,7 +1098,7 @@
     }
 
     // Parse date into ISO, normalized (e.g. "30 March 2003"), and formal (e.g. "+2003-03-30")
-    var dateInfo = parseFamilySearchDate(isoDate);
+    var dateInfo = parseFamilySearchDate(isoDate || photo.date || '', photo);
     var normalizedDate = dateInfo.normalized;
     var formalDate = dateInfo.formal;
     var effectiveIso = dateInfo.iso || isoDate;
@@ -872,7 +1111,7 @@
     // Format rich descriptive summary for FamilySearch Memories description
     var descLines = [];
     if (story) descLines.push(story);
-    if (isoDate) descLines.push('Date: ' + (normalizedDate || isoDate));
+    if (normalizedDate || isoDate) descLines.push('Date: ' + (normalizedDate || isoDate));
     if (effectivePlaceName) descLines.push('Location: ' + effectivePlaceName);
     if (people && people.length > 0) {
       var names = people.map(function (p) {

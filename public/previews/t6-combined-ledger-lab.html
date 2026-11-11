@@ -3554,12 +3554,14 @@
           const rawDate = dateEl.value.trim();
           p.isoDate = rawDate;
           if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
-            const parsed = window.FamilySearchClient.parseFamilySearchDate(rawDate);
-            if (parsed) {
+            const parsed = window.FamilySearchClient.parseFamilySearchDate(rawDate, p);
+            if (parsed && parsed.quality !== 'none') {
               if (parsed.decade) p.decade = parsed.decade;
-              if (parsed.iso && isManualSave) {
+              if (parsed.iso && parsed.quality !== 'unparsed') {
                 p.isoDate = parsed.iso;
-                dateEl.value = parsed.iso;
+                if (isManualSave || document.activeElement !== dateEl) {
+                  dateEl.value = parsed.iso;
+                }
               }
             }
           } else if (p.isoDate.length >= 4) {
@@ -6509,8 +6511,11 @@
 
           <div class="two-col">
             <div class="field">
-              <label for="f-date">Date (ISO)</label>
-              <input id="f-date" class="mono" type="text" placeholder="YYYY-MM-DD" value="${esc(p.isoDate)}">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                <label for="f-date" style="margin:0;">Date</label>
+                <span id="f-date-preview" style="font-size:10px;font-weight:normal;color:var(--text-subtle);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+              </div>
+              <input id="f-date" class="mono" type="text" placeholder="e.g. 3/30/2003, Mar 1985, 1974" value="${esc(p.isoDate)}">
             </div>
             <div class="field">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
@@ -7308,6 +7313,34 @@
                 });
               }
             });
+
+            const dateInput = box.querySelector('#f-date');
+            const datePreview = box.querySelector('#f-date-preview');
+            function refreshDateBadge(val) {
+              if (!datePreview) return;
+              if (!val) {
+                datePreview.textContent = '';
+                return;
+              }
+              if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+                const parsed = window.FamilySearchClient.parseFamilySearchDate(val, p);
+                if (parsed && parsed.normalized && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
+                  datePreview.textContent = `FS: ${parsed.normalized}`;
+                  datePreview.style.color = 'var(--positive)';
+                  datePreview.title = `FamilySearch format: ${parsed.normalized} (${parsed.formal})`;
+                } else {
+                  datePreview.textContent = '';
+                }
+              }
+            }
+            if (dateInput) {
+              refreshDateBadge(dateInput.value);
+              dateInput.addEventListener('input', () => refreshDateBadge(dateInput.value));
+              dateInput.addEventListener('blur', () => {
+                commitInspectorInputs(p, false);
+                refreshDateBadge(dateInput.value);
+              });
+            }
 
             const updateRecordBtn = box.querySelector('#btn-update-record');
             if (updateRecordBtn) {
@@ -11615,14 +11648,29 @@
           const file = activeFolderImageFiles[i];
           const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
           const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
-          const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-          const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
           const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-          const isoDate = dateMatch
-            ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
-            : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+          let isoDate = fallbackDate;
+          let decade = '2000s';
+          if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+            const parsed = window.FamilySearchClient.parseFamilySearchDate('', { filename: file.name, file: file.name });
+            if (parsed && parsed.iso && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
+              isoDate = parsed.iso;
+              decade = parsed.decade || decade;
+            } else {
+              const dateMatch = file.name.match(/(18\d{2}|19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+              const partialYearMatch = !dateMatch && file.name.match(/(18\d{2}|19\d{2}|20\d{2})/);
+              isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+              const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+              decade = (yr >= 1800 && yr <= 2099) ? `${String(yr).slice(0, 3)}0s` : '2000s';
+            }
+          } else {
+            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
+            isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+            const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+            decade = (yr >= 1950 && yr <= 2009) ? `${String(yr).slice(0, 3)}0s` : '2000s';
+          }
           const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-          const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '2000s';
           const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
           const url = URL.createObjectURL(file);
           const fileKb = Math.max(1, Math.round(file.size / 1024));
@@ -12016,13 +12064,28 @@
           const file = selectedFiles[i];
           const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Photo ${i + 1}`;
           const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-          const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-          const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
-          const isoDate = dateMatch
-            ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
-            : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+          let isoDate = fallbackDate;
+          let decade = '1990s';
+          if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+            const parsed = window.FamilySearchClient.parseFamilySearchDate('', { filename: file.name, file: file.name });
+            if (parsed && parsed.iso && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
+              isoDate = parsed.iso;
+              decade = parsed.decade || decade;
+            } else {
+              const dateMatch = file.name.match(/(18\d{2}|19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+              const partialYearMatch = !dateMatch && file.name.match(/(18\d{2}|19\d{2}|20\d{2})/);
+              isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+              const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+              decade = (yr >= 1800 && yr <= 2099) ? `${String(yr).slice(0, 3)}0s` : '1990s';
+            }
+          } else {
+            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
+            isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+            const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+            decade = (yr >= 1950 && yr <= 2009) ? `${String(yr).slice(0, 3)}0s` : '1990s';
+          }
           const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-          const decade = (year >= 1950 && year <= 2009) ? `${String(year).slice(0, 3)}0s` : '1990s';
           const url = URL.createObjectURL(file);
           const id = `PH-${String(i + 1).padStart(3, '0')}`;
           const fileKb = Math.max(1, Math.round(file.size / 1024));
