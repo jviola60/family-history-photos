@@ -9100,13 +9100,15 @@
             for (let c = 0; c < 3; c++) {
               const v = data[i + c];
               const n = v / 255;
-              const shW = Math.pow(1 - n, 1.5);
+              // Protect dark brown trousers and deep shadows (n < 0.14) from crushing into black:
+              const shadowTaper = n < 0.14 ? Math.max(0, (n - 0.02) / 0.12) : 1.0;
+              const shW = Math.pow(1 - n, 1.5) * shadowTaper;
               const midW = 4 * n * (1 - n) * (1 - n * 0.55);
               const drop = c === 0 ? dropR : (c === 1 ? dropG : dropB);
               const cast = c === 0 ? redExcess * 0.65 : -redExcess * 0.20;
               const val = v - drop * shW - cast * midW;
               const u = Math.max(0, Math.min(1, val / 255));
-              const sc = u < 0.84 ? u - 0.036 * Math.sin((u / 0.84) * Math.PI * 2) : u;
+              const sc = (u > 0.14 && u < 0.84) ? u - 0.025 * Math.sin(((u - 0.14) / 0.70) * Math.PI) : u;
               data[i + c] = Math.max(0, Math.min(255, Math.round(sc * 255)));
             }
           }
@@ -9159,8 +9161,11 @@
         }
 
         /* Stage 1D: Edge-Preserving YCbCr 5×5 Bilateral Grain & Color-Blotch Denoiser */
-        const denoiseVal = typeof p.denoise === 'number' ? p.denoise : 62;
-        if (denoiseVal > 0 || p.descreen) {
+        const isSmallScan = Math.max(srcW, srcH) < 1200;
+        const denoiseVal = typeof p.denoise === 'number'
+          ? p.denoise
+          : (p.model === 'wedding84' ? 10 : (isSmallScan ? 24 : 62));
+        if ((denoiseVal > 0 || p.descreen) && p.model !== 'wedding84') {
           const Y = new Float32Array(total);
           const Cb = new Float32Array(total);
           const Cr = new Float32Array(total);
@@ -9272,11 +9277,12 @@
             return out;
           };
 
-          const deblurBoost = (isVintageProfile || isAutoSpotted) ? 1.18 : 0.72;
+          const deblurBoost = (p.model === 'wedding84') ? 1.55 : ((isVintageProfile || isAutoSpotted) ? 1.18 : 0.72);
           const fScale = (fidelityVal / 100) * deblurBoost;
           const blurFine = sepBlur(lum, 2);
           const blurMeso = sepBlur(lum, 4);
 
+          const spanMinDeblur = (isSmallScan || p.model === 'wedding84') ? 3 : 10;
           for (let y = 3; y < srcH - 3; y++) {
             const row = y * srcW;
             for (let x = 3; x < srcW - 3; x++) {
@@ -9293,8 +9299,8 @@
                 }
               }
               const span = mx - mn;
-              if (span < 10) continue;
-              const gate = Math.min(1, (span - 10) / 24);
+              if (span < spanMinDeblur) continue;
+              const gate = Math.min(1, (span - spanMinDeblur) / (isSmallScan ? 14 : 24));
               const isFace = (faceGuard && faceGuard[idx] > 0);
               const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
               const isSkin = r > g && g >= (b - 3) && r >= (b + 6);
@@ -9339,6 +9345,19 @@
           isAutoSpotted,
           hasVintageWarmFade
         } = await prepareCleanedSourceCanvas(p, onStageProgress);
+
+        // 1980s Wedding Portrait restoration passes:
+        if (p.model === 'wedding84') {
+          const sCtx = srcCanvas.getContext('2d');
+          const sImgData = sCtx.getImageData(0, 0, srcW, srcH);
+          const sData = sImgData.data;
+          applyBottomYellowingToData(sData, srcW, srcH, 1.0);
+          applyFlashShadowFillToData(sData, srcW, srcH, 1.15);
+          applyTrouserSeparationToData(sData, srcW, srcH, 1.25);
+          applyWeddingWhiteLaceToData(sData, srcW, srcH, 1.0);
+          applyPortraitClarityToData(sData, srcW, srcH, 1.2);
+          sCtx.putImageData(sImgData, 0, 0);
+        }
 
         /* Stage 2: Progressive Multi-Step Super-Resolution Pixel Upscaling */
         const upMode = p.upscaleTarget || '4k';
@@ -9447,8 +9466,9 @@
             lum[i] = (oData[pOff] * 77 + oData[pOff + 1] * 150 + oData[pOff + 2] * 29) >> 8;
           }
 
-          const spanMin = p.model === 'gfpgan' ? 12 : (p.model === 'fal' ? 9 : 10);
-          const baseCasGain = p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.38);
+          const isSmallScan = Math.max(srcW, srcH) < 1200;
+          const spanMin = (p.model === 'wedding84' || isSmallScan) ? 3 : (p.model === 'gfpgan' ? 12 : (p.model === 'fal' ? 9 : 10));
+          const baseCasGain = p.model === 'wedding84' ? 0.52 : (p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.38));
           const casGain = baseCasGain * (0.45 + (fidelityVal / 100) * 0.85);
           const w2 = outW * 2;
 
@@ -9505,9 +9525,11 @@
           ? 'Dots & Grain Cleaned'
           : (upMode === '2x'
             ? '2× Super-Res'
-            : ((p.model === 'vintage80s' || isAutoSpotted)
-              ? '4K Vintage Restore'
-              : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res'))));
+            : (p.model === 'wedding84'
+              ? '4K Wedding Portrait Restore'
+              : ((p.model === 'vintage80s' || isAutoSpotted)
+                ? '4K Vintage Restore'
+                : (p.model === 'gfpgan' ? '4K Portrait Upscale' : (p.model === 'fal' ? '4K HD Clarity' : '4K Super-Res')))));
         addEditLabel(p, label);
         return { spotsHealed, isAutoSpotted, hasVintageWarmFade };
       }
@@ -9709,6 +9731,277 @@
         pushSnapshot(p);
         await canvasToWorkingUrl(canvas, p, 0.94, true);
         addEditLabel(p, 'Auto-Levels');
+      }
+
+      /* Specialized Archival Restoration Algorithms for 1980s Wedding Portraits & Low-Res Scans */
+
+      /* 1. Portrait Micro-Clarity: Multi-Scale Halo-Free Focus Recovery for Low-Res Scans */
+      function applyPortraitClarityToData(data, w, h, strength = 1.0) {
+        const total = w * h;
+        const lum = new Float32Array(total);
+        for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
+          lum[i] = 0.299 * data[pOff] + 0.587 * data[pOff + 1] + 0.114 * data[pOff + 2];
+        }
+
+        const sepBlur = (src, rad) => {
+          const tmp = new Float32Array(total);
+          const out = new Float32Array(total);
+          const sig = Math.max(0.6, rad * 0.55);
+          const weights = [];
+          let wSum = 0;
+          for (let k = -rad; k <= rad; k++) {
+            const w = Math.exp(-(k * k) / (2 * sig * sig));
+            weights.push(w);
+            wSum += w;
+          }
+          for (let i = 0; i < weights.length; i++) weights[i] /= wSum;
+          for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+              let s = 0;
+              for (let k = -rad; k <= rad; k++) {
+                const xx = Math.max(0, Math.min(w - 1, x + k));
+                s += src[row + xx] * weights[k + rad];
+              }
+              tmp[row + x] = s;
+            }
+          }
+          for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+              let s = 0;
+              for (let k = -rad; k <= rad; k++) {
+                const yy = Math.max(0, Math.min(h - 1, y + k));
+                s += tmp[yy * w + x] * weights[k + rad];
+              }
+              out[row + x] = s;
+            }
+          }
+          return out;
+        };
+
+        const blurFine = sepBlur(lum, 1);
+        const blurMeso = sepBlur(lum, 3);
+
+        for (let y = 2; y < h - 2; y++) {
+          const row = y * w;
+          for (let x = 2; x < w - 2; x++) {
+            const idx = row + x;
+            const pOff = idx * 4;
+            const c = lum[idx];
+
+            let mn = c, mx = c;
+            for (let dy = -1; dy <= 1; dy++) {
+              const nr = (y + dy) * w + x;
+              for (let dx = -1; dx <= 1; dx++) {
+                const v = lum[nr + dx];
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+              }
+            }
+            const span = mx - mn;
+            if (span < 2) continue;
+
+            const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
+            const isLaceOrHigh = (c >= 160 && c <= 250);
+
+            const dFine = (c - blurFine[idx]) * 0.75 * strength;
+            const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.48 * strength;
+
+            let ny = c + dFine + dMeso;
+            const loClamp = Math.max(0, mn - 4);
+            const hiClamp = Math.min(254, mx + (isLaceOrHigh ? 4 : 2));
+            if (ny < loClamp) ny = loClamp;
+            if (ny > hiClamp) ny = hiClamp;
+
+            const d = ny - c;
+            if (d !== 0) {
+              data[pOff] = Math.max(0, Math.min(255, Math.round(r + d)));
+              data[pOff + 1] = Math.max(0, Math.min(255, Math.round(g + d)));
+              data[pOff + 2] = Math.max(0, Math.min(255, Math.round(b + d)));
+            }
+          }
+        }
+      }
+
+      /* 2. Neutralize Bottom Yellowing & Paper Adhesive Degradation */
+      function applyBottomYellowingToData(data, w, h, strength = 1.0) {
+        for (let y = 0; y < h; y++) {
+          const v = y / (h - 1);
+          if (v < 0.56) continue;
+          const grad = (v - 0.56) / 0.44;
+          const gWeight = grad * grad * (3 - 2 * grad) * strength;
+          const row = y * w;
+
+          for (let x = 0; x < w; x++) {
+            const idx = (row + x) * 4;
+            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+            const lum = (r * 77 + g * 150 + b * 29) >> 8;
+
+            const minRG = Math.min(r, g);
+            const yellowExcess = Math.max(0, minRG - b);
+            if (yellowExcess <= 4) continue;
+
+            if (lum >= 95) {
+              const bLift = yellowExcess * 0.88 * gWeight;
+              const rTrim = yellowExcess * 0.22 * gWeight;
+              const gTrim = yellowExcess * 0.12 * gWeight;
+              data[idx] = Math.max(0, Math.min(255, Math.round(r - rTrim)));
+              data[idx + 1] = Math.max(0, Math.min(255, Math.round(g - gTrim)));
+              data[idx + 2] = Math.max(0, Math.min(255, Math.round(b + bLift)));
+            } else if (lum >= 20) {
+              const bLift = Math.min(yellowExcess, 18) * 0.45 * gWeight;
+              data[idx + 2] = Math.max(0, Math.min(255, Math.round(b + bLift)));
+            }
+          }
+        }
+      }
+
+      /* 3. Targeted 1980s On-Camera Direct Flash Shadow Fill (Cheeks, Jawline, Under Veil) */
+      function applyFlashShadowFillToData(data, w, h, strength = 1.0) {
+        for (let i = 0; i < w * h * 4; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = (r * 77 + g * 150 + b * 29) >> 8;
+
+          let wSh = 0;
+          if (lum > 22 && lum < 75) {
+            wSh = (lum - 22) / 53;
+          } else if (lum >= 75 && lum < 155) {
+            wSh = 1 - (lum - 75) / 80;
+          }
+          if (wSh <= 0) continue;
+
+          const fillAmt = wSh * 26 * strength;
+          const newR = r + fillAmt * 1.08;
+          const newG = g + fillAmt * 0.96;
+          const newB = b + fillAmt * 0.82;
+
+          data[i] = Math.max(0, Math.min(255, Math.round(newR)));
+          data[i + 1] = Math.max(0, Math.min(255, Math.round(newG)));
+          data[i + 2] = Math.max(0, Math.min(255, Math.round(newB)));
+        }
+      }
+
+      /* 4. Trouser, Shoe & Dark Shadow Detail Separation (Contrast Expansion in Darks) */
+      function applyTrouserSeparationToData(data, w, h, strength = 1.0) {
+        const total = w * h;
+        const lum = new Float32Array(total);
+        for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
+          lum[i] = 0.299 * data[pOff] + 0.587 * data[pOff + 1] + 0.114 * data[pOff + 2];
+        }
+
+        for (let y = 1; y < h - 1; y++) {
+          const row = y * w;
+          for (let x = 1; x < w - 1; x++) {
+            const idx = row + x;
+            const cLum = lum[idx];
+            if (cLum < 10 || cLum > 85) continue;
+
+            const pOff = idx * 4;
+            const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
+
+            let sumL = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+              const nr = (y + dy) * w + x;
+              for (let dx = -1; dx <= 1; dx++) {
+                sumL += lum[nr + dx];
+              }
+            }
+            const avgL = sumL / 9;
+            const microDiff = (cLum - avgL);
+
+            const darkNorm = (cLum - 10) / 75;
+            const curve = darkNorm < 0.5
+              ? 2 * darkNorm * darkNorm
+              : 1 - Math.pow(-2 * darkNorm + 2, 2) / 2;
+            const expandedL = 10 + (curve * 0.45 + darkNorm * 0.55) * 75;
+            const dGlobal = (expandedL - cLum) * 0.40 * strength;
+            const dMicro = microDiff * 1.50 * strength;
+
+            const totalDelta = dGlobal + dMicro;
+            if (Math.abs(totalDelta) > 0.4) {
+              const ratioR = r / Math.max(1, cLum);
+              const ratioG = g / Math.max(1, cLum);
+              const ratioB = b / Math.max(1, cLum);
+              const targetL = Math.max(8, Math.min(100, cLum + totalDelta));
+
+              data[pOff] = Math.max(0, Math.min(255, Math.round(targetL * ratioR)));
+              data[pOff + 1] = Math.max(0, Math.min(255, Math.round(targetL * ratioG)));
+              data[pOff + 2] = Math.max(0, Math.min(255, Math.round(targetL * ratioB)));
+            }
+          }
+        }
+      }
+
+      /* 5. Bridal White & Lace Highlight Restore */
+      function applyWeddingWhiteLaceToData(data, w, h, strength = 1.0) {
+        for (let i = 0; i < w * h * 4; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = (r * 77 + g * 150 + b * 29) >> 8;
+          if (lum < 125) continue;
+
+          const mx = Math.max(r, g, b);
+          const mn = Math.min(r, g, b);
+          const sat = (mx - mn);
+          if (sat > 55) continue;
+
+          const yellowExcess = Math.max(0, Math.min(r, g) - b);
+          if (yellowExcess > 3) {
+            const dressWeight = Math.min(1, (lum - 125) / 50) * strength;
+            const bBoost = yellowExcess * 0.85 * dressWeight;
+            const rAdj = yellowExcess * 0.15 * dressWeight;
+            const gAdj = yellowExcess * 0.08 * dressWeight;
+
+            data[i] = Math.max(0, Math.min(255, Math.round(r - rAdj)));
+            data[i + 1] = Math.max(0, Math.min(255, Math.round(g - gAdj)));
+            data[i + 2] = Math.max(0, Math.min(255, Math.round(b + bBoost)));
+          }
+        }
+      }
+
+      async function runCanvasPortraitClarity(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyPortraitClarityToData(data, W, H, 1.15);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Clarity & Focus');
+      }
+
+      async function runCanvasNeutralizeBottomYellowing(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyBottomYellowingToData(data, W, H, 1.0);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Bottom Yellowing Fixed');
+      }
+
+      async function runCanvasFlashShadowFill(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyFlashShadowFillToData(data, W, H, 1.15);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Flash Shadows Filled');
+      }
+
+      async function runCanvasTrouserDetailSeparation(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyTrouserSeparationToData(data, W, H, 1.25);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Trouser & Shoe Separation');
+      }
+
+      async function runCanvasWeddingWhiteLaceRestore(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyWeddingWhiteLaceToData(data, W, H, 1.0);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Bridal White Restored');
       }
 
       /* 4. Real Canvas Crop, Scanner Border Trim & Crooked Scan Straightening */
@@ -10237,9 +10530,14 @@
 
             <div class="field" style="margin-top:0;margin-bottom:12px;">
               <label style="font-size:12px;font-weight:700;">1. Choose Photo Type</label>
-              <div class="preset-grid-2">
-                <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks, faded color &amp; soft focus">🕰️ 1960s–90s Spotted Print</button>
-                <button class="btn sm ${p.model !== 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans">📸 Clean Portrait / Modern</button>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <button class="btn sm ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84" style="text-align:left;font-weight:600;" title="Specialized for 1980s wedding photos: sharpens soft faces, removes bottom yellow aging, fills harsh flash shadows on cheeks, and restores trouser/shoe detail">
+                  👰 1980s Wedding / Portrait (Clear &amp; Crisp, Fix Yellowing &amp; Shadows)
+                </button>
+                <div class="preset-grid-2">
+                  <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks, faded color &amp; soft focus">🕰️ 1960s–90s Spotted</button>
+                  <button class="btn sm ${(p.model !== 'vintage80s' && p.model !== 'wedding84') ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans">📸 Clean Portrait</button>
+                </div>
               </div>
             </div>
 
@@ -10327,6 +10625,21 @@
                 : `✨ Restore Photo to 4K (${tw}×${th})`;
             }
           };
+
+          const btnWedding = body.querySelector('#btn-preset-wedding84');
+          if (btnWedding) {
+            btnWedding.onclick = () => {
+              p.model = 'wedding84';
+              p.spotRemove = 0;
+              p.denoise = 10;
+              p.fidelity = 92;
+              p.scratchesFixed = false;
+              p.tone.defade = false;
+              p.upscaleTarget = '4k';
+              renderLabToolBody(p);
+              notify('Selected 1980s Wedding / Portrait mode — click "Restore Photo to 4K" to run!');
+            };
+          }
 
           body.querySelector('#btn-preset-vintage80s').onclick = () => {
             p.model = 'vintage80s';
@@ -10526,11 +10839,17 @@
 
             <div class="field">
               <label>1-Click Archival Film &amp; Paper Fixes</label>
+            <button class="btn accent sm" type="button" id="btn-clean-bottom-yellow" style="width:100%;margin-top:6px;margin-bottom:10px;" title="Neutralizes aged adhesive or dye yellowing pooled in the bottom 40% of the photo without altering skin tones">
+              ✨ Remove Bottom Yellowing &amp; Paper Stain
+            </button>
+
+            <div class="field">
+              <label>1-Click Archival Film &amp; Paper Fixes</label>
               <div class="preset-grid-2">
-                <button class="btn sm" type="button" data-colpreset="red70s">Fix 1970s Red Fade</button>
+                <button class="btn sm" type="button" data-colpreset="dresswhite" title="Neutralizes yellowed dye aging on bridal gown and veil to clean bridal white">👰 Wedding Dress White</button>
                 <button class="btn sm" type="button" data-colpreset="yellow">Fix Yellowed Paper</button>
+                <button class="btn sm" type="button" data-colpreset="red70s">Fix 1970s Red Fade</button>
                 <button class="btn sm" type="button" data-colpreset="silver">Crisp Silver B&amp;W</button>
-                <button class="btn sm" type="button" data-colpreset="sepia">1900s Museum Sepia</button>
               </div>
             </div>
 
@@ -10555,6 +10874,24 @@
             col.colorizeStrength = Number(e.target.value);
             body.querySelector('#val-colstr').textContent = `${col.colorizeStrength}%`;
           };
+          const btnCleanYellow = body.querySelector('#btn-clean-bottom-yellow');
+          if (btnCleanYellow) {
+            btnCleanYellow.onclick = async () => {
+              btnCleanYellow.disabled = true;
+              btnCleanYellow.textContent = 'Removing yellowing...';
+              try {
+                await runCanvasNeutralizeBottomYellowing(p);
+                document.getElementById('lab-status-readout').textContent = 'Bottom yellowing neutralized — dress & floor cleaned';
+                notify(`Removed bottom yellowing and paper staining on ${p.id}.`);
+                renderPhotoLab();
+              } catch (_) {
+                btnCleanYellow.disabled = false;
+                btnCleanYellow.textContent = '✨ Remove Bottom Yellowing & Paper Stain';
+                notify('Could not process image.');
+              }
+            };
+          }
+
           body.querySelector('#btn-run-colorize').onclick = async () => {
             const btn = body.querySelector('#btn-run-colorize');
             btn.disabled = true;
@@ -10574,7 +10911,14 @@
             b.onclick = () => {
               pushSnapshot(p);
               const pr = b.getAttribute('data-colpreset');
-              if (pr === 'red70s') {
+              if (pr === 'dresswhite') {
+                runCanvasWeddingWhiteLaceRestore(p).then(() => {
+                  document.getElementById('lab-status-readout').textContent = 'Restored bridal gown to crisp wedding white';
+                  notify('Bridal gown and veil restored to pure white.');
+                  renderPhotoLab();
+                });
+                return;
+              } else if (pr === 'red70s') {
                 p.color = { ...p.color, warmth: -22, tint: -18, saturation: 112, sepia: 0, bw: false };
                 p.tone.defade = true;
                 addEditLabel(p, '1970s Defade');
@@ -10623,6 +10967,17 @@
             <button class="btn accent" type="button" id="btn-auto-levels" style="width:100%;margin-bottom:8px;">
               1-Click Auto-Levels (Histogram Stretch)
             </button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+              <button class="btn sm" type="button" id="btn-clarify-portrait" title="Multi-scale focus recovery for soft low-resolution scans (sharpens eyes, lips, hair &amp; lace without halos)">
+                🔍 Clarify &amp; Crisp Focus
+              </button>
+              <button class="btn sm" type="button" id="btn-fill-flash-shadows" title="Lifts deep 1980s direct-flash shadows on cheeks and jawlines without washing out the white dress">
+                ✨ Fill Flash Shadows
+              </button>
+            </div>
+            <button class="btn sm" type="button" id="btn-separate-trousers" style="width:100%;margin-bottom:8px;" title="Separates dark brown trousers, cuffs, shoes and floor from crushing together into black">
+              👖 Separate Trousers &amp; Dark Clothes
+            </button>
             <div style="display:flex;gap:6px;margin-bottom:8px;">
               <button class="btn sm flex-fill" type="button" data-preset="portrait">Portrait</button>
               <button class="btn sm flex-fill" type="button" data-preset="natural">Natural</button>
@@ -10657,6 +11012,57 @@
               <input type="range" data-tone="vignette" min="-50" max="50" value="${p.tone.vignette || 0}">
             </div>
           `;
+          const btnClarify = body.querySelector('#btn-clarify-portrait');
+          if (btnClarify) {
+            btnClarify.onclick = async () => {
+              btnClarify.disabled = true;
+              btnClarify.textContent = 'Sharpening focus...';
+              try {
+                await runCanvasPortraitClarity(p);
+                document.getElementById('lab-status-readout').textContent = 'Applied halo-free multi-scale focus clarity';
+                notify(`Crisped facial focus and fine detail on ${p.id}.`);
+                renderPhotoLab();
+              } catch (_) {
+                btnClarify.disabled = false;
+                btnClarify.textContent = '🔍 Clarify & Crisp Focus';
+              }
+            };
+          }
+
+          const btnFlashShadow = body.querySelector('#btn-fill-flash-shadows');
+          if (btnFlashShadow) {
+            btnFlashShadow.onclick = async () => {
+              btnFlashShadow.disabled = true;
+              btnFlashShadow.textContent = 'Filling shadows...';
+              try {
+                await runCanvasFlashShadowFill(p);
+                document.getElementById('lab-status-readout').textContent = 'Filled flash cheek/jaw shadows without washing out dress';
+                notify(`Filled harsh flash shadows on ${p.id}.`);
+                renderPhotoLab();
+              } catch (_) {
+                btnFlashShadow.disabled = false;
+                btnFlashShadow.textContent = '✨ Fill Flash Shadows';
+              }
+            };
+          }
+
+          const btnTrouser = body.querySelector('#btn-separate-trousers');
+          if (btnTrouser) {
+            btnTrouser.onclick = async () => {
+              btnTrouser.disabled = true;
+              btnTrouser.textContent = 'Separating darks...';
+              try {
+                await runCanvasTrouserDetailSeparation(p);
+                document.getElementById('lab-status-readout').textContent = 'Expanded dark fabric tonal range & shoe definition';
+                notify(`Separated trousers, cuffs and shoe detail on ${p.id}.`);
+                renderPhotoLab();
+              } catch (_) {
+                btnTrouser.disabled = false;
+                btnTrouser.textContent = '👖 Separate Trousers & Dark Clothes';
+              }
+            };
+          }
+
           body.querySelector('#btn-auto-levels').onclick = async () => {
             const btn = body.querySelector('#btn-auto-levels');
             btn.disabled = true;
