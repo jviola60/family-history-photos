@@ -9160,12 +9160,12 @@
           }
         }
 
-        /* Stage 1D: Edge-Preserving YCbCr 5×5 Bilateral Grain & Color-Blotch Denoiser */
+        /* Stage 1D: Edge-Preserving YCbCr 5×5 Bilateral Grain, Deblock & Anti-Pixelation Pass */
         const isSmallScan = Math.max(srcW, srcH) < 1200;
         const denoiseVal = typeof p.denoise === 'number'
           ? p.denoise
-          : (p.model === 'wedding84' ? 10 : (isSmallScan ? 24 : 62));
-        if ((denoiseVal > 0 || p.descreen) && p.model !== 'wedding84') {
+          : (p.model === 'smoothport' ? 70 : (isSmallScan ? 42 : 55));
+        if (denoiseVal > 0 || p.descreen) {
           const Y = new Float32Array(total);
           const Cb = new Float32Array(total);
           const Cr = new Float32Array(total);
@@ -9195,10 +9195,8 @@
             const row = y * srcW;
             for (let x = 2; x < srcW - 2; x++) {
               const idx = row + x;
-              /* Never blur faces or delicate skin features in bilateral denoiser! */
-              if (faceGuard && faceGuard[idx] > 0) continue;
-              const r0 = data[idx * 4], g0 = data[idx * 4 + 1], b0 = data[idx * 4 + 2];
-              if (r0 > g0 && g0 >= (b0 - 3) && r0 >= (b0 + 6)) continue;
+              /* Preserve high-contrast face contours while allowing bilateral smoothing of skin noise */
+              if (faceGuard && faceGuard[idx] === 2) continue; // Only skip confirmed eye pupils/nostril centers
 
               const y0 = Y[idx];
               let sumY = y0 * 8, wSumY = 8;
@@ -9277,12 +9275,12 @@
             return out;
           };
 
-          const deblurBoost = (p.model === 'wedding84') ? 1.55 : ((isVintageProfile || isAutoSpotted) ? 1.18 : 0.72);
+          const deblurBoost = (isVintageProfile || isAutoSpotted) ? 1.12 : (p.model === 'smoothport' ? 0.65 : 0.85);
           const fScale = (fidelityVal / 100) * deblurBoost;
           const blurFine = sepBlur(lum, 2);
           const blurMeso = sepBlur(lum, 4);
 
-          const spanMinDeblur = (isSmallScan || p.model === 'wedding84') ? 3 : 10;
+          const spanMinDeblur = 10; // Maintain noise floor above JPEG compression chatter
           for (let y = 3; y < srcH - 3; y++) {
             const row = y * srcW;
             for (let x = 3; x < srcW - 3; x++) {
@@ -9300,13 +9298,11 @@
               }
               const span = mx - mn;
               if (span < spanMinDeblur) continue;
-              const gate = Math.min(1, (span - spanMinDeblur) / (isSmallScan ? 14 : 24));
+              const gate = Math.min(1, (span - spanMinDeblur) / 22);
               const isFace = (faceGuard && faceGuard[idx] > 0);
-              const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
-              const isSkin = r > g && g >= (b - 3) && r >= (b + 6);
-              const faceMult = isFace ? 1.55 : (isSkin ? 1.35 : 1.0);
-              const dFine = (c - blurFine[idx]) * 0.44 * fScale * gate * faceMult;
-              const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.34 * fScale * gate * faceMult;
+              const faceMult = isFace ? 1.18 : 1.0;
+              const dFine = (c - blurFine[idx]) * 0.36 * fScale * gate * faceMult;
+              const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.24 * fScale * gate * faceMult;
               let ny = c + dFine + dMeso;
               const loClamp = Math.max(0, mn - 2);
               const hiClamp = Math.min(252, mx + 2);
@@ -9346,16 +9342,19 @@
           hasVintageWarmFade
         } = await prepareCleanedSourceCanvas(p, onStageProgress);
 
-        // 1980s Wedding Portrait restoration passes:
-        if (p.model === 'wedding84') {
+        // Targeted tonal and color restoration passes (smooth curves, zero pixelation):
+        if (p.model === 'wedding84' || p.model === 'smoothport') {
           const sCtx = srcCanvas.getContext('2d');
           const sImgData = sCtx.getImageData(0, 0, srcW, srcH);
           const sData = sImgData.data;
-          applyBottomYellowingToData(sData, srcW, srcH, 1.0);
-          applyFlashShadowFillToData(sData, srcW, srcH, 1.15);
-          applyTrouserSeparationToData(sData, srcW, srcH, 1.25);
-          applyWeddingWhiteLaceToData(sData, srcW, srcH, 1.0);
-          applyPortraitClarityToData(sData, srcW, srcH, 1.2);
+          if (p.model === 'wedding84') {
+            applyBottomYellowingToData(sData, srcW, srcH, 1.0);
+            applyFlashShadowFillToData(sData, srcW, srcH, 0.95);
+            applyTrouserSeparationToData(sData, srcW, srcH, 1.0);
+            applyWeddingWhiteLaceToData(sData, srcW, srcH, 1.0);
+          } else {
+            applyAntiPixelationToData(sData, srcW, srcH, 0.85);
+          }
           sCtx.putImageData(sImgData, 0, 0);
         }
 
@@ -9467,8 +9466,8 @@
           }
 
           const isSmallScan = Math.max(srcW, srcH) < 1200;
-          const spanMin = (p.model === 'wedding84' || isSmallScan) ? 3 : (p.model === 'gfpgan' ? 12 : (p.model === 'fal' ? 9 : 10));
-          const baseCasGain = p.model === 'wedding84' ? 0.52 : (p.model === 'gfpgan' ? 0.30 : (p.model === 'fal' ? 0.42 : 0.38));
+          const spanMin = (p.model === 'smoothport') ? 16 : ((p.model === 'gfpgan' || isSmallScan) ? 13 : 11);
+          const baseCasGain = (p.model === 'smoothport') ? 0.20 : 0.32;
           const casGain = baseCasGain * (0.45 + (fidelityVal / 100) * 0.85);
           const w2 = outW * 2;
 
@@ -9736,6 +9735,7 @@
       /* Specialized Archival Restoration Algorithms for 1980s Wedding Portraits & Low-Res Scans */
 
       /* 1. Portrait Micro-Clarity: Multi-Scale Halo-Free Focus Recovery for Low-Res Scans */
+      /* 1. Portrait Micro-Clarity: Noise-Gated Focus Recovery for Low-Res Scans */
       function applyPortraitClarityToData(data, w, h, strength = 1.0) {
         const total = w * h;
         const lum = new Float32Array(total);
@@ -9800,16 +9800,21 @@
               }
             }
             const span = mx - mn;
-            if (span < 2) continue;
+            // Noise floor: ignore gradients below 9 to prevent amplifying compression noise
+            if (span < 9) continue;
+            const gate = Math.min(1, (span - 9) / 18);
 
             const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
-            const isLaceOrHigh = (c >= 160 && c <= 250);
+            const isSkin = r > g && g >= (b - 4) && r >= (b + 6) && c > 55 && c < 225;
+            // Protect smooth skin midtones from blotchiness
+            if (isSkin && span < 16) continue;
 
-            const dFine = (c - blurFine[idx]) * 0.75 * strength;
-            const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.48 * strength;
+            const isLaceOrHigh = (c >= 160 && c <= 250);
+            const dFine = (c - blurFine[idx]) * 0.42 * strength * gate;
+            const dMeso = (blurFine[idx] - blurMeso[idx]) * 0.28 * strength * gate;
 
             let ny = c + dFine + dMeso;
-            const loClamp = Math.max(0, mn - 4);
+            const loClamp = Math.max(0, mn - 3);
             const hiClamp = Math.min(254, mx + (isLaceOrHigh ? 4 : 2));
             if (ny < loClamp) ny = loClamp;
             if (ny > hiClamp) ny = hiClamp;
@@ -9858,78 +9863,36 @@
       }
 
       /* 3. Targeted 1980s On-Camera Direct Flash Shadow Fill (Cheeks, Jawline, Under Veil) */
+      /* 3. Targeted 1980s Flash Shadow Fill (Smooth Sine Transition - No Posterization) */
       function applyFlashShadowFillToData(data, w, h, strength = 1.0) {
         for (let i = 0; i < w * h * 4; i += 4) {
           const r = data[i], g = data[i + 1], b = data[i + 2];
           const lum = (r * 77 + g * 150 + b * 29) >> 8;
-
-          let wSh = 0;
-          if (lum > 22 && lum < 75) {
-            wSh = (lum - 22) / 53;
-          } else if (lum >= 75 && lum < 155) {
-            wSh = 1 - (lum - 75) / 80;
-          }
-          if (wSh <= 0) continue;
-
-          const fillAmt = wSh * 26 * strength;
-          const newR = r + fillAmt * 1.08;
-          const newG = g + fillAmt * 0.96;
-          const newB = b + fillAmt * 0.82;
-
-          data[i] = Math.max(0, Math.min(255, Math.round(newR)));
-          data[i + 1] = Math.max(0, Math.min(255, Math.round(newG)));
-          data[i + 2] = Math.max(0, Math.min(255, Math.round(newB)));
+          if (lum < 20 || lum > 145) continue;
+          const norm = (lum - 20) / 125;
+          const fillAmt = Math.sin(norm * Math.PI) * 20 * strength;
+          data[i] = Math.max(0, Math.min(255, Math.round(r + fillAmt * 1.05)));
+          data[i + 1] = Math.max(0, Math.min(255, Math.round(g + fillAmt * 0.95)));
+          data[i + 2] = Math.max(0, Math.min(255, Math.round(b + fillAmt * 0.80)));
         }
       }
 
       /* 4. Trouser, Shoe & Dark Shadow Detail Separation (Contrast Expansion in Darks) */
+      /* 4. Trouser, Shoe & Dark Shadow Detail Separation (Smooth Mathematical Tonal Curve - Zero Noise) */
       function applyTrouserSeparationToData(data, w, h, strength = 1.0) {
-        const total = w * h;
-        const lum = new Float32Array(total);
-        for (let i = 0, pOff = 0; i < total; i++, pOff += 4) {
-          lum[i] = 0.299 * data[pOff] + 0.587 * data[pOff + 1] + 0.114 * data[pOff + 2];
-        }
-
-        for (let y = 1; y < h - 1; y++) {
-          const row = y * w;
-          for (let x = 1; x < w - 1; x++) {
-            const idx = row + x;
-            const cLum = lum[idx];
-            if (cLum < 10 || cLum > 85) continue;
-
-            const pOff = idx * 4;
-            const r = data[pOff], g = data[pOff + 1], b = data[pOff + 2];
-
-            let sumL = 0;
-            for (let dy = -1; dy <= 1; dy++) {
-              const nr = (y + dy) * w + x;
-              for (let dx = -1; dx <= 1; dx++) {
-                sumL += lum[nr + dx];
-              }
-            }
-            const avgL = sumL / 9;
-            const microDiff = (cLum - avgL);
-
-            const darkNorm = (cLum - 10) / 75;
-            const curve = darkNorm < 0.5
-              ? 2 * darkNorm * darkNorm
-              : 1 - Math.pow(-2 * darkNorm + 2, 2) / 2;
-            const expandedL = 10 + (curve * 0.45 + darkNorm * 0.55) * 75;
-            const dGlobal = (expandedL - cLum) * 0.40 * strength;
-            const dMicro = microDiff * 1.50 * strength;
-
-            const totalDelta = dGlobal + dMicro;
-            if (Math.abs(totalDelta) > 0.4) {
-              const ratioR = r / Math.max(1, cLum);
-              const ratioG = g / Math.max(1, cLum);
-              const ratioB = b / Math.max(1, cLum);
-              const targetL = Math.max(8, Math.min(100, cLum + totalDelta));
-
-              data[pOff] = Math.max(0, Math.min(255, Math.round(targetL * ratioR)));
-              data[pOff + 1] = Math.max(0, Math.min(255, Math.round(targetL * ratioG)));
-              data[pOff + 2] = Math.max(0, Math.min(255, Math.round(targetL * ratioB)));
-            }
-          }
+        for (let i = 0; i < w * h * 4; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = (r * 77 + g * 150 + b * 29) >> 8;
+          // Target dark clothing/shadow band: lum 8 to 95
+          if (lum < 8 || lum > 95) continue;
+          const norm = (lum - 8) / 87; // 0..1
+          // Smooth sine curve peak around lum 40-50, smoothly tapering to 0 at ends:
+          const lift = Math.sin(norm * Math.PI) * 20 * strength;
+          const targetL = Math.max(0, Math.min(255, lum + lift));
+          const ratio = targetL / Math.max(1, lum);
+          data[i] = Math.max(0, Math.min(255, Math.round(r * ratio)));
+          data[i + 1] = Math.max(0, Math.min(255, Math.round(g * ratio)));
+          data[i + 2] = Math.max(0, Math.min(255, Math.round(b * ratio)));
         }
       }
 
@@ -10002,6 +9965,59 @@
         pushSnapshot(p);
         await canvasToWorkingUrl(canvas, p, 0.94, true);
         addEditLabel(p, 'Bridal White Restored');
+      }
+
+      /* 6. True Anti-Pixelation & Edge-Preserving Deblock Filter */
+      function applyAntiPixelationToData(data, w, h, strength = 1.0) {
+        const copy = new Uint8ClampedArray(data);
+        const twoSigmaR2 = 2 * 22 * 22;
+
+        for (let y = 1; y < h - 1; y++) {
+          const row = y * w;
+          for (let x = 1; x < w - 1; x++) {
+            const idx = (row + x) * 4;
+            const r0 = copy[idx], g0 = copy[idx + 1], b0 = copy[idx + 2];
+            const lum0 = (r0 * 77 + g0 * 150 + b0 * 29) >> 8;
+
+            let sumR = r0 * 4, sumG = g0 * 4, sumB = b0 * 4, sumW = 4;
+
+            for (let dy = -1; dy <= 1; dy++) {
+              const nRow = (y + dy) * w;
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nIdx = (nRow + (x + dx)) * 4;
+                const nr = copy[nIdx], ng = copy[nIdx + 1], nb = copy[nIdx + 2];
+                const nLum = (nr * 77 + ng * 150 + nb * 29) >> 8;
+                const dLum = lum0 - nLum;
+                const rWeight = Math.exp(-(dLum * dLum) / twoSigmaR2);
+                const spWeight = (dx === 0 || dy === 0) ? 2.0 : 1.0;
+                const wSample = spWeight * rWeight;
+                sumR += nr * wSample;
+                sumG += ng * wSample;
+                sumB += nb * wSample;
+                sumW += wSample;
+              }
+            }
+
+            const invW = 1 / sumW;
+            const smR = sumR * invW;
+            const smG = sumG * invW;
+            const smB = sumB * invW;
+
+            data[idx] = Math.round(r0 * (1 - strength) + smR * strength);
+            data[idx + 1] = Math.round(g0 * (1 - strength) + smG * strength);
+            data[idx + 2] = Math.round(b0 * (1 - strength) + smB * strength);
+          }
+        }
+      }
+
+      async function runCanvasAntiPixelation(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        applyAntiPixelationToData(data, W, H, 1.0);
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        addEditLabel(p, 'Anti-Pixelate & Smooth');
       }
 
       /* 4. Real Canvas Crop, Scanner Border Trim & Crooked Scan Straightening */
@@ -10531,12 +10547,12 @@
             <div class="field" style="margin-top:0;margin-bottom:12px;">
               <label style="font-size:12px;font-weight:700;">1. Choose Photo Type</label>
               <div style="display:flex;flex-direction:column;gap:5px;">
-                <button class="btn sm ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84" style="text-align:left;font-weight:600;" title="Specialized for 1980s wedding photos: sharpens soft faces, removes bottom yellow aging, fills harsh flash shadows on cheeks, and restores trouser/shoe detail">
-                  👰 1980s Wedding / Portrait (Clear &amp; Crisp, Fix Yellowing &amp; Shadows)
+                <button class="btn sm ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84" style="text-align:left;font-weight:600;" title="Smooth natural facial features, cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
+                  👰 1980s Wedding / Portrait (Clean Yellowing, Shadows &amp; Trousers)
                 </button>
                 <div class="preset-grid-2">
-                  <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks, faded color &amp; soft focus">🕰️ 1960s–90s Spotted</button>
-                  <button class="btn sm ${(p.model !== 'vintage80s' && p.model !== 'wedding84') ? 'accent' : ''}" type="button" id="btn-preset-cleanport" title="Best for clean portraits &amp; modern scans">📸 Clean Portrait</button>
+                  <button class="btn sm ${p.model === 'smoothport' ? 'accent' : ''}" type="button" id="btn-preset-smoothport" title="Best for compressed digital photos, thumbnails &amp; small scans: smooths grain, eliminates pixelation, keeps natural photographic tone">🛡️ Smooth &amp; Anti-Pixelate</button>
+                  <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks &amp; paper dust">🕰️ 1960s–90s Spotted</button>
                 </div>
               </div>
             </div>
@@ -10631,13 +10647,28 @@
             btnWedding.onclick = () => {
               p.model = 'wedding84';
               p.spotRemove = 0;
-              p.denoise = 10;
-              p.fidelity = 92;
+              p.denoise = 45;
+              p.fidelity = 70;
               p.scratchesFixed = false;
               p.tone.defade = false;
               p.upscaleTarget = '4k';
               renderLabToolBody(p);
-              notify('Selected 1980s Wedding / Portrait mode — click "Restore Photo to 4K" to run!');
+              notify('Selected 1980s Wedding / Portrait mode (Smooth & Anti-Pixelated) — click "Restore Photo to 4K" to run!');
+            };
+          }
+
+          const btnSmooth = body.querySelector('#btn-preset-smoothport');
+          if (btnSmooth) {
+            btnSmooth.onclick = () => {
+              p.model = 'smoothport';
+              p.spotRemove = 15;
+              p.denoise = 72;
+              p.fidelity = 55;
+              p.scratchesFixed = false;
+              p.tone.defade = false;
+              p.upscaleTarget = '4k';
+              renderLabToolBody(p);
+              notify('Selected Smooth & Anti-Pixelate mode — eliminates digital noise and compression blocks!');
             };
           }
 
@@ -10975,9 +11006,14 @@
                 ✨ Fill Flash Shadows
               </button>
             </div>
-            <button class="btn sm" type="button" id="btn-separate-trousers" style="width:100%;margin-bottom:8px;" title="Separates dark brown trousers, cuffs, shoes and floor from crushing together into black">
-              👖 Separate Trousers &amp; Dark Clothes
-            </button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+              <button class="btn sm" type="button" id="btn-separate-trousers" title="Separates dark brown trousers, cuffs, shoes and floor from crushing together into black">
+                👖 Separate Trousers &amp; Darks
+              </button>
+              <button class="btn accent sm" type="button" id="btn-anti-pixelate" title="Removes digital pixelation, JPEG block compression artifacts, and harsh sandpaper noise while keeping outlines sharp">
+                🛡️ Anti-Pixelate &amp; Smooth
+              </button>
+            </div>
             <div style="display:flex;gap:6px;margin-bottom:8px;">
               <button class="btn sm flex-fill" type="button" data-preset="portrait">Portrait</button>
               <button class="btn sm flex-fill" type="button" data-preset="natural">Natural</button>
@@ -11053,12 +11089,29 @@
               btnTrouser.textContent = 'Separating darks...';
               try {
                 await runCanvasTrouserDetailSeparation(p);
-                document.getElementById('lab-status-readout').textContent = 'Expanded dark fabric tonal range & shoe definition';
+                document.getElementById('lab-status-readout').textContent = 'Expanded dark fabric tonal range & shoe definition (smooth, zero noise)';
                 notify(`Separated trousers, cuffs and shoe detail on ${p.id}.`);
                 renderPhotoLab();
               } catch (_) {
                 btnTrouser.disabled = false;
-                btnTrouser.textContent = '👖 Separate Trousers & Dark Clothes';
+                btnTrouser.textContent = '👖 Separate Trousers & Darks';
+              }
+            };
+          }
+
+          const btnAntiPix = body.querySelector('#btn-anti-pixelate');
+          if (btnAntiPix) {
+            btnAntiPix.onclick = async () => {
+              btnAntiPix.disabled = true;
+              btnAntiPix.textContent = 'Smoothing pixelation...';
+              try {
+                await runCanvasAntiPixelation(p);
+                document.getElementById('lab-status-readout').textContent = 'Removed digital pixelation & JPEG noise — edges kept sharp';
+                notify(`Smoothed digital pixelation and compression blocks on ${p.id}.`);
+                renderPhotoLab();
+              } catch (_) {
+                btnAntiPix.disabled = false;
+                btnAntiPix.textContent = '🛡️ Anti-Pixelate & Smooth';
               }
             };
           }
