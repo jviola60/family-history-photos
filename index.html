@@ -9848,8 +9848,7 @@
         const diag = await runCanvas4KRestore(p, onStageProgress);
         try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
         compareMode = 'split';
-        const splitBar = document.querySelector('.split-bar');
-        if (splitBar) splitBar.style.left = '50%';
+        splitPct = 50;
         renderSidebarCounts();
         renderPhotoLab();
         return diag;
@@ -10025,6 +10024,53 @@
         pushSnapshot(p);
         await canvasToWorkingUrl(canvas, p, 0.94, true);
         addEditLabel(p, 'Auto-Levels');
+      }
+
+      /* Real Canvas Dark & Underexposure Rescue Engine */
+      async function runCanvasRescueDark(p) {
+        const { canvas, ctx, W, H, imgData, data } = await loadWorkingCanvas(p, 2048);
+        const total = W * H;
+
+        // 1. Analyze shadow distribution
+        let sumLum = 0;
+        let minLum = 255;
+        let maxLum = 0;
+        for (let i = 0; i < total * 4; i += 4) {
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          sumLum += lum;
+          if (lum < minLum) minLum = lum;
+          if (lum > maxLum) maxLum = lum;
+        }
+        const avgLum = sumLum / total;
+
+        // 2. Adaptive exposure expansion & shadow lift curve:
+        // Maps deep black values (e.g. 5-35) up into visible portrait tones (e.g. 70-160)
+        const lut = new Uint8Array(256);
+        const gamma = avgLum < 45 ? 0.38 : (avgLum < 75 ? 0.48 : 0.62);
+        const shadowFloor = avgLum < 35 ? 38 : (avgLum < 60 ? 24 : 12);
+
+        for (let i = 0; i < 256; i++) {
+          const norm = i / 255;
+          let val = Math.pow(norm, gamma) * 255;
+          const shadowFactor = Math.max(0, 1 - norm * 2.2);
+          val += shadowFloor * shadowFactor;
+          lut[i] = Math.max(0, Math.min(255, Math.round(val)));
+        }
+
+        for (let i = 0; i < total * 4; i += 4) {
+          data[i] = lut[data[i]];
+          data[i + 1] = lut[data[i + 1]];
+          data[i + 2] = lut[data[i + 2]];
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        pushSnapshot(p);
+        await canvasToWorkingUrl(canvas, p, 0.94, true);
+        p.tone.brightness = 105;
+        p.tone.shadows = 30;
+        p.tone.contrast = 105;
+        p.tone.smooth = 35; // gentle smoothing to tame shadow noise
+        addEditLabel(p, 'Dark Exposure Rescued');
       }
 
       /* Specialized Archival Restoration Algorithms for 1980s Wedding Portraits & Low-Res Scans */
@@ -11030,8 +11076,7 @@
               });
               try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
               compareMode = 'split';
-              const splitBar = document.querySelector('.split-bar');
-              if (splitBar) splitBar.style.left = '50%';
+              splitPct = 50;
               const spotMsg = diag && diag.spotsHealed > 120
                 ? `healed ${diag.spotsHealed.toLocaleString()} dots & restored`
                 : 'restored';
@@ -11289,8 +11334,11 @@
         /* TAB 3: LIGHT, HISTOGRAM AUTO-LEVELS, SMOOTH, SHARPEN & VIGNETTE */
         if (activeTool === 'tone') {
           body.innerHTML = `
-            <p class="muted" style="font-size:12px;margin-bottom:8px;">Rescue faded contrast, dark porch shadows, blown dress highlights, film grain, and dark antique lens corners.</p>
-            <button class="btn accent" type="button" id="btn-auto-levels" style="width:100%;margin-bottom:8px;">
+            <p class="muted" style="font-size:12px;margin-bottom:8px;">Rescue faded contrast, dark underexposed photos, deep shadows, blown highlights, and film grain.</p>
+            <button class="btn accent" type="button" id="btn-rescue-dark" style="width:100%;margin-bottom:8px;font-weight:700;font-size:13px;padding:10px;background:linear-gradient(135deg, #1e3a8a, #4338ca);color:#fff;border:none;border-radius:6px;box-shadow:0 2px 8px rgba(30,58,138,0.3);cursor:pointer;" title="Lifts extreme shadow darkness, boosts exposure by +3 stops, recovers hidden faces, and balances contrast">
+              🌙 Rescue Dark / Underexposed Photo
+            </button>
+            <button class="btn" type="button" id="btn-auto-levels" style="width:100%;margin-bottom:8px;">
               1-Click Auto-Levels (Histogram Stretch)
             </button>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
@@ -11316,19 +11364,19 @@
             </div>
             <div class="slider-row">
               <div class="slider-head"><span>Shadow lift</span><span class="mono" data-tone-val="shadows">${p.tone.shadows}%</span></div>
-              <input type="range" data-tone="shadows" min="0" max="60" value="${p.tone.shadows}">
+              <input type="range" data-tone="shadows" min="0" max="100" value="${p.tone.shadows}">
             </div>
             <div class="slider-row">
               <div class="slider-head"><span>Highlight recovery</span><span class="mono" data-tone-val="highlights">${p.tone.highlights || 0}%</span></div>
-              <input type="range" data-tone="highlights" min="0" max="60" value="${p.tone.highlights || 0}">
+              <input type="range" data-tone="highlights" min="0" max="80" value="${p.tone.highlights || 0}">
             </div>
             <div class="slider-row">
               <div class="slider-head"><span>Brightness</span><span class="mono" data-tone-val="brightness">${p.tone.brightness}%</span></div>
-              <input type="range" data-tone="brightness" min="75" max="130" value="${p.tone.brightness}">
+              <input type="range" data-tone="brightness" min="50" max="220" value="${p.tone.brightness}">
             </div>
             <div class="slider-row">
               <div class="slider-head"><span>Soft studio contrast</span><span class="mono" data-tone-val="contrast">${p.tone.contrast}%</span></div>
-              <input type="range" data-tone="contrast" min="80" max="140" value="${p.tone.contrast}">
+              <input type="range" data-tone="contrast" min="60" max="160" value="${p.tone.contrast}">
             </div>
             <div class="slider-row">
               <div class="slider-head"><span>Grain &amp; skin smooth</span><span class="mono" data-tone-val="smooth">${p.tone.smooth}%</span></div>
@@ -11343,6 +11391,25 @@
               <input type="range" data-tone="vignette" min="-50" max="50" value="${p.tone.vignette || 0}">
             </div>
           `;
+          const btnRescueDark = body.querySelector('#btn-rescue-dark');
+          if (btnRescueDark) {
+            btnRescueDark.onclick = async () => {
+              btnRescueDark.disabled = true;
+              btnRescueDark.textContent = 'Lifting deep shadows & exposure...';
+              try {
+                await runCanvasRescueDark(p);
+                compareMode = 'split';
+                splitPct = 50;
+                document.getElementById('lab-status-readout').textContent = '✓ Rescued dark exposure & lifted deep shadows — drag split curtain to compare!';
+                notify(`✓ Rescued dark underexposure on ${p.id}. Lifted shadows and recovered hidden details!`);
+                renderSidebarCounts();
+                renderPhotoLab();
+              } catch (_) {
+                btnRescueDark.disabled = false;
+                btnRescueDark.textContent = '🌙 Rescue Dark / Underexposed Photo';
+              }
+            };
+          }
           const btnClarify = body.querySelector('#btn-clarify-portrait');
           if (btnClarify) {
             btnClarify.onclick = async () => {
@@ -11417,8 +11484,10 @@
             btn.textContent = 'Balancing histogram...';
             try {
               await runCanvasAutoLevels(p);
+              compareMode = 'split';
+              splitPct = 50;
               document.getElementById('lab-status-readout').textContent = 'Applied 1st–99th percentile Auto-Levels';
-              notify(`Stretched faded tonal range on ${p.id}.`);
+              notify(`Stretched faded tonal range on ${p.id}. Drag split curtain to compare.`);
               renderPhotoLab();
             } catch (_) {
               btn.disabled = false;
@@ -12343,7 +12412,11 @@
 
       document.querySelectorAll('[data-compare]').forEach((btn) => {
         btn.onclick = () => {
-          compareMode = btn.getAttribute('data-compare');
+          const newMode = btn.getAttribute('data-compare');
+          if (newMode === 'split' && (splitPct < 15 || splitPct > 85)) {
+            splitPct = 50;
+          }
+          compareMode = newMode;
           renderPhotoLab();
         };
       });
