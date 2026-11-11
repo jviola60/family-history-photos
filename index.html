@@ -2525,6 +2525,12 @@
       <button class="nav-item" type="button" data-queue="all" aria-current="page">
         <span data-icon="grid"></span><span>All album prints</span><span class="nav-count" id="q-all">10</span>
       </button>
+      <button class="nav-item" type="button" data-queue="with_people">
+        <span data-icon="users"></span><span>With people</span><span class="nav-count" id="q-with-people">0</span>
+      </button>
+      <button class="nav-item" type="button" data-queue="no_people">
+        <span data-icon="pin"></span><span>No people (scenery/docs)</span><span class="nav-count" id="q-no-people">0</span>
+      </button>
       <button class="nav-item" type="button" data-queue="unnamed">
         <span data-icon="users"></span><span>Unnamed faces</span><span class="nav-count" id="q-unnamed">4</span>
       </button>
@@ -3516,8 +3522,11 @@
 
       let mode = 'catalog';        // 'catalog' | 'lab' | 'sync'
       let layout = (window.innerWidth <= 768) ? 'sheet' : 'ledger';       // 'ledger' | 'sheet' | 'map'
-      let activeQueue = 'all';     // 'all' | 'unnamed' | 'unsynced' | 'lowres' | 'duplicates' | 'screenshots' | 'review'
+      let activeQueue = 'all';     // 'all' | 'with_people' | 'no_people' | 'unnamed' | 'unsynced' | 'lowres' | 'duplicates' | 'screenshots' | 'review'
       let activeFolder = null;
+      let currentDupPairIndex = 0;
+      let dupViewMode = 'all';     // 'all' | 'single'
+      let pairSwaps = new Map();   // pairKey -> preferred master photo id
       let search = '';
       let catalogPage = 1;
       let inspFitMode = 'fit';     // 'fit' (shows whole uncropped photo & exact face boxes) | 'fill' (fills box)
@@ -4408,12 +4417,16 @@
       }
 
       async function stageAllScreenshots() {
-        const screenshots = items.filter((p) => p.screenshot && !p.inReview);
+        const screenshots = items.filter((p) => isScreenshotPhoto(p) && !p.inReview);
         if (!screenshots.length) {
-          notify('No screenshots to move.');
+          notify('No active screenshots to move.');
           return;
         }
-        screenshots.forEach((p) => { p.inReview = true; saveItemMetadata(p); });
+        screenshots.forEach((p) => {
+          p.inReview = true;
+          p.screenshot = true;
+          saveItemMetadata(p);
+        });
         try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
         notify(`Moved ${screenshots.length} screenshot(s) to Review & Cleanup.`);
         activeQueue = 'review';
@@ -4421,23 +4434,62 @@
       }
 
       async function deleteAllScreenshots() {
-        const screenshots = items.filter((p) => p.screenshot);
+        const screenshots = items.filter((p) => isScreenshotPhoto(p));
         if (!screenshots.length) {
           notify('No screenshots to delete.');
           return;
         }
-        const ok = confirm(`Permanently delete all ${screenshots.length} screenshot(s)?\n\nThis will remove them from your album.`);
+        const ok = confirm(`Permanently delete all ${screenshots.length} detected screenshot(s)?\n\nThis will remove them from your album.`);
         if (!ok) return;
         screenshots.forEach((p) => {
           if (p.src && p.src.startsWith('blob:')) {
             try { URL.revokeObjectURL(p.src); } catch (_) {}
           }
         });
-        items = items.filter((p) => !p.screenshot);
+        const removeIds = new Set(screenshots.map((p) => p.id));
+        items = items.filter((p) => !removeIds.has(p.id));
         const remaining = filteredItems();
         selectedId = remaining[0] ? remaining[0].id : (items[0] ? items[0].id : null);
         try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
         notify(`Permanently deleted ${screenshots.length} screenshot(s).`);
+        render();
+      }
+
+      async function stageAllDuplicates() {
+        const pairs = findDuplicatePairs(items);
+        if (!pairs.length) {
+          notify('No duplicate pairs found to move.');
+          return;
+        }
+        pairs.forEach((pair) => {
+          pair.copy.inReview = true;
+          saveItemMetadata(pair.copy);
+        });
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Moved ${pairs.length} duplicate copy(ies) to Review & Cleanup.`);
+        activeQueue = 'review';
+        render();
+      }
+
+      async function deleteAllDuplicates() {
+        const pairs = findDuplicatePairs(items);
+        if (!pairs.length) {
+          notify('No duplicate pairs to delete.');
+          return;
+        }
+        const ok = confirm(`Permanently delete all ${pairs.length} duplicate copy(ies)?\n\nMaster prints will be safely preserved in your album.`);
+        if (!ok) return;
+        const removeIds = new Set(pairs.map((p) => p.copy.id));
+        pairs.forEach((pair) => {
+          if (pair.copy.src && pair.copy.src.startsWith('blob:')) {
+            try { URL.revokeObjectURL(pair.copy.src); } catch (_) {}
+          }
+        });
+        items = items.filter((p) => !removeIds.has(p.id));
+        const remaining = filteredItems();
+        selectedId = remaining[0] ? remaining[0].id : (items[0] ? items[0].id : null);
+        try { await saveArchiveToDb(items, rootFolderName); } catch (e) {}
+        notify(`Permanently deleted ${pairs.length} duplicate copy(ies).`);
         render();
       }
 
@@ -4475,8 +4527,41 @@
       }
 
       function isLowRes(p) {
-            return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+        return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
+      }
+
+      function hasPeople(p) {
+        if (!p) return false;
+        if (p.hasPeopleOverride === true) return true;
+        if (p.hasPeopleOverride === false) return false;
+        if (Array.isArray(p.people) && p.people.length > 0) return true;
+        if (Array.isArray(p.faces) && p.faces.length > 0) return true;
+        if (typeof p.unnamedFaces === 'number' && p.unnamedFaces > 0) return true;
+        return false;
+      }
+
+      function isScreenshotPhoto(p) {
+        if (!p) return false;
+        if (p.isScreenshotManual === false) return false;
+        if (p.isScreenshotManual === true || p.screenshot === true) return true;
+
+        const name = `${p.file || ''} ${p.title || ''}`.toLowerCase();
+        if (/(?:screen[\s_.-]?(?:shot|cap|grab)|capture|snapshot|prtscr|screengrab|^image(_\d+)?\.png$)/i.test(name)) {
+          return true;
+        }
+
+        // Screen aspect ratios (16:9, 18:9, 19.5:9, 20:9) in PNG format without camera EXIF
+        if (p.width && p.height) {
+          const longSide = Math.max(p.width, p.height);
+          const shortSide = Math.min(p.width, p.height);
+          const ratio = longSide / shortSide;
+          const isPng = (p.file && /\.png$/i.test(p.file)) || (p.mimeType && /png/i.test(p.mimeType));
+          if (isPng && ratio >= 1.70 && (!p.cameraMake || p.cameraMake === 'Unknown' || p.cameraMake === '')) {
+            return true;
           }
+        }
+        return false;
+      }
 
       function normalizeFileNameForDup(name) {
         if (!name) return '';
@@ -4490,24 +4575,6 @@
       function findDuplicatePairs(list = items) {
         const pairs = [];
         const ignored = ignoredDupPairKeys || new Set();
-
-        // 1. Sample demo archive pairing (only applies to original Gill demo photos)
-        if (!isCustomFolder && !duplicateResolved) {
-          const orig = (list || []).find((p) => p.file === '2003-07-19_gill-reunion.jpg');
-          const copy = (list || []).find((p) => p.file === '2003-07-19_gill-reunion-copy2.jpg');
-          if (orig && copy && !copy.inReview && !ignored.has(orig.id + '_' + copy.id)) {
-            pairs.push({
-              orig,
-              copy,
-              reason: 'Visual & filename near-duplicate (Walgreens Photo CD scan)',
-              matchPct: 98,
-              pairKey: orig.id + '_' + copy.id
-            });
-          }
-          return pairs;
-        }
-
-        // 2. Real duplicate detection across user photos
         const active = (list || []).filter((p) => !p.inReview);
         const pairedIds = new Set();
 
@@ -4533,7 +4600,7 @@
               matchPct = 99;
               reason = `Identical file size (${pA.kb} KB) and dimensions (${pA.width}×${pA.height})`;
             }
-            // Same normalized filename (e.g. photo.jpg vs photo (1).jpg)
+            // Same normalized filename (e.g. photo.jpg vs photo (1).jpg or photo-copy2.jpg)
             else if (normA && normA.length > 3 && normA === normB) {
               isDup = true;
               matchPct = 95;
@@ -4547,10 +4614,18 @@
             }
 
             if (isDup) {
-              const aScore = (pA.width * pA.height) + (pA.kb * 100) + (pA.people ? pA.people.length * 1000 : 0);
-              const bScore = (pB.width * pB.height) + (pB.kb * 100) + (pB.people ? pB.people.length * 1000 : 0);
-              const master = aScore >= bScore ? pA : pB;
-              const duplicate = aScore >= bScore ? pB : pA;
+              const preferredMasterId = pairSwaps.get(pairKey);
+              let master, duplicate;
+              if (preferredMasterId === pB.id) {
+                master = pB; duplicate = pA;
+              } else if (preferredMasterId === pA.id) {
+                master = pA; duplicate = pB;
+              } else {
+                const aScore = (pA.width * pA.height) + (pA.kb * 100) + ((pA.people ? pA.people.length : 0) * 1000) + (pA.fsId ? 50000 : 0);
+                const bScore = (pB.width * pB.height) + (pB.kb * 100) + ((pB.people ? pB.people.length : 0) * 1000) + (pB.fsId ? 50000 : 0);
+                master = aScore >= bScore ? pA : pB;
+                duplicate = aScore >= bScore ? pB : pA;
+              }
 
               pairs.push({
                 orig: master,
@@ -4574,14 +4649,17 @@
             if (p.subfolder !== activeFolder) return false;
           } else {
             if (activeQueue === 'review') return p.inReview;
-            if (activeQueue === 'screenshots') return p.screenshot && !p.inReview;
             if (p.inReview && activeQueue !== 'duplicates') return false;
+            if (activeQueue === 'screenshots') return isScreenshotPhoto(p);
+            if (activeQueue === 'with_people') return hasPeople(p);
+            if (activeQueue === 'no_people') return !hasPeople(p);
             if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
             if (activeQueue === 'unsynced' && p.fsSynced) return false;
             if (activeQueue === 'lowres' && !isLowRes(p)) return false;
           }
           if (search) {
-            const hay = `${p.id} ${p.file} ${p.title} ${p.place} ${p.fsId} ${p.people.map((x) => x.name).join(' ')}`.toLowerCase();
+            const peopleNames = (p.people || []).map((x) => x.name || '').join(' ');
+            const hay = `${p.id || ''} ${p.file || ''} ${p.title || ''} ${p.place || ''} ${p.fsId || ''} ${peopleNames}`.toLowerCase();
             if (!hay.includes(search)) return false;
           }
           return true;
@@ -4616,13 +4694,22 @@
         }
 
         const s = stats(items);
+        const activePhotos = items.filter((p) => !p.inReview);
+        const withPeopleCount = activePhotos.filter((p) => hasPeople(p)).length;
+        const noPeopleCount = activePhotos.filter((p) => !hasPeople(p)).length;
+        const screenshotCount = activePhotos.filter((p) => isScreenshotPhoto(p)).length;
+
         document.getElementById('q-all').textContent = s.activeCount;
+        const qWithPeople = document.getElementById('q-with-people');
+        if (qWithPeople) qWithPeople.textContent = withPeopleCount;
+        const qNoPeople = document.getElementById('q-no-people');
+        if (qNoPeople) qNoPeople.textContent = noPeopleCount;
         document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
         document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
         document.getElementById('q-lowres').textContent = s.lowResCount;
         document.getElementById('q-dups').textContent = findDuplicatePairs(items).length;
-            document.getElementById('q-junk').textContent = items.filter((p) => p.screenshot && !p.inReview).length;
-            document.getElementById('q-review').textContent = s.reviewCount;
+        document.getElementById('q-junk').textContent = screenshotCount;
+        document.getElementById('q-review').textContent = s.reviewCount;
 
             document.getElementById('kpi-active').textContent = s.activeCount;
             document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in Review & Cleanup`;
@@ -4771,58 +4858,208 @@
                 return;
               }
 
-              const pair = dupPairs[0];
-              const orig = pair.orig;
-              const copy = pair.copy;
+              if (currentDupPairIndex >= dupPairs.length) currentDupPairIndex = 0;
+
+              const renderPairCard = (pair, idx) => {
+                const orig = pair.orig;
+                const copy = pair.copy;
+                return `
+                <div class="panel" style="margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;" data-pair-card="${esc(pair.pairKey)}">
+                  <div class="panel-head" style="background:var(--raised);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);">
+                    <div>
+                      <h3 style="margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px;">
+                        <span>Pair ${idx + 1} of ${dupPairs.length}</span>
+                        <span class="pill warn" style="font-size:11px;">${pair.matchPct}% match</span>
+                      </h3>
+                      <p class="muted" style="font-size:12px;margin-top:2px;">${esc(pair.reason)}</p>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      <button class="btn sm" type="button" data-ignore-dup="${esc(pair.pairKey)}" title="Mark as distinct photos and keep both in album">
+                        Keep Both (Distinct)
+                      </button>
+                    </div>
+                  </div>
+                  <div class="dup-pair" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;padding:14px;">
+                    <!-- MASTER CARD -->
+                    <div class="dup-card" style="border:2px solid var(--pos, #2ea043);border-radius:8px;padding:12px;background:var(--surface);">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <span class="pill pos" style="font-weight:700;">★ Recommended Master</span>
+                        <span class="mono muted" style="font-size:11px;">${esc(orig.id)}</span>
+                      </div>
+                      <div class="spec-frame" style="height:200px;border-radius:6px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;cursor:pointer;" data-inspect-photo="${esc(orig.id)}">
+                        <img src="${esc(afterSrc(orig))}" alt="${esc(orig.title)}" style="max-height:100%;max-width:100%;object-fit:contain;${afterStyle(orig)}">
+                      </div>
+                      <div style="margin-top:10px;">
+                        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(orig.file)}">${esc(orig.file)}</div>
+                        <div class="mono muted" style="font-size:11px;margin-top:2px;">
+                          ${orig.width}×${orig.height} · ${orig.kb} KB ${orig.fsId ? `· FS: ${esc(orig.fsId)}` : ''}
+                        </div>
+                        <div class="muted" style="font-size:11px;margin-top:2px;">
+                          ${orig.isoDate ? `Date: ${esc(orig.isoDate)}` : 'Undated'} ${orig.people && orig.people.length ? `· ${orig.people.length} relative(s)` : ''}
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+                        <button class="btn sm" type="button" data-open-lab="${esc(orig.id)}">Photo Lab</button>
+                        <button class="btn sm" type="button" data-swap-master="${esc(pair.pairKey)}" title="Swap: designate this copy as duplicate instead">
+                          Swap Master
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- DUPLICATE CARD -->
+                    <div class="dup-card" style="border:2px solid var(--border);border-radius:8px;padding:12px;background:var(--raised);">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <span class="pill neu" style="font-weight:600;background:var(--warn-bg, #fff3cd);color:var(--warn-text, #856404);border:1px solid var(--border);">⚠️ Duplicate / Secondary Copy</span>
+                        <span class="mono muted" style="font-size:11px;">${esc(copy.id)}</span>
+                      </div>
+                      <div class="spec-frame" style="height:200px;border-radius:6px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;cursor:pointer;" data-inspect-photo="${esc(copy.id)}">
+                        <img src="${esc(afterSrc(copy))}" alt="${esc(copy.title)}" style="max-height:100%;max-width:100%;object-fit:contain;${afterStyle(copy)}">
+                      </div>
+                      <div style="margin-top:10px;">
+                        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(copy.file)}">${esc(copy.file)}</div>
+                        <div class="mono muted" style="font-size:11px;margin-top:2px;">
+                          ${copy.width}×${copy.height} · ${copy.kb} KB · Duplicate copy
+                        </div>
+                        <div class="muted" style="font-size:11px;margin-top:2px;">
+                          ${copy.isoDate ? `Date: ${esc(copy.isoDate)}` : 'Undated'}
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+                        <button class="btn primary sm" type="button" data-stage-dup="${esc(pair.pairKey)}" title="Move duplicate copy to Review &amp; Cleanup">
+                          Move Duplicate to Review
+                        </button>
+                        <button class="btn danger sm" type="button" data-delete-dup="${esc(copy.id)}" title="Permanently delete duplicate copy">
+                          <span data-icon="trash"></span> Delete Duplicate
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>`;
+              };
+
+              const singlePair = dupPairs[currentDupPairIndex] || dupPairs[0];
 
               host.innerHTML = `
-            <div class="panel">
-              <div class="panel-head">
-                <div>
-                  <h2 style="margin:0;">Duplicate pair 1 of ${dupPairs.length} — ${pair.matchPct}% match</h2>
-                  <p class="muted" style="font-size:12px;margin-top:3px;">${esc(pair.reason)}</p>
-                </div>
-                <span class="pill warn">Safe staging to Review &amp; Cleanup</span>
-              </div>
-              <div class="dup-pair">
-                <div class="dup-card">
-                  <div class="spec-frame"><img src="${esc(afterSrc(orig))}" alt="${esc(orig.title)}" style="${afterStyle(orig)}"></div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span class="mono">${esc(orig.id)} · ${orig.width}×${orig.height}</span>
-                    <span class="pill pos">Recommended master</span>
+                <div class="panel" style="margin-bottom:14px;padding:16px 18px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:22px;">🔍</span>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates (${dupPairs.length} pair${dupPairs.length === 1 ? '' : 's'} detected)</h2>
+                      </div>
+                      <p class="muted" style="font-size:13px;margin-top:4px;">
+                        Comparing twin scans, matching filenames, and identical files. Safely move duplicate copies to Review &amp; Cleanup or delete them below.
+                      </p>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                      <div class="btn-group" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                        <button class="btn sm ${dupViewMode === 'all' ? 'primary' : ''}" type="button" id="btn-dup-mode-all">Show All (${dupPairs.length})</button>
+                        <button class="btn sm ${dupViewMode === 'single' ? 'primary' : ''}" type="button" id="btn-dup-mode-single">Pair-by-Pair</button>
+                      </div>
+                      <button class="btn primary sm" type="button" id="btn-stage-all-dups" title="Move duplicate copies from all ${dupPairs.length} pairs to Review &amp; Cleanup">
+                        Move All to Review (${dupPairs.length})
+                      </button>
+                      <button class="btn danger sm" type="button" id="btn-delete-all-dups" title="Permanently delete duplicate copies from all ${dupPairs.length} pairs">
+                        <span data-icon="trash"></span> Delete All Duplicates
+                      </button>
+                    </div>
                   </div>
-                  <p style="font-weight:500;margin-top:6px;">${esc(orig.file)}</p>
-                  <p class="muted" style="font-size:12px;margin-top:2px;">${orig.kb} KB ${orig.fsId ? `· Synced to FamilySearch (${esc(orig.fsId)})` : ''}</p>
                 </div>
-                <div class="dup-card">
-                  <div class="spec-frame"><img src="${esc(afterSrc(copy))}" alt="${esc(copy.title)}" style="${afterStyle(copy)}"></div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span class="mono">${esc(copy.id)} · ${copy.width}×${copy.height}</span>
-                    <span class="pill neu">Lower-res / duplicate copy</span>
+
+                ${dupViewMode === 'single' ? `
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;background:var(--surface);padding:8px 12px;border-radius:8px;border:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+                    <button class="btn sm" type="button" id="btn-prev-dup" ${currentDupPairIndex <= 0 ? 'disabled' : ''}>← Previous Pair</button>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:13px;font-weight:600;">Pair ${currentDupPairIndex + 1} of ${dupPairs.length}</span>
+                      <select id="select-dup-pair" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--raised);color:var(--text);">
+                        ${dupPairs.map((dp, idx) => `<option value="${idx}" ${idx === currentDupPairIndex ? 'selected' : ''}>Pair ${idx + 1}: ${esc(dp.orig.file)} vs ${esc(dp.copy.file)} (${dp.matchPct}%)</option>`).join('')}
+                      </select>
+                    </div>
+                    <button class="btn sm" type="button" id="btn-next-dup" ${currentDupPairIndex >= dupPairs.length - 1 ? 'disabled' : ''}>Next Pair →</button>
                   </div>
-                  <p style="font-weight:500;margin-top:6px;">${esc(copy.file)}</p>
-                  <p class="muted" style="font-size:12px;margin-top:2px;">${copy.kb} KB · Duplicate copy</p>
-                </div>
-              </div>
-              <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
-                <button class="btn primary" type="button" id="btn-keep-master">Keep ${orig.width}×${orig.height} master &amp; stage copy in Review</button>
-                <button class="btn" type="button" id="btn-ignore-dup">Keep both prints as distinct</button>
-              </div>
-            </div>`;
-              host.querySelector('#btn-keep-master').onclick = () => {
-                copy.inReview = true;
-                saveItemMetadata(copy);
-                try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
-                notify(`Kept ${orig.id} master; moved ${copy.id} to Review & Cleanup.`);
-                render();
-              };
-              host.querySelector('#btn-ignore-dup').onclick = () => {
-                if (!ignoredDupPairKeys) ignoredDupPairKeys = new Set();
-                ignoredDupPairKeys.add(pair.pairKey || `${orig.id}_${copy.id}`);
-                duplicateResolved = true;
-                notify(`Marked ${orig.id} and ${copy.id} as distinct prints.`);
-                render();
-              };
+                  ${renderPairCard(singlePair, currentDupPairIndex)}
+                ` : `
+                  ${dupPairs.map((pair, idx) => renderPairCard(pair, idx)).join('')}
+                `}
+              `;
+              mountIcons(host);
+
+              const btnDupAll = host.querySelector('#btn-dup-mode-all');
+              if (btnDupAll) btnDupAll.onclick = () => { dupViewMode = 'all'; render(); };
+              const btnDupSingle = host.querySelector('#btn-dup-mode-single');
+              if (btnDupSingle) btnDupSingle.onclick = () => { dupViewMode = 'single'; render(); };
+
+              const btnPrevDup = host.querySelector('#btn-prev-dup');
+              if (btnPrevDup) btnPrevDup.onclick = () => { if (currentDupPairIndex > 0) { currentDupPairIndex--; render(); } };
+              const btnNextDup = host.querySelector('#btn-next-dup');
+              if (btnNextDup) btnNextDup.onclick = () => { if (currentDupPairIndex < dupPairs.length - 1) { currentDupPairIndex++; render(); } };
+
+              const selectDup = host.querySelector('#select-dup-pair');
+              if (selectDup) selectDup.onchange = (e) => { currentDupPairIndex = parseInt(e.target.value, 10) || 0; render(); };
+
+              const stageAllDupsBtn = host.querySelector('#btn-stage-all-dups');
+              if (stageAllDupsBtn) stageAllDupsBtn.onclick = stageAllDuplicates;
+              const deleteAllDupsBtn = host.querySelector('#btn-delete-all-dups');
+              if (deleteAllDupsBtn) deleteAllDupsBtn.onclick = deleteAllDuplicates;
+
+              host.querySelectorAll('[data-stage-dup]').forEach((btn) => {
+                btn.onclick = () => {
+                  const pk = btn.getAttribute('data-stage-dup');
+                  const p = dupPairs.find((x) => x.pairKey === pk);
+                  if (p && p.copy) {
+                    p.copy.inReview = true;
+                    saveItemMetadata(p.copy);
+                    try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
+                    notify(`Kept master ${p.orig.id}; moved duplicate ${p.copy.id} to Review & Cleanup.`);
+                    render();
+                  }
+                };
+              });
+
+              host.querySelectorAll('[data-delete-dup]').forEach((btn) => {
+                btn.onclick = () => {
+                  const id = btn.getAttribute('data-delete-dup');
+                  deletePhoto(id);
+                };
+              });
+
+              host.querySelectorAll('[data-ignore-dup]').forEach((btn) => {
+                btn.onclick = () => {
+                  const pk = btn.getAttribute('data-ignore-dup');
+                  if (!ignoredDupPairKeys) ignoredDupPairKeys = new Set();
+                  ignoredDupPairKeys.add(pk);
+                  duplicateResolved = true;
+                  notify('Marked prints as distinct photos in album.');
+                  render();
+                };
+              });
+
+              host.querySelectorAll('[data-swap-master]').forEach((btn) => {
+                btn.onclick = () => {
+                  const pk = btn.getAttribute('data-swap-master');
+                  const p = dupPairs.find((x) => x.pairKey === pk);
+                  if (p) {
+                    pairSwaps.set(pk, p.copy.id);
+                    notify('Swapped master copy preference.');
+                    render();
+                  }
+                };
+              });
+
+              host.querySelectorAll('[data-open-lab]').forEach((btn) => {
+                btn.onclick = () => {
+                  openPhotoLab(btn.getAttribute('data-open-lab'), 'restore');
+                };
+              });
+
+              host.querySelectorAll('[data-inspect-photo]').forEach((el) => {
+                el.onclick = () => {
+                  selectedId = el.getAttribute('data-inspect-photo');
+                  renderInspector();
+                  if (isMobile()) openMobileInspector();
+                };
+              });
+
               return;
             }
 
@@ -4862,6 +5099,34 @@
                     <button class="btn sm" type="button" style="margin-top:16px;" id="btn-review-see-all">Return to all prints</button>
                   </div>`;
                 const seeAllBtn = host.querySelector('#btn-review-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
+                return;
+              }
+              if (activeQueue === 'with_people') {
+                host.innerHTML = `
+                  <div class="panel" style="padding:32px 20px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:8px;">👥</div>
+                    <p style="font-weight:600;font-size:16px;">No Photos With People Detected</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
+                      No relatives or faces are currently tagged in active photos. Tag individuals in any photo to populate this queue.
+                    </p>
+                    <button class="btn sm" type="button" style="margin-top:16px;" id="btn-people-see-all">Return to all prints</button>
+                  </div>`;
+                const seeAllBtn = host.querySelector('#btn-people-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
+                return;
+              }
+              if (activeQueue === 'no_people') {
+                host.innerHTML = `
+                  <div class="panel" style="padding:32px 20px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:8px;">🏞️</div>
+                    <p style="font-weight:600;font-size:16px;">No Scenery or Document Photos</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
+                      All current photos have relatives or faces tagged. Scenery, certificates, buildings, and objects will appear here.
+                    </p>
+                    <button class="btn sm" type="button" style="margin-top:16px;" id="btn-no-people-see-all">Return to all prints</button>
+                  </div>`;
+                const seeAllBtn = host.querySelector('#btn-no-people-see-all');
                 if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
                 return;
               }
@@ -4918,6 +5183,24 @@
                     <span data-icon="trash"></span> Empty Review &amp; Delete All
                   </button>
                 </div>
+              </div>` : (activeQueue === 'with_people') ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:20px;">👥</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Photos With People (${list.length})</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Portraits, family reunions, and photos with tagged or recognized relatives.</div>
+                  </div>
+                </div>
+              </div>` : (activeQueue === 'no_people') ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:20px;">🏞️</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Photos With No People (${list.length})</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Scenery, historical homes, cemetery markers, documents, certificates, and heirlooms.</div>
+                  </div>
+                </div>
               </div>` : '';
 
             /* Batch navigator toolbar for local folders with many photos */
@@ -4967,7 +5250,7 @@
                     <th>Date</th>
                     <th>Scan &amp; repairs</th>
                     <th>FamilySearch</th>
-                    <th class="n">${activeQueue === 'screenshots' ? 'Clean &amp; Actions' : (activeQueue === 'review' ? 'Review &amp; Actions' : 'Photo Lab')}</th>
+                    <th class="n">Actions &amp; Lab</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -5009,16 +5292,13 @@
                           ${p.fsSynced ? `<span class="pill pos">${esc(p.fsId)}</span>` : `<span class="pill neu">Pending</span>`}
                         </td>
                         <td class="n" style="white-space:nowrap;">
-                          ${activeQueue === 'screenshots' ? `
-                            <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Move to Review &amp; Cleanup">Move to Review</button>
-                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Delete screenshot">Delete</button>
-                            <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Lab</button>
-                          ` : activeQueue === 'review' ? `
+                          ${p.inReview ? `
                             <button class="btn sm primary" type="button" data-restore-review="${esc(p.id)}" title="Restore back to active album">✓ Restore</button>
-                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete">Delete</button>
+                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete this photo">Delete</button>
                           ` : `
                             <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Safely move to Review &amp; Cleanup">Review</button>
-                            <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Open Lab</button>
+                            <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete this photo">Delete</button>
+                            <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Lab</button>
                           `}
                         </td>
                       </tr>
@@ -5087,15 +5367,14 @@
                     <div class="spec-title">${esc(p.title)}</div>
                     <div class="spec-foot" style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap;">
                       <span class="muted" style="font-size:12px;">${p.isoDate ? esc(p.isoDate) : 'Undated'}</span>
-                      <div style="display:flex;gap:4px;">
-                        ${activeQueue === 'screenshots' ? `
-                          <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Move to Review &amp; Cleanup">Review</button>
-                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Delete screenshot">Delete</button>
-                        ` : activeQueue === 'review' ? `
+                      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                        ${p.inReview ? `
                           <button class="btn sm primary" type="button" data-restore-review="${esc(p.id)}" title="Restore to album">✓ Restore</button>
-                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete">Delete</button>
+                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete this photo">Delete</button>
                         ` : `
-                          <button class="btn sm" type="button" data-open-lab="${esc(p.id)}">Photo Lab</button>
+                          <button class="btn sm" type="button" data-stage-review="${esc(p.id)}" title="Move to Review &amp; Cleanup">Review</button>
+                          <button class="btn sm danger" type="button" data-delete-photo="${esc(p.id)}" title="Permanently delete this photo">Delete</button>
+                          <button class="btn sm" type="button" data-open-lab="${esc(p.id)}" title="Open in Photo Lab">Lab</button>
                         `}
                       </div>
                     </div>
@@ -6905,12 +7184,15 @@
             </div>
           </div>
 
-          ${p.screenshot ? `
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
-              <span style="font-size:12px;color:var(--text);">📱 Flagged as screenshot</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+            ${isScreenshotPhoto(p) ? `
+              <span style="font-size:12px;color:var(--text);font-weight:500;">📱 Flagged as screenshot</span>
               <button class="link-btn" type="button" id="btn-unflag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">Keep as family photo</button>
-            </div>
-          ` : ''}
+            ` : `
+              <span style="font-size:12px;color:var(--muted);">${hasPeople(p) ? '👥 Category: Photo with people' : '🏞️ Category: Scenery / Document'}</span>
+              <button class="link-btn" type="button" id="btn-flag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">📱 Flag as screenshot</button>
+            `}
+          </div>
 
           <div class="field">
             <label for="f-story">Back-of-print memory</label>
@@ -7740,8 +8022,21 @@
             if (unflagBtn) {
               unflagBtn.onclick = () => {
                 p.screenshot = false;
+                p.isScreenshotManual = false;
                 saveItemMetadata(p);
+                try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
                 notify(`Unflagged ${p.id} as screenshot; kept as active family photo.`);
+                render();
+              };
+            }
+            const flagBtn = box.querySelector('#btn-flag-screenshot');
+            if (flagBtn) {
+              flagBtn.onclick = () => {
+                p.screenshot = true;
+                p.isScreenshotManual = true;
+                saveItemMetadata(p);
+                try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
+                notify(`Flagged ${p.id} as screenshot; moved to Clean screenshots queue.`);
                 render();
               };
             }
@@ -12679,7 +12974,7 @@
             fsSynced: false,
             fsMemoryId: '',
             inReview: false,
-            screenshot: /screen|capture|snap/i.test(file.name),
+            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width, height, mimeType: file.type }),
             crop: '50% 50%',
             scale: 1,
             filter: 'none',
@@ -13108,7 +13403,7 @@
             fsSynced: false,
             fsMemoryId: '',
             inReview: false,
-            screenshot: /screen|capture|snap/i.test(file.name),
+            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width, height, mimeType: file.type }),
             crop: '50% 50%',
             scale: 1,
             filter: 'none',
