@@ -10444,6 +10444,15 @@
               <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
               <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
             </div>
+
+            <div style="margin-top:8px;padding:8px;border-radius:6px;background:rgba(99,102,241,0.08);border:1px dashed rgba(99,102,241,0.3);">
+              <div style="font-size:11px;color:var(--text);font-weight:600;margin-bottom:4px;" id="adv-options-hint">
+                💡 Checkboxes configure the restoration engine. Click below to apply them:
+              </div>
+              <button class="btn accent sm" type="button" id="btn-apply-advanced-now" style="width:100%;font-weight:600;">
+                ⚡ Apply Checked Options Now
+              </button>
+            </div>
             <button class="btn" type="button" id="btn-restore-snow" style="width:100%;margin-top:10px;font-weight:600;border-color:rgba(56,189,248,0.5);color:var(--text);" title="Erase white dots, snow specks &amp; pebble/silk paper flash glare across the whole photo">
               ❄️ 1-Click Remove White Dots / Snow Specks
             </button>
@@ -10586,13 +10595,55 @@
             p.fidelity = Number(e.target.value);
             body.querySelector('#val-fid').textContent = `${p.fidelity}%`;
           };
-          body.querySelector('#chk-scratch').onchange = (e) => { p.scratchesFixed = e.target.checked; };
+          const updateAdvCheckFeedback = (label, isChecked) => {
+            const hint = body.querySelector('#adv-options-hint');
+            if (hint) {
+              hint.innerHTML = `<span style="color:var(--accent);">✓ ${label} ${isChecked ? 'enabled' : 'disabled'}.</span> Click below or "Restore Photo to 4K" above to run.`;
+            }
+            const runBtn = body.querySelector('#btn-run-master-restore');
+            if (runBtn && !runBtn.disabled) {
+              runBtn.textContent = `✨ Restore Photo with Checked Options (${targetW}×${targetH})`;
+            }
+            notify(`${label} ${isChecked ? 'turned on' : 'turned off'} — click "Apply Checked Options Now" or "Restore to 4K" to run.`);
+          };
+
+          body.querySelector('#chk-scratch').onchange = (e) => {
+            p.scratchesFixed = e.target.checked;
+            updateAdvCheckFeedback('Repair dust & emulsion pits', e.target.checked);
+          };
           body.querySelector('#chk-defade').onchange = (e) => {
             p.tone.defade = e.target.checked;
             updateLabStageLive(p);
+            updateAdvCheckFeedback('Defade 1970s–80s cast', e.target.checked);
           };
-          body.querySelector('#chk-descreen').onchange = (e) => { p.descreen = e.target.checked; };
-          body.querySelector('#chk-deglare').onchange = (e) => { p.deglare = e.target.checked; };
+          body.querySelector('#chk-descreen').onchange = (e) => {
+            p.descreen = e.target.checked;
+            updateAdvCheckFeedback('Descreen newspaper dots', e.target.checked);
+          };
+          body.querySelector('#chk-deglare').onchange = (e) => {
+            p.deglare = e.target.checked;
+            updateAdvCheckFeedback('Suppress flash glare', e.target.checked);
+          };
+
+          const btnApplyAdv = body.querySelector('#btn-apply-advanced-now');
+          if (btnApplyAdv) {
+            btnApplyAdv.onclick = async () => {
+              btnApplyAdv.disabled = true;
+              btnApplyAdv.textContent = 'Applying options...';
+              try {
+                await runCanvas4KRestore(p, (stageMsg) => {
+                  btnApplyAdv.textContent = stageMsg;
+                });
+                notify(`Applied checked restoration options to ${p.id}!`);
+                renderPhotoLab();
+              } catch (err) {
+                notify('Could not apply options: ' + (err?.message || 'Error'));
+              } finally {
+                btnApplyAdv.disabled = false;
+                btnApplyAdv.textContent = '⚡ Apply Checked Options Now';
+              }
+            };
+          }
 
           const btnRestSnow = body.querySelector('#btn-restore-snow');
           if (btnRestSnow) {
