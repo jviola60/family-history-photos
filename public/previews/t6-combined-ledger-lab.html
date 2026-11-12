@@ -3488,7 +3488,8 @@
 
       /* Photo Lab interactive states */
       let activeTool = 'restore';  // 'restore' | 'color' | 'tone' | 'crop' | 'erase' | 'redeye'
-      let compareMode = 'split';   // 'split' | 'side' | 'after'
+      let compareMode = 'split';
+      let isAdvancedPanelOpen = false;   // 'split' | 'side' | 'after'
       let splitPct = 50;
       let zoom = 1;
       let panX = 0;
@@ -8265,6 +8266,8 @@
                     compareMode = 'edited';
                   }
                 }
+                compareMode = 'split';
+                splitPct = 50;
                 await res.actionFn();
                 notify(`Applied ${res.actionLabel.replace(/^[^a-zA-Z0-9]+/, '')} to ${p.id}.`);
               } catch (err) {
@@ -8290,11 +8293,58 @@
         return null;
       }
 
-      function loadImageElement(src) {
+      function loadImageElement(src, photoObj = null) {
+        const stageImg = document.getElementById('stage-after-img') || document.getElementById('stage-before-img');
+        if (stageImg && stageImg.complete && stageImg.naturalWidth > 0) {
+          if (!src || stageImg.src === src || stageImg.getAttribute('src') === src) {
+            return Promise.resolve(stageImg);
+          }
+        }
+        if (!src && photoObj) {
+          src = photoObj.workingSrc || photoObj.src || 'sample.jpg';
+        }
+        if (!src) src = 'sample.jpg';
+
         return new Promise((resolve, reject) => {
           const img = new Image();
+          if (typeof src === 'string' && !src.startsWith('data:') && !src.startsWith('blob:')) {
+            img.crossOrigin = 'anonymous';
+          }
+          const tryFallback = () => {
+            if (photoObj && photoObj.fileBlob) {
+              try {
+                const freshUrl = URL.createObjectURL(photoObj.fileBlob);
+                photoObj.src = freshUrl;
+                const blobImg = new Image();
+                blobImg.onload = () => resolve(blobImg);
+                blobImg.onerror = () => {
+                  if (stageImg && stageImg.complete && stageImg.naturalWidth > 0) resolve(stageImg);
+                  else reject(new Error('Failed to load image element'));
+                };
+                blobImg.src = freshUrl;
+                return true;
+              } catch (_) {}
+            }
+            if (stageImg && stageImg.complete && stageImg.naturalWidth > 0) {
+              resolve(stageImg);
+              return true;
+            }
+            return false;
+          };
+
           img.onload = () => resolve(img);
-          img.onerror = reject;
+          img.onerror = () => {
+            if (img.crossOrigin) {
+              const retry = new Image();
+              retry.onload = () => resolve(retry);
+              retry.onerror = () => {
+                if (!tryFallback()) reject(new Error('Failed to load image element'));
+              };
+              retry.src = src;
+            } else {
+              if (!tryFallback()) reject(new Error('Failed to load image element'));
+            }
+          };
           img.src = src;
         });
       }
@@ -9418,6 +9468,66 @@
         return { spotsHealed, isAutoSpotted, hasVintageWarmFade };
       }
 
+      /* Dedicated Applied Repairs Pass for Checked Options:
+         Runs checked repair options (dust specks, 1970s-80s defade, flash glare, descreen, de-blur)
+         and ensures human-readable labels, edit counter increment, and split curtain display */
+      async function runCanvasApplyAdvancedOptions(p, onStageProgress = null) {
+        if (!p) p = currentPhoto();
+        if (!p) return null;
+
+        const chkScratch = document.getElementById('chk-scratch');
+        if (chkScratch) p.scratchesFixed = chkScratch.checked;
+        const chkDefade = document.getElementById('chk-defade');
+        if (chkDefade) p.tone.defade = chkDefade.checked;
+        const chkDescreen = document.getElementById('chk-descreen');
+        if (chkDescreen) p.descreen = chkDescreen.checked;
+        const chkDeglare = document.getElementById('chk-deglare');
+        if (chkDeglare) p.deglare = chkDeglare.checked;
+        const rngSpot = document.getElementById('rng-spot');
+        if (rngSpot) p.spotRemove = Number(rngSpot.value);
+        const rngDenoise = document.getElementById('rng-denoise');
+        if (rngDenoise) p.denoise = Number(rngDenoise.value);
+        const rngFid = document.getElementById('rng-fid');
+        if (rngFid) p.fidelity = Number(rngFid.value);
+        const selTarget = document.getElementById('lab-upscale-target');
+        if (selTarget) p.upscaleTarget = selTarget.value;
+
+        const diag = await runCanvas4KRestore(p, onStageProgress);
+
+        const applied = [];
+        if (p.scratchesFixed || (typeof p.spotRemove === 'number' && p.spotRemove > 0)) {
+          applied.push('Dust & Specks');
+        }
+        if (p.tone.defade) {
+          applied.push('1970s–80s Defade');
+        }
+        if (p.deglare) {
+          applied.push('Flash Glare Suppressed');
+        }
+        if (p.descreen) {
+          applied.push('Descreened');
+        }
+        if (p.denoise > 0) {
+          applied.push(`Denoise ${p.denoise}%`);
+        }
+        const upMode = p.upscaleTarget || '4k';
+        if (upMode === '2x') applied.push('2× Super-Res');
+        else if (upMode === '4k') applied.push('4K Ultra HD');
+
+        const editLabel = applied.length > 0 ? `Applied: ${applied.join(' + ')}` : 'Advanced Repairs Applied';
+        p.edits.push(editLabel);
+
+        isAdvancedPanelOpen = true;
+        compareMode = 'split';
+        splitPct = 50;
+
+        try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        renderSidebarCounts();
+        renderPhotoLab();
+        return { diag, label: editLabel };
+      }
+
+
       /* 1B. Deep Neural AI Face & 4K Reconstruction (Pre-cleans white dots & fade FIRST, then runs CodeFormer / Clarity GPU AI) */
       async function runDeepAi4KRestore(p, aiMode = 'cloud', onStageProgress = null) {
         const bridge = window.ArchivalAiBridge;
@@ -10373,122 +10483,117 @@
           const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
 
           body.innerHTML = `
-            <p class="muted" style="font-size:12px;margin-bottom:8px;">Erases white dots &amp; dust specks first, restores faded 1970s–80s shadows, de-blurs soft lenses, and adds clean 4K super-resolution pixels.</p>
-            <div class="field" style="margin-top:0;margin-bottom:10px;">
-              <label>Quick 1-Click Photo Mode</label>
+            <!-- 1. Master 1-Click Auto-Restore (The Automated Path) -->
+            <div class="field" style="margin-top:0;margin-bottom:14px;">
+              <button class="btn primary" type="button" id="btn-run-master-restore"
+                style="width:100%;font-size:13.5px;font-weight:700;padding:12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;border-radius:8px;box-shadow:0 3px 10px rgba(37,99,235,0.35);cursor:pointer;"
+                title="Cleans grain and specks, protects faces, fixes faded color, and adds 4K pixels in one step.">
+                ${p.restored4k ? `✨ Re-Run Full 4K Restore (${targetW}×${targetH})` : `✨ 1-Click Auto-Restore to 4K (${targetW}×${targetH})`}
+              </button>
+              <p class="muted" style="font-size:11.5px;margin:5px 0 0 0;text-align:center;">
+                Auto-heals dust &amp; dots, balances faded tones, sharpens faces &amp; upscales to 4K.
+              </p>
+            </div>
+
+            <!-- 2. Instant 1-Click Quick Repairs -->
+            <div class="field" style="margin-top:0;margin-bottom:14px;">
+              <label style="font-size:12px;font-weight:700;">1-Click Quick Repairs</label>
               <div style="display:flex;flex-direction:column;gap:6px;">
-                <button class="btn ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84"
+                <button class="btn" type="button" id="btn-preset-wedding84"
                   style="text-align:left;white-space:normal;height:auto;padding:8px 10px;line-height:1.3;width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:2px;border-radius:6px;box-sizing:border-box;"
-                  title="Smooth natural facial features, cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
-                  <span style="font-weight:700;font-size:12px;">👰 1980s Wedding / Portrait</span>
+                  title="Cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
+                  <span style="font-weight:700;font-size:12px;">👰 1980s Wedding / Portrait Fix</span>
                   <span style="font-size:11px;font-weight:normal;opacity:0.85;">Cleans yellowed paper, flash shadows &amp; dark clothes</span>
                 </button>
                 <div class="preset-grid-2" style="gap:6px;">
-                  <button class="btn ${p.model === 'smoothport' ? 'accent' : ''}" type="button" id="btn-preset-smoothport"
-                    style="white-space:normal;height:auto;padding:7px 8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
+                  <button class="btn" type="button" id="btn-preset-smoothport"
+                    style="white-space:normal;height:auto;padding:8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
                     title="Best for compressed digital photos, thumbnails &amp; small scans: smooths grain, eliminates pixelation, keeps natural photographic tone">
                     🛡️ Smooth &amp; Anti-Pixel
                   </button>
-                  <button class="btn ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s"
-                    style="white-space:normal;height:auto;padding:7px 8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
+                  <button class="btn" type="button" id="btn-preset-vintage80s"
+                    style="white-space:normal;height:auto;padding:8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
                     title="Best for 1960s–1990s prints with white dots, snow specks &amp; paper dust">
-                    🕰️ 1960s–90s Spotted
+                    ❄️ Erase Specks &amp; Dots
                   </button>
                 </div>
               </div>
             </div>
-            <div style="padding:8px 10px;border-radius:7px;background:var(--raised);border:1px solid var(--border);margin-bottom:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-              <div>
-                <div style="font-weight:700;color:var(--text);" id="upscale-readout-dims">${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span></div>
-                <div class="muted" style="font-size:11px;margin-top:2px;" id="upscale-readout-note">${Number(addedPixelsM) > 0 ? `+${addedPixelsM} million clean pixels · dots & grain cleaned BEFORE upscaling` : 'Native dimensions · dot removal, grain cleanup & de-blur pass'}</div>
-              </div>
-            </div>
-            <div class="field" style="margin-top:0;">
-              <label for="lab-upscale-target">Upscale &amp; pixel resolution</label>
-              <select id="lab-upscale-target">
-                <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Add pixels up to 3840 px (Recommended)</option>
-                <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double width &amp; height (4× pixels)</option>
-                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size (1×) — Erase dots, smooth grain &amp; de-blur only</option>
+
+            <!-- 3. Output Resolution -->
+            <div class="field" style="margin-top:0;margin-bottom:14px;">
+              <label for="lab-upscale-target" style="font-size:12px;font-weight:700;">Output Resolution</label>
+              <select id="lab-upscale-target" style="width:100%;font-size:12.5px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-weight:600;">
+                <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Up to 3840 px (Recommended)</option>
+                <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double pixels</option>
+                <option value="1x" ${upTarget === '1x' ? 'selected' : ''}>Original Size — Clean dots &amp; sharpen only</option>
               </select>
-            </div>
-            <div class="field" style="margin-top:8px;">
-              <label for="lab-model">Restoration profile</label>
-              <select id="lab-model">
-                <option value="vintage80s" ${p.model === 'vintage80s' ? 'selected' : ''}>1970s–80s Vintage Print — Heavy white-dot erase + fade &amp; focus fix</option>
-                <option value="gfpgan" ${p.model === 'gfpgan' ? 'selected' : ''}>Portrait &amp; Faces — Silky skin + crisp eyes &amp; hair</option>
-                <option value="codeformer" ${p.model === 'codeformer' ? 'selected' : ''}>Balanced Family Print — Smooth grain + natural detail</option>
-                <option value="fal" ${p.model === 'fal' ? 'selected' : ''}>High-Definition Clarity — Crisp group &amp; scenery detail</option>
-              </select>
-            </div>
-            <div class="slider-row">
-              <div class="slider-head">
-                <span>Erase white dots, dust &amp; snow spots</span>
-                <span class="mono" style="display:inline-flex;align-items:center;gap:6px;">
-                  <span id="val-spot">${spotVal < 0 ? 'Smart Auto' : `${spotVal}%`}</span>
-                  <button type="button" id="btn-spot-auto" style="display:${spotVal < 0 ? 'none' : 'inline-block'};font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;">Auto</button>
-                </span>
+              <div class="muted" style="font-size:11.5px;margin-top:5px;" id="upscale-readout-dims">
+                ${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span>
               </div>
-              <input type="range" id="rng-spot" min="0" max="100" value="${spotSliderPos}">
-            </div>
-            <div class="slider-row">
-              <div class="slider-head"><span>Smooth grain &amp; JPEG noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
-              <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
-            </div>
-            <div class="slider-row">
-              <div class="slider-head"><span>Optical de-blur &amp; face crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
-              <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
-            </div>
-            <div style="margin-top:10px;">
-              <label class="check-row"><span>Repair dust &amp; emulsion pits</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
-              <label class="check-row"><span>Defade 1970s–80s cast &amp; shadows</span><input type="checkbox" id="chk-defade" ${(p.tone.defade || p.model === 'vintage80s') ? 'checked' : ''}></label>
-              <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
-              <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
             </div>
 
-            <div style="margin-top:8px;padding:8px;border-radius:6px;background:rgba(99,102,241,0.08);border:1px dashed rgba(99,102,241,0.3);">
-              <div style="font-size:11px;color:var(--text);font-weight:600;margin-bottom:4px;" id="adv-options-hint">
-                💡 Checkboxes configure the restoration engine. Click below to apply them:
-              </div>
-              <button class="btn accent sm" type="button" id="btn-apply-advanced-now" style="width:100%;font-weight:600;">
-                ⚡ Apply Checked Options Now
-              </button>
-            </div>
-            <button class="btn" type="button" id="btn-restore-snow" style="width:100%;margin-top:10px;font-weight:600;border-color:rgba(56,189,248,0.5);color:var(--text);" title="Erase white dots, snow specks &amp; pebble/silk paper flash glare across the whole photo">
-              ❄️ 1-Click Remove White Dots / Snow Specks
-            </button>
-            <button class="btn accent" type="button" id="btn-run-4k" style="width:100%;margin-top:8px;">
-              ${p.restored4k ? `✨ Re-run Clean 4K Restore (${targetW}×${targetH})` : `✨ Clean Dots & Upscale to ${targetW}×${targetH}`}
-            </button>
-
-            <details id="ai-deep-panel" ${hasFalKey ? 'open' : ''} style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);">
+            <details id="advanced-restore-panel" ${isAdvancedPanelOpen ? 'open' : ''} style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);margin-top:14px;">
               <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text);user-select:none;">
-                🧠 Very Blurry Faces? Deep AI Face &amp; 4K Rebuild ${hasFalKey ? '<span style="color:var(--positive);font-weight:700;">· Ready</span>' : '<span class="muted" style="font-weight:400;">(Optional)</span>'}
+                ⚙️ Advanced Manual Sliders &amp; Cloud AI (Optional)
               </summary>
-              <div style="margin-top:8px;font-size:11.5px;line-height:1.45;">
-                <p class="muted" style="margin:0 0 8px 0;">Adding pixels alone cannot invent missing eyes or eyelashes on out-of-focus 1980s photos. Deep AI cleans all white dots first, then uses GPU neural networks (<strong>CodeFormer</strong> / <strong>Clarity 4K</strong>) to rebuild blurry faces.</p>
-                <div id="local-ai-banner" style="display:none;margin-bottom:8px;padding:6px 8px;border-radius:6px;background:var(--pill-positive-bg);color:var(--pill-positive-ink);font-size:11px;">
-                  ✓ Offline Local AI Server detected on port 8008!
-                  <button class="btn sm" type="button" id="btn-run-local-ai" style="width:100%;margin-top:6px;">⚡ Run Offline Local AI Face &amp; 4K Rebuild</button>
-                </div>
-                <div class="field" style="margin-top:4px;">
-                  <label for="ai-cloud-model">Cloud AI GPU Model (Fal.ai)</label>
-                  <select id="ai-cloud-model">
-                    <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Rebuild Blurry Group &amp; Portrait Faces (~$0.002/photo)</option>
-                    <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative 4K Photo Detail (~$0.015/photo)</option>
-                    <option value="fal-ai/ccsr" ${selFalModel === 'fal-ai/ccsr' ? 'selected' : ''}>CCSR — Full-Photo 4K Super-Resolution (~$0.005/photo)</option>
-                  </select>
-                </div>
-                <div class="field" style="margin-top:6px;">
-                  <label for="ai-fal-key">Fal.ai API Key <span class="muted" style="font-weight:400;">(saved privately in your browser)</span></label>
-                  <div style="display:flex;gap:6px;">
-                    <input type="password" id="ai-fal-key" placeholder="Key_ID:Key_Secret from fal.ai/dashboard/keys" value="${esc(aiSaved.falApiKey || '')}" style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;">
-                    <button class="btn sm" type="button" id="btn-test-fal">Verify</button>
+              <div style="margin-top:10px;">
+                <div class="slider-row">
+                  <div class="slider-head">
+                    <span>Erase white dots &amp; snow specks</span>
+                    <span class="mono" style="display:inline-flex;align-items:center;gap:6px;">
+                      <span id="val-spot">${spotVal < 0 ? 'Smart Auto' : `${spotVal}%`}</span>
+                      <button type="button" id="btn-spot-auto" style="display:${spotVal < 0 ? 'none' : 'inline-block'};font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;">Auto</button>
+                    </span>
                   </div>
-                  <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
+                  <input type="range" id="rng-spot" min="0" max="100" value="${spotSliderPos}">
                 </div>
-                <button class="btn primary" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
-                  🧠 Clean White Dots + AI Rebuild Faces to 4K
-                </button>
+                <div class="slider-row">
+                  <div class="slider-head"><span>Smooth grain &amp; noise</span><span class="mono" id="val-denoise">${denoiseVal}%</span></div>
+                  <input type="range" id="rng-denoise" min="0" max="100" value="${denoiseVal}">
+                </div>
+                <div class="slider-row">
+                  <div class="slider-head"><span>Optical de-blur &amp; face crispness</span><span class="mono" id="val-fid">${fidelityVal}%</span></div>
+                  <input type="range" id="rng-fid" min="15" max="100" value="${fidelityVal}">
+                </div>
+                <div style="margin-top:8px;">
+                  <label class="check-row"><span>Repair dust &amp; emulsion pits</span><input type="checkbox" id="chk-scratch" ${p.scratchesFixed ? 'checked' : ''}></label>
+                  <label class="check-row"><span>Defade 1970s–80s cast &amp; shadows</span><input type="checkbox" id="chk-defade" ${(p.tone.defade || p.model === 'vintage80s') ? 'checked' : ''}></label>
+                  <label class="check-row"><span>Descreen newspaper / yearbook dots</span><input type="checkbox" id="chk-descreen" ${p.descreen ? 'checked' : ''}></label>
+                  <label class="check-row" style="border-bottom:0;"><span>Suppress glossy album flash glare</span><input type="checkbox" id="chk-deglare" ${p.deglare ? 'checked' : ''}></label>
+                </div>
+
+                <div style="margin-top:8px;padding:8px;border-radius:6px;background:rgba(99,102,241,0.08);border:1px dashed rgba(99,102,241,0.3);">
+                  <div style="font-size:11px;color:var(--text);font-weight:600;margin-bottom:4px;" id="adv-options-hint">
+                    💡 Checkboxes configure the restoration engine. Click below to apply them:
+                  </div>
+                  <button class="btn accent sm" type="button" id="btn-apply-advanced-now" style="width:100%;font-weight:600;">
+                    ⚡ Apply Checked Options Now
+                  </button>
+                </div>
+
+                <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+                  <div style="font-weight:600;font-size:12px;margin-bottom:6px;">🧠 Fal.ai Cloud AI (Optional)</div>
+                  <p class="muted" style="font-size:11px;margin:0 0 6px 0;">Use GPU neural networks (CodeFormer / Clarity 4K) to rebuild severely degraded portraits.</p>
+                  <div class="field" style="margin-top:4px;">
+                    <label for="ai-cloud-model">Model</label>
+                    <select id="ai-cloud-model">
+                      <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Face Restoration (~$0.002/photo)</option>
+                      <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative Detail (~$0.015/photo)</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-top:6px;">
+                    <label for="ai-fal-key">Fal.ai API Key</label>
+                    <div style="display:flex;gap:6px;">
+                      <input type="password" id="ai-fal-key" placeholder="Key_ID:Key_Secret" value="${esc(aiSaved.falApiKey || '')}" style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;">
+                      <button class="btn sm" type="button" id="btn-test-fal">Verify</button>
+                    </div>
+                    <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
+                  </div>
+                  <button class="btn accent sm" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
+                    🧠 Run Cloud AI Restore (Fal.ai)
+                  </button>
+                </div>
               </div>
             </details>
           `;
@@ -10498,83 +10603,126 @@
             p.upscaleTarget = modeVal;
             const { outW: tw, outH: th } = computeUpscaleTargetDims(baseW, baseH, modeVal);
             const tMp = ((tw * th) / 1e6).toFixed(1);
-            const addM = Math.max(0, ((tw * th) - (baseW * baseH)) / 1e6).toFixed(1);
             const dimsEl = body.querySelector('#upscale-readout-dims');
-            const noteEl = body.querySelector('#upscale-readout-note');
-            const runBtn = body.querySelector('#btn-run-4k');
+            const runBtn = body.querySelector('#btn-run-master-restore');
             if (dimsEl) {
-              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
-            }
-            if (noteEl) {
-              noteEl.textContent = Number(addM) > 0
-                ? `+${addM} million clean pixels · dots & grain cleaned BEFORE upscaling`
-                : 'Native dimensions · dot removal, grain cleanup & de-blur pass';
+              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
             }
             if (runBtn && !runBtn.disabled) {
               runBtn.textContent = p.restored4k
-                ? `✨ Re-run Clean 4K Restore (${tw}×${th})`
-                : `✨ Clean Dots & Upscale to ${tw}×${th}`;
+                ? `✨ Re-run Restore to ${tw}×${th}`
+                : `✨ Restore Photo to 4K (${tw}×${th})`;
             }
           };
 
+          const refreshUpscaleReadout = () => {
+            const modeVal = body.querySelector('#lab-upscale-target').value;
+            p.upscaleTarget = modeVal;
+            const { outW: tw, outH: th } = computeUpscaleTargetDims(baseW, baseH, modeVal);
+            const tMp = ((tw * th) / 1e6).toFixed(1);
+            const dimsEl = body.querySelector('#upscale-readout-dims');
+            const runBtn = body.querySelector('#btn-run-master-restore');
+            if (dimsEl) {
+              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
+            }
+            if (runBtn && !runBtn.disabled) {
+              runBtn.textContent = p.restored4k
+                ? `✨ Re-Run Full 4K Restore (${tw}×${th})`
+                : `✨ 1-Click Auto-Restore to 4K (${tw}×${th})`;
+            }
+          };
+
+          const targetSel = body.querySelector('#lab-upscale-target');
+          if (targetSel) {
+            targetSel.onchange = refreshUpscaleReadout;
+            targetSel.oninput = refreshUpscaleReadout;
+          }
+
+          // 1-Click Quick Repair Presets: Execute immediately on click!
           const btnWedding = body.querySelector('#btn-preset-wedding84');
           if (btnWedding) {
-            btnWedding.onclick = () => {
+            btnWedding.onclick = async () => {
+              btnWedding.disabled = true;
+              btnWedding.textContent = '⏳ Restoring Wedding Portrait...';
               p.model = 'wedding84';
-              p.spotRemove = 0;
-              p.denoise = 45;
-              p.fidelity = 70;
               p.scratchesFixed = false;
-              p.tone.defade = false;
-              p.upscaleTarget = '4k';
-              renderLabToolBody(p);
-              notify('Selected 1980s Wedding / Portrait mode (Smooth & Anti-Pixelated) — click "Restore Photo to 4K" to run!');
+              p.tone.defade = true;
+              try {
+                await runCanvas4KRestore(p, (msg) => { btnWedding.textContent = msg; });
+                p.edits.push('1980s Wedding Portrait Fix');
+                compareMode = 'split';
+                splitPct = 50;
+                try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+                renderSidebarCounts();
+                renderPhotoLab();
+                notify(`✓ Cleaned yellowing, shadows & trousers on ${p.id}! Drag split curtain to compare.`);
+              } catch (err) {
+                notify('Could not apply wedding fix: ' + (err?.message || 'Error'));
+                renderPhotoLab();
+              }
             };
           }
 
           const btnSmooth = body.querySelector('#btn-preset-smoothport');
           if (btnSmooth) {
-            btnSmooth.onclick = () => {
+            btnSmooth.onclick = async () => {
+              btnSmooth.disabled = true;
+              btnSmooth.textContent = '⏳ Smoothing Pixelation...';
               p.model = 'smoothport';
               p.spotRemove = 15;
               p.denoise = 72;
               p.fidelity = 55;
-              p.scratchesFixed = false;
-              p.tone.defade = false;
-              p.upscaleTarget = '4k';
-              renderLabToolBody(p);
-              notify('Selected Smooth & Anti-Pixelate mode — eliminates digital noise and compression blocks!');
+              try {
+                await runCanvas4KRestore(p, (msg) => { btnSmooth.textContent = msg; });
+                p.edits.push('Smooth & Anti-Pixelate');
+                compareMode = 'split';
+                splitPct = 50;
+                try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+                renderSidebarCounts();
+                renderPhotoLab();
+                notify(`✓ Smoothed digital pixelation & noise on ${p.id}! Drag split curtain to compare.`);
+              } catch (err) {
+                notify('Could not smooth photo: ' + (err?.message || 'Error'));
+                renderPhotoLab();
+              }
             };
           }
 
-          body.querySelector('#btn-preset-vintage80s').onclick = () => {
-            p.model = 'vintage80s';
-            p.spotRemove = 88;
-            p.denoise = 68;
-            p.fidelity = 78;
-            p.scratchesFixed = true;
-            p.tone.defade = true;
-            renderLabToolBody(p);
-            notify('Selected 1970s–80s Spotted Print mode — click "Clean Dots & Upscale" below!');
-          };
-          body.querySelector('#btn-preset-cleanport').onclick = () => {
-            p.model = 'gfpgan';
-            p.spotRemove = -1;
-            p.denoise = 62;
-            p.fidelity = 68;
-            p.tone.defade = false;
-            renderLabToolBody(p);
-          };
-
-          body.querySelector('#lab-upscale-target').onchange = refreshUpscaleReadout;
-          body.querySelector('#lab-model').onchange = (e) => {
-            p.model = e.target.value;
-            if (p.model === 'vintage80s' && (typeof p.spotRemove !== 'number' || p.spotRemove < 75)) {
+          const btnVintage = body.querySelector('#btn-preset-vintage80s');
+          if (btnVintage) {
+            btnVintage.onclick = async () => {
+              btnVintage.disabled = true;
+              btnVintage.textContent = '⏳ Healing White Specks...';
+              p.model = 'vintage80s';
               p.spotRemove = 88;
+              p.denoise = 60;
+              p.fidelity = 78;
+              p.scratchesFixed = true;
               p.tone.defade = true;
-            }
-            renderLabToolBody(p);
-          };
+              try {
+                const diag = await runCanvas4KRestore(p, (msg) => { btnVintage.textContent = msg; });
+                const dotsMsg = diag && diag.spotsHealed > 0 ? ` (${diag.spotsHealed.toLocaleString()} dots healed)` : '';
+                p.edits.push('Erase Specks & Dots');
+                compareMode = 'split';
+                splitPct = 50;
+                try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+                renderSidebarCounts();
+                renderPhotoLab();
+                notify(`✓ Healed specks & cleaned vintage print${dotsMsg} on ${p.id}! Drag split curtain to compare.`);
+              } catch (err) {
+                notify('Could not clean spotted print: ' + (err?.message || 'Error'));
+                renderPhotoLab();
+              }
+            };
+          }
+
+          const advPanel = body.querySelector('#advanced-restore-panel');
+          if (advPanel) {
+            advPanel.ontoggle = () => {
+              isAdvancedPanelOpen = advPanel.open;
+            };
+          }
+
           body.querySelector('#rng-spot').oninput = (e) => {
             p.spotRemove = Number(e.target.value);
             body.querySelector('#val-spot').textContent = `${p.spotRemove}%`;
@@ -10595,16 +10743,12 @@
             p.fidelity = Number(e.target.value);
             body.querySelector('#val-fid').textContent = `${p.fidelity}%`;
           };
+
           const updateAdvCheckFeedback = (label, isChecked) => {
             const hint = body.querySelector('#adv-options-hint');
             if (hint) {
-              hint.innerHTML = `<span style="color:var(--accent);">✓ ${label} ${isChecked ? 'enabled' : 'disabled'}.</span> Click below or "Restore Photo to 4K" above to run.`;
+              hint.innerHTML = `<span style="color:var(--accent);">✓ ${label} ${isChecked ? 'enabled' : 'disabled'}.</span> Click "Apply Checked Options Now" below to run.`;
             }
-            const runBtn = body.querySelector('#btn-run-master-restore');
-            if (runBtn && !runBtn.disabled) {
-              runBtn.textContent = `✨ Restore Photo with Checked Options (${targetW}×${targetH})`;
-            }
-            notify(`${label} ${isChecked ? 'turned on' : 'turned off'} — click "Apply Checked Options Now" or "Restore to 4K" to run.`);
           };
 
           body.querySelector('#chk-scratch').onchange = (e) => {
@@ -10629,15 +10773,19 @@
           if (btnApplyAdv) {
             btnApplyAdv.onclick = async () => {
               btnApplyAdv.disabled = true;
-              btnApplyAdv.textContent = 'Applying options...';
+              btnApplyAdv.textContent = '⏳ Applying Checked Options...';
+              const readout = document.getElementById('lab-status-readout');
+              if (readout) readout.textContent = 'Applying checked repairs...';
               try {
-                await runCanvas4KRestore(p, (stageMsg) => {
+                const res = await runCanvasApplyAdvancedOptions(p, (stageMsg) => {
                   btnApplyAdv.textContent = stageMsg;
+                  if (readout) readout.textContent = stageMsg;
                 });
-                notify(`Applied checked restoration options to ${p.id}!`);
-                renderPhotoLab();
+                notify(`✓ ${res?.label || 'Checked options'} applied to ${p.id}!`);
               } catch (err) {
+                console.error('Failed to apply advanced options:', err);
                 notify('Could not apply options: ' + (err?.message || 'Error'));
+                if (readout) readout.textContent = 'Error applying options: ' + (err?.message || 'Error');
               } finally {
                 btnApplyAdv.disabled = false;
                 btnApplyAdv.textContent = '⚡ Apply Checked Options Now';
@@ -10645,13 +10793,8 @@
             };
           }
 
-          const btnRestSnow = body.querySelector('#btn-restore-snow');
-          if (btnRestSnow) {
-            btnRestSnow.onclick = () => triggerPhotoLabSnowSpeckleClean(p);
-          }
-
-          body.querySelector('#btn-run-4k').onclick = async () => {
-            const btn = body.querySelector('#btn-run-4k');
+          body.querySelector('#btn-run-master-restore').onclick = async () => {
+            const btn = body.querySelector('#btn-run-master-restore');
             btn.disabled = true;
             btn.textContent = '1/3 Cleaning white dots, dust & grain...';
             try {
@@ -10660,12 +10803,15 @@
                 const ro = document.getElementById('lab-status-readout');
                 if (ro) ro.textContent = stageMsg;
               });
+              p.edits.push(p.upscaleTarget === '2x' ? '2× Super-Res Restore' : (p.upscaleTarget === '1x' ? 'Dots & Grain Cleaned' : '4K Master Restore'));
               try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+              compareMode = 'split';
+              splitPct = 50;
               const spotMsg = diag && diag.spotsHealed > 120
-                ? `healed ${diag.spotsHealed.toLocaleString()} spot pixels & upscaled`
-                : 'upscaled & restored';
-              document.getElementById('lab-status-readout').textContent = `✓ ${spotMsg.charAt(0).toUpperCase() + spotMsg.slice(1)} to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP)`;
-              notify(`✓ ${p.id}: ${spotMsg} to ${p.width}×${p.height} px!`);
+                ? `healed ${diag.spotsHealed.toLocaleString()} dots & restored`
+                : 'restored';
+              document.getElementById('lab-status-readout').textContent = `✓ ${spotMsg.charAt(0).toUpperCase() + spotMsg.slice(1)} to ${p.width}×${p.height} px (${((p.width * p.height) / 1e6).toFixed(1)} MP) — drag split curtain to compare`;
+              notify(`✓ ${p.id}: ${spotMsg} to ${p.width}×${p.height} px! Drag split curtain to compare.`);
               renderSidebarCounts();
               renderPhotoLab();
             } catch (_) {
