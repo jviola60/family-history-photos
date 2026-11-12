@@ -2780,6 +2780,22 @@
               <span class="pill info" id="lab-edit-badge">0 edits</span>
             </div>
 
+            <!-- Smart Photo Advisor Banner -->
+            <div id="lab-advisor-card" style="margin: 0 0 12px 0; padding: 10px 12px; border-radius: 8px; background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(124,58,237,0.08)); border: 1px solid rgba(99,102,241,0.25);">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--accent);">
+                <span>🔍 Smart Photo Diagnosis</span>
+                <span class="muted" style="font-size:10.5px;font-weight:normal;margin-left:auto;" id="lab-advisor-tag">Auto-analyzing...</span>
+              </div>
+              <div id="lab-advisor-diagnosis" style="font-size:12px;font-weight:600;color:var(--text);margin-top:4px;">
+                Checking photo condition...
+              </div>
+              <div id="lab-advisor-advice" class="muted" style="font-size:11px;margin-top:2px;">
+                Evaluating lighting, color casts, resolution &amp; grain...
+              </div>
+              <button type="button" id="btn-lab-advisor-action" class="btn primary sm" style="width:100%;margin-top:8px;font-size:11.5px;font-weight:600;display:none;">
+              </button>
+            </div>
+
             <!-- All 6 Archival Repair Engines in One Unified 3×2 Tab Grid -->
             <div class="tool-tabs" role="tablist" aria-label="Repair engines">
               <button class="tool-tab" type="button" role="tab" data-tool="restore" aria-selected="true">
@@ -8665,8 +8681,193 @@
           };
         });
 
-        /* Render Right-Hand Active Tool Controls */
+        /* Render Right-Hand Active Tool Controls & Smart Advisor */
+        updateLabAdvisor(p);
         renderLabToolBody(p);
+      }
+
+      /* Intelligent Photo Analyzer & Recommendation Engine */
+      async function analyzePhotoQuality(p) {
+        if (!p) return null;
+        try {
+          const img = await loadImageElement(afterSrc(p));
+          const w = img.naturalWidth || p.width || 800;
+          const h = img.naturalHeight || p.height || 600;
+          const sampleW = 160;
+          const sampleH = Math.max(120, Math.round((h / w) * 160));
+          const canvas = document.createElement('canvas');
+          canvas.width = sampleW;
+          canvas.height = sampleH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, sampleW, sampleH);
+          const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
+          const data = imgData.data;
+          const total = sampleW * sampleH;
+
+          let sumLum = 0, sumSat = 0, sumR = 0, sumG = 0, sumB = 0;
+          let botYellowCount = 0, botTotal = 0;
+          const hist = new Uint32Array(256);
+
+          for (let y = 0; y < sampleH; y++) {
+            const isBottom = y > sampleH * 0.60;
+            const row = y * sampleW;
+            for (let x = 0; x < sampleW; x++) {
+              const idx = (row + x) * 4;
+              const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+              const lum = (r * 77 + g * 150 + b * 29) >> 8;
+              const mx = Math.max(r, g, b);
+              const mn = Math.min(r, g, b);
+              const sat = mx - mn;
+
+              sumLum += lum;
+              sumSat += sat;
+              sumR += r;
+              sumG += g;
+              sumB += b;
+              hist[lum]++;
+
+              if (isBottom) {
+                botTotal++;
+                if (lum > 60 && r > b + 24 && g > b + 14) {
+                  botYellowCount++;
+                }
+              }
+            }
+          }
+
+          const avgLum = sumLum / total;
+          const avgSat = sumSat / total;
+          const avgR = sumR / total;
+          const avgG = sumG / total;
+          const avgB = sumB / total;
+
+          let acc = 0, p5 = 0, p95 = 255;
+          for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= total * 0.05) { p5 = i; break; } }
+          acc = 0;
+          for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= total * 0.05) { p95 = i; break; } }
+          const dynamicRange = p95 - p5;
+
+          const isBW = avgSat < 10;
+          const isDark = avgLum < 85 || (p5 < 10 && avgLum < 100);
+          const isWashedOut = dynamicRange < 110;
+          const hasRedFade = avgR > avgG + 20 && avgR > avgB + 28 && !isBW;
+          const hasBottomYellowing = (botYellowCount / botTotal) > 0.22 && !isBW;
+          const isSmall = Math.max(w, h) < 1400;
+
+          let diagnosis = '';
+          let advice = '';
+          let actionLabel = '';
+          let actionTab = 'restore';
+          let actionFn = null;
+
+          if (isBW) {
+            diagnosis = 'Black & White / Sepia print detected.';
+            advice = 'Colorize this portrait with authentic archival skin and hair tones.';
+            actionLabel = '🎨 1-Click Colorize to Natural Color';
+            actionTab = 'color';
+            actionFn = () => runCanvasColorize(p);
+          } else if (hasBottomYellowing) {
+            diagnosis = 'Vintage paper / adhesive yellowing detected along bottom.';
+            advice = 'Neutralize yellow paper stains while preserving natural facial skin tones.';
+            actionLabel = '✨ Remove Bottom Yellowing & Paper Stain';
+            actionTab = 'color';
+            actionFn = () => runCanvasNeutralizeBottomYellowing(p);
+          } else if (hasRedFade) {
+            diagnosis = '1970s cyan-dye fade (red/magenta color cast) detected.';
+            advice = 'Restore lost blues and greens to recover natural foliage and clothing.';
+            actionLabel = '✨ Fix 1970s Red Color Fade';
+            actionTab = 'color';
+            actionFn = () => {
+              p.color = { ...p.color, warmth: -22, tint: -18, saturation: 112, sepia: 0, bw: false };
+              p.tone.defade = true;
+              addEditLabel(p, '1970s Defade');
+              renderPhotoLab();
+            };
+          } else if (isDark) {
+            diagnosis = 'Underexposed / deep shadow photograph.';
+            advice = 'Lift shadows and recover lost detail in dark clothing and faces.';
+            actionLabel = '🌙 1-Click Auto-Levels & Lift Shadows';
+            actionTab = 'tone';
+            actionFn = () => runCanvasAutoLevels(p);
+          } else if (isWashedOut) {
+            diagnosis = 'Low contrast / faded dynamic range.';
+            advice = 'Stretch highlights and shadows for rich, punchy contrast.';
+            actionLabel = '⚡ 1-Click Auto-Levels (Histogram Stretch)';
+            actionTab = 'tone';
+            actionFn = () => runCanvasAutoLevels(p);
+          } else if (isSmall) {
+            diagnosis = `Small scan (${w}×${h} px, ${((w * h) / 1e6).toFixed(1)} MP). Good lighting.`;
+            advice = 'Enlarge into a razor-sharp 4K print with super-resolution pixel synthesis.';
+            actionLabel = `✨ Restore Photo to 4K (${computeUpscaleTargetDims(w, h, '4k').outW}×${computeUpscaleTargetDims(w, h, '4k').outH})`;
+            actionTab = 'restore';
+            actionFn = () => runCanvas4KRestore(p);
+          } else {
+            diagnosis = `High-resolution color photograph (${w}×${h} px). Well exposed.`;
+            advice = 'Colors and exposure look great! Optional: balance levels or enhance to 4K.';
+            actionLabel = '⚡ 1-Click Auto-Levels (Subtle Polish)';
+            actionTab = 'tone';
+            actionFn = () => runCanvasAutoLevels(p);
+          }
+
+          return {
+            w, h, avgLum, avgSat, isBW, isDark, isWashedOut, hasRedFade, hasBottomYellowing, isSmall,
+            diagnosis, advice, actionLabel, actionTab, actionFn
+          };
+        } catch (e) {
+          console.warn('Photo health analysis error:', e);
+          return null;
+        }
+      }
+
+      let advisorDebounce = null;
+      function updateLabAdvisor(p) {
+        const card = document.getElementById('lab-advisor-card');
+        if (!card || !p) return;
+        const diagEl = document.getElementById('lab-advisor-diagnosis');
+        const advEl = document.getElementById('lab-advisor-advice');
+        const tagEl = document.getElementById('lab-advisor-tag');
+        const actBtn = document.getElementById('btn-lab-advisor-action');
+        if (!diagEl || !advEl || !tagEl || !actBtn) return;
+
+        if (p.edits && p.edits.length > 0) {
+          tagEl.textContent = 'Active Edits';
+          diagEl.textContent = `✓ ${p.edits.length} edit${p.edits.length > 1 ? 's' : ''} applied (${p.edits[p.edits.length - 1]})`;
+          advEl.textContent = 'Drag the yellow split curtain to compare against original scan, or click Save & return.';
+          actBtn.style.display = 'none';
+          return;
+        }
+
+        tagEl.textContent = 'Auto-detecting';
+        diagEl.textContent = 'Analyzing photo...';
+        advEl.textContent = 'Inspecting resolution, lighting & color casts...';
+        actBtn.style.display = 'none';
+
+        if (advisorDebounce) clearTimeout(advisorDebounce);
+        advisorDebounce = setTimeout(async () => {
+          const res = await analyzePhotoQuality(p);
+          if (!res || currentPhoto()?.id !== p.id) return;
+
+          tagEl.textContent = 'Recommendation';
+          diagEl.textContent = res.diagnosis;
+          advEl.textContent = res.advice;
+          if (res.actionLabel && res.actionFn) {
+            actBtn.textContent = res.actionLabel;
+            actBtn.style.display = 'block';
+            actBtn.onclick = async () => {
+              actBtn.disabled = true;
+              actBtn.textContent = 'Applying...';
+              try {
+                if (res.actionTab && res.actionTab !== activeTool) {
+                  switchLabTool(res.actionTab);
+                }
+                await res.actionFn();
+              } catch (_) {}
+              actBtn.disabled = false;
+            };
+          } else {
+            actBtn.style.display = 'none';
+          }
+        }, 120);
       }
 
       function cropAspectValue(label, stageAspect) {
@@ -10876,17 +11077,8 @@
           const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
 
           body.innerHTML = `
-            <button class="btn primary" type="button" id="btn-run-master-restore"
-              style="width:100%;font-size:14px;font-weight:700;padding:12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;border-radius:8px;box-shadow:0 3px 10px rgba(37,99,235,0.35);cursor:pointer;"
-              title="Removes white dots, keeps faces sharp, fixes faded color, and adds 4K pixels in one step.">
-              ${p.restored4k ? `✨ Re-run Restore to ${targetW}×${targetH}` : `✨ Restore Photo to 4K (${targetW}×${targetH})`}
-            </button>
-            <p class="muted" style="font-size:11.5px;margin:6px 0 14px 0;text-align:center;">
-              Erases white dots, protects faces from blur, fixes faded dyes &amp; adds 4K resolution.
-            </p>
-
             <div class="field" style="margin-top:0;margin-bottom:12px;">
-              <label style="font-size:12px;font-weight:700;">1. Choose Photo Type</label>
+              <label style="font-size:12px;font-weight:700;">Step 1: Choose Photo Type</label>
               <div style="display:flex;flex-direction:column;gap:5px;">
                 <button class="btn sm ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84" style="text-align:left;font-weight:600;" title="Smooth natural facial features, cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
                   👰 1980s Wedding / Portrait (Clean Yellowing, Shadows &amp; Trousers)
@@ -10898,8 +11090,8 @@
               </div>
             </div>
 
-            <div class="field" style="margin-top:0;margin-bottom:12px;">
-              <label for="lab-upscale-target" style="font-size:12px;font-weight:700;">2. Choose Output Resolution</label>
+            <div class="field" style="margin-top:0;margin-bottom:14px;">
+              <label for="lab-upscale-target" style="font-size:12px;font-weight:700;">Step 2: Choose Output Resolution</label>
               <select id="lab-upscale-target">
                 <option value="4k" ${upTarget === '4k' ? 'selected' : ''}>4K Ultra HD — Up to 3840 px (Recommended)</option>
                 <option value="2x" ${upTarget === '2x' ? 'selected' : ''}>2× Super-Resolution — Double pixels</option>
@@ -10908,6 +11100,18 @@
               <div class="muted" style="font-size:11.5px;margin-top:5px;" id="upscale-readout-dims">
                 ${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${targetW}×${targetH}</span> <span class="muted">(${targetMp} MP)</span>
               </div>
+            </div>
+
+            <div class="field" style="margin-top:0;margin-bottom:14px;">
+              <label style="font-size:12px;font-weight:700;">Step 3: Run Master Restoration</label>
+              <button class="btn primary" type="button" id="btn-run-master-restore"
+                style="width:100%;font-size:14px;font-weight:700;padding:12px;background:linear-gradient(135deg, #1d4ed8, #7c3aed);color:#fff;border:none;border-radius:8px;box-shadow:0 3px 10px rgba(37,99,235,0.35);cursor:pointer;"
+                title="Cleans grain and specks, protects faces, fixes faded color, and adds 4K pixels in one step.">
+                ${p.restored4k ? `✨ Re-run Restore to ${targetW}×${targetH}` : `✨ Restore Photo to 4K (${targetW}×${targetH})`}
+              </button>
+              <p class="muted" style="font-size:11.5px;margin:6px 0 0 0;text-align:center;">
+                Cleans dots &amp; noise, protects facial softness, fixes faded dyes &amp; adds 4K pixels.
+              </p>
             </div>
 
             <details id="advanced-restore-panel" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--raised);margin-top:14px;">
