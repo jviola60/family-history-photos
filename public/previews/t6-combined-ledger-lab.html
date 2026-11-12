@@ -8149,9 +8149,10 @@
           const dynamicRange = p95 - p5;
 
           const isBW = avgSat < 10;
-          const isDark = avgLum < 85 || (p5 < 10 && avgLum < 100);
-          const isWashedOut = dynamicRange < 110;
-          const hasRedFade = avgR > avgG + 20 && avgR > avgB + 28 && !isBW;
+          // Only flag as dark if dynamic range is compressed or average luminance is genuinely dark
+          const isDark = (avgLum < 70 && dynamicRange < 130) || (p5 < 8 && avgLum < 80 && dynamicRange < 110);
+          const isWashedOut = dynamicRange < 100 && avgLum > 90;
+          const hasRedFade = avgR > avgG + 22 && avgR > avgB + 30 && !isBW;
           const hasBottomYellowing = (botYellowCount / botTotal) > 0.22 && !isBW;
           const isSmall = Math.max(w, h) < 1400;
 
@@ -8259,11 +8260,20 @@
               actBtn.textContent = 'Applying...';
               try {
                 if (res.actionTab && res.actionTab !== activeTool) {
-                  switchLabTool(res.actionTab);
+                  activeTool = res.actionTab;
+                  if ((activeTool === 'erase' || activeTool === 'crop') && compareMode === 'split') {
+                    compareMode = 'edited';
+                  }
                 }
                 await res.actionFn();
-              } catch (_) {}
-              actBtn.disabled = false;
+                notify(`Applied ${res.actionLabel.replace(/^[^a-zA-Z0-9]+/, '')} to ${p.id}.`);
+              } catch (err) {
+                console.error('Advisor action error:', err);
+                notify('Could not apply action: ' + (err?.message || 'Unknown error'));
+              } finally {
+                actBtn.disabled = false;
+                renderPhotoLab();
+              }
             };
           } else {
             actBtn.style.display = 'none';
@@ -10366,13 +10376,24 @@
             <p class="muted" style="font-size:12px;margin-bottom:8px;">Erases white dots &amp; dust specks first, restores faded 1970s–80s shadows, de-blurs soft lenses, and adds clean 4K super-resolution pixels.</p>
             <div class="field" style="margin-top:0;margin-bottom:10px;">
               <label>Quick 1-Click Photo Mode</label>
-              <div style="display:flex;flex-direction:column;gap:5px;">
-                <button class="btn sm ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84" style="text-align:left;font-weight:600;" title="Smooth natural facial features, cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
-                  👰 1980s Wedding / Portrait (Clean Yellowing, Shadows &amp; Trousers)
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <button class="btn ${p.model === 'wedding84' ? 'accent' : ''}" type="button" id="btn-preset-wedding84"
+                  style="text-align:left;white-space:normal;height:auto;padding:8px 10px;line-height:1.3;width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:2px;border-radius:6px;box-sizing:border-box;"
+                  title="Smooth natural facial features, cleans bottom yellow aging, fills flash cheek shadows, and restores dark trousers without pixelation">
+                  <span style="font-weight:700;font-size:12px;">👰 1980s Wedding / Portrait</span>
+                  <span style="font-size:11px;font-weight:normal;opacity:0.85;">Cleans yellowed paper, flash shadows &amp; dark clothes</span>
                 </button>
-                <div class="preset-grid-2">
-                  <button class="btn sm ${p.model === 'smoothport' ? 'accent' : ''}" type="button" id="btn-preset-smoothport" title="Best for compressed digital photos, thumbnails &amp; small scans: smooths grain, eliminates pixelation, keeps natural photographic tone">🛡️ Smooth &amp; Anti-Pixelate</button>
-                  <button class="btn sm ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s" title="Best for 1960s–1990s prints with white dots, snow specks &amp; paper dust">🕰️ 1960s–90s Spotted</button>
+                <div class="preset-grid-2" style="gap:6px;">
+                  <button class="btn ${p.model === 'smoothport' ? 'accent' : ''}" type="button" id="btn-preset-smoothport"
+                    style="white-space:normal;height:auto;padding:7px 8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
+                    title="Best for compressed digital photos, thumbnails &amp; small scans: smooths grain, eliminates pixelation, keeps natural photographic tone">
+                    🛡️ Smooth &amp; Anti-Pixel
+                  </button>
+                  <button class="btn ${p.model === 'vintage80s' ? 'accent' : ''}" type="button" id="btn-preset-vintage80s"
+                    style="white-space:normal;height:auto;padding:7px 8px;font-size:11.5px;line-height:1.25;text-align:center;border-radius:6px;box-sizing:border-box;"
+                    title="Best for 1960s–1990s prints with white dots, snow specks &amp; paper dust">
+                    🕰️ 1960s–90s Spotted
+                  </button>
                 </div>
               </div>
             </div>
