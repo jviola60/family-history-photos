@@ -3642,6 +3642,16 @@
             fsSynced: p.fsSynced,
             fsMemoryId: p.fsMemoryId,
             rotation: p.rotation,
+            straighten: p.straighten,
+            flipH: p.flipH,
+            crop: p.crop,
+            scale: p.scale,
+            width: p.width,
+            height: p.height,
+            kb: p.kb,
+            restored4k: Boolean(p.restored4k),
+            tone: p.tone ? { ...p.tone } : undefined,
+            color: p.color ? { ...p.color } : undefined,
             edits: p.edits
           };
           if (p.id) catalog[p.id] = catalog[key];
@@ -3654,6 +3664,14 @@
 
           // Dual-save to IndexedDB metadata store so records survive even if localStorage is cleared or quotas exceeded
           setMetaInDb('metadata_catalog', catalog).catch(() => {});
+          if (p._workingBlob && typeof p._workingBlob.slice === 'function') {
+            try {
+              const safeBlob = p._workingBlob.slice(0, p._workingBlob.size, p._workingBlob.type || 'image/jpeg');
+              setMetaInDb(`edited_blob:${key}`, safeBlob).catch(() => {});
+            } catch (_) {}
+          } else if (!p.workingSrc && (!p.edits || p.edits.length === 0)) {
+            setMetaInDb(`edited_blob:${key}`, null).catch(() => {});
+          }
           saveSingleItemToDb(p).catch(() => {});
         } catch (e) {
           console.warn('Could not save metadata:', e);
@@ -3804,10 +3822,35 @@
               if (typeof saved.fsSynced === 'boolean') p.fsSynced = saved.fsSynced;
               if (saved.fsMemoryId) p.fsMemoryId = saved.fsMemoryId;
               if (typeof saved.rotation === 'number') p.rotation = saved.rotation;
+              if (typeof saved.straighten === 'number') p.straighten = saved.straighten;
+              if (typeof saved.flipH === 'boolean') p.flipH = saved.flipH;
+              if (saved.crop) p.crop = saved.crop;
+              if (typeof saved.scale === 'number') p.scale = saved.scale;
+              if (typeof saved.width === 'number' && saved.width > 0) p.width = saved.width;
+              if (typeof saved.height === 'number' && saved.height > 0) p.height = saved.height;
+              if (typeof saved.kb === 'number' && saved.kb > 0) p.kb = saved.kb;
+              if (typeof saved.restored4k === 'boolean') p.restored4k = saved.restored4k;
+              if (saved.tone && typeof saved.tone === 'object') p.tone = { ...p.tone, ...saved.tone };
+              if (saved.color && typeof saved.color === 'object') p.color = { ...p.color, ...saved.color };
               if (Array.isArray(saved.edits)) p.edits = saved.edits;
             }
             sanitizePhotoPersonPids(p);
           });
+
+          // Restore persisted edited image blobs for items that have saved edits (e.g. after folder re-open or restart)
+          const blobRestoreTasks = itemsList
+            .filter((p) => !p.workingSrc && p.edits && p.edits.length > 0)
+            .map(async (p) => {
+              const key = p.file || p.id;
+              const blob = await getMetaFromDb(`edited_blob:${key}`);
+              if (blob && typeof blob.size === 'number' && blob.size > 0) {
+                p._workingBlob = blob;
+                p.workingSrc = URL.createObjectURL(blob);
+              }
+            });
+          if (blobRestoreTasks.length > 0) {
+            await Promise.all(blobRestoreTasks);
+          }
         } catch (e) {
           console.warn('Could not restore metadata:', e);
         }
@@ -12867,10 +12910,17 @@
         mode = 'sync';
         render();
       };
-      document.getElementById('btn-back-catalog').onclick = () => { mode = 'catalog'; render(); };
-      document.getElementById('btn-save-return').onclick = () => {
+      document.getElementById('btn-back-catalog').onclick = () => {
+        const cur = currentPhoto();
+        if (cur && cur.edits && cur.edits.length > 0) saveItemMetadata(cur);
         mode = 'catalog';
-        notify(`Saved Photo Lab repairs for ${currentPhoto().id}.`);
+        render();
+      };
+      document.getElementById('btn-save-return').onclick = () => {
+        const cur = currentPhoto();
+        if (cur) saveItemMetadata(cur);
+        mode = 'catalog';
+        notify(`Saved Photo Lab repairs for ${cur ? cur.id : 'photo'}.`);
         render();
       };
 
@@ -13578,7 +13628,7 @@
           }
 
           items = newItems;
-          restoreCatalogMetadata(items);
+          await restoreCatalogMetadata(items);
           selectedId = items[0] ? items[0].id : null;
           catalogPage = 1;
 
