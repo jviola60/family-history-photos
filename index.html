@@ -4302,7 +4302,7 @@
       }
 
       /* Compute combined CSS filter + transform for the edited "After" photo */
-      function afterStyle(p, extraZoom = 1, inLab = false) {
+      function buildCssFilterParts(p, inLab = false) {
         const b = (p.tone.brightness / 100) * (1 + p.tone.shadows / 230) * (1 - (p.tone.highlights || 0) / 360);
         const c = (p.tone.contrast / 100) * (1 + (p.tone.highlights || 0) / 420);
         const col = p.color || { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false };
@@ -4335,6 +4335,11 @@
         if (hue !== 0 && !col.bw) {
           parts.push(`hue-rotate(${hue}deg)`);
         }
+        return parts;
+      }
+
+      function afterStyle(p, extraZoom = 1, inLab = false) {
+        const parts = buildCssFilterParts(p, inLab);
         if (inLab && (p.tone.smooth > 0 || p.tone.sharpen > 0)) {
           parts.push('url(#lab-svg-fx)');
         }
@@ -9485,11 +9490,13 @@
          3. Highlight-Safe 1970s–80s Faded Shadow & Dye Recovery + Paper Defade
          4. Edge-Preserving 5×5 YCbCr Bilateral Grain Denoiser
          5. Multi-Scale Optical De-Blur (tightens soft 1970s–80s camera lenses before 4K upscaling) */
-      async function prepareCleanedSourceCanvas(p, onStageProgress = null) {
+      async function prepareCleanedSourceCanvas(p, onStageProgress = null, sourceMode = 'pre4k') {
         if (!p.restored4k && p.workingSrc && !p._pre4kSrc) {
           p._pre4kSrc = p.workingSrc;
         }
-        const cleanSrc = p._pre4kSrc || p.src || 'sample.jpg';
+        const cleanSrc = sourceMode === 'original'
+          ? (p.src || 'sample.jpg')
+          : (sourceMode === 'working' ? (p.workingSrc || p.src || 'sample.jpg') : (p._pre4kSrc || p.src || 'sample.jpg'));
         const baseImg = await loadImageElement(cleanSrc);
         const natW = baseImg.naturalWidth || p.origWidth || p.width || 1200;
         const natH = baseImg.naturalHeight || p.origHeight || p.height || 900;
@@ -10164,22 +10171,45 @@
 
 
       /* 1B. Deep Neural AI Face & 4K Reconstruction (Pre-cleans white dots & fade FIRST, then runs CodeFormer / Clarity GPU AI) */
-      async function runDeepAi4KRestore(p, aiMode = 'cloud', onStageProgress = null) {
+      async function runDeepAi4KRestore(p, aiMode = 'cloud', onStageProgress = null, sendOriginal = false) {
         const bridge = window.ArchivalAiBridge;
         if (!bridge) {
           throw new Error('Neural AI module is still loading. Please try again in a moment.');
         }
 
         /* Step 1: Clean white dots, dust spots & vintage fade locally FIRST so AI never sharpens dust specks! */
-        const { srcCanvas, natW, natH, spotsHealed } = await prepareCleanedSourceCanvas(p, onStageProgress);
+        const { srcCanvas, natW, natH, spotsHealed } = await prepareCleanedSourceCanvas(
+          p,
+          onStageProgress,
+          sendOriginal ? 'original' : 'working'
+        );
         const upMode = p.upscaleTarget || '4k';
         const { outW, outH } = computeUpscaleTargetDims(natW, natH, upMode);
+
+        /* Bake live Light & Tone / Color & Cast adjustments into the image sent to Cloud AI unless sending original */
+        let exportCanvas = srcCanvas;
+        let bakedLiveFilters = false;
+        if (aiMode === 'cloud' && !sendOriginal) {
+          const cssFilterStr = buildCssFilterParts(p, true).filter((f) => !f.startsWith('url(')).join(' ').trim();
+          if (cssFilterStr) {
+            const baked = document.createElement('canvas');
+            baked.width = srcCanvas.width;
+            baked.height = srcCanvas.height;
+            const bCtx = baked.getContext('2d');
+            if (bCtx) {
+              if ('filter' in bCtx) bCtx.filter = cssFilterStr;
+              bCtx.drawImage(srcCanvas, 0, 0);
+              exportCanvas = baked;
+              bakedLiveFilters = true;
+            }
+          }
+        }
 
         let cleanedBlob = null;
         try {
           cleanedBlob = await new Promise((resolve, reject) => {
             try {
-              srcCanvas.toBlob((b) => {
+              exportCanvas.toBlob((b) => {
                 if (b) resolve(b);
                 else reject(new Error('Canvas export produced null'));
               }, 'image/jpeg', 0.95);
@@ -10215,19 +10245,21 @@
             badgeLabel = '4K Local AI';
           } else {
             const saved = bridge.getAiSettings();
-            const chosenModel = saved.falModel || 'fal-ai/codeformer';
+            const chosenModel = saved.falModel || 'fal-ai/clarity-upscaler';
             const upFactor = upMode === '4k' ? 4 : (upMode === '2x' ? 2 : 1);
             const res = await bridge.restoreWithCloudAi(cleanedUrl, {
               ...saved,
               provider: 'fal',
               falModel: chosenModel,
               upscaleFactor: upFactor,
-              falFidelity: 0.72,
-              falResemblance: 0.80,
-              falCreativity: 0.28
+              falFidelity: typeof saved.falFidelity === 'number' ? saved.falFidelity : 0.65,
+              falResemblance: typeof saved.falResemblance === 'number' ? saved.falResemblance : 0.70,
+              falCreativity: typeof saved.falCreativity === 'number' ? saved.falCreativity : 0.42
             }, onStageProgress);
             aiResultUrl = res.url;
-            badgeLabel = chosenModel.includes('codeformer') ? '4K AI Face Rebuild' : '4K Clarity AI';
+            badgeLabel = chosenModel.includes('codeformer')
+              ? '4K AI Face Rebuild'
+              : (chosenModel.includes('ccsr') ? '4K CCSR AI' : '4K Clarity AI');
           }
 
           if (onStageProgress) onStageProgress(`3/3 Finalizing ${outW}×${outH} 4K print...`);
@@ -10241,11 +10273,15 @@
           outCtx.drawImage(aiImg, 0, 0, outW, outH);
 
           pushSnapshot(p);
+          if (bakedLiveFilters) {
+            p.tone = { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false };
+            p.color = { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: (p.color && p.color.colorizeStrength) || 82 };
+          }
           await canvasToWorkingUrl(outCanvas, p, 0.95, false);
           p.restored4k = upMode !== '1x';
           p.width = outW;
           p.height = outH;
-          addEditLabel(p, badgeLabel);
+          p.edits.push(badgeLabel);
           return { spotsHealed, badgeLabel };
         } finally {
           try { URL.revokeObjectURL(cleanedUrl); } catch (_) {}
@@ -10332,7 +10368,7 @@
         ctx.putImageData(imgData, 0, 0);
         pushSnapshot(p);
         await canvasToWorkingUrl(canvas, p, 0.94, true);
-        addEditLabel(p, 'Auto-Levels');
+        p.edits.push('Auto-Levels');
       }
 
       /* Real Canvas Dark & Underexposure Rescue Engine */
@@ -11182,7 +11218,9 @@
           const bridge = window.ArchivalAiBridge;
           const aiSaved = bridge ? bridge.getAiSettings() : { falApiKey: '', falModel: 'fal-ai/codeformer' };
           const hasFalKey = Boolean(aiSaved && aiSaved.falApiKey && String(aiSaved.falApiKey).trim());
-          const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/codeformer';
+          const selFalModel = (aiSaved && aiSaved.falModel) || 'fal-ai/clarity-upscaler';
+          const savedCreat = (aiSaved && typeof aiSaved.falCreativity === 'number') ? aiSaved.falCreativity : 0.42;
+          const selFalStrength = savedCreat >= 0.50 ? 'strong' : (savedCreat <= 0.32 ? 'subtle' : 'balanced');
 
           body.innerHTML = `
             <!-- 1. Master 1-Click Auto-Restore (The Automated Path) -->
@@ -11280,8 +11318,17 @@
                   <div class="field" style="margin-top:4px;">
                     <label for="ai-cloud-model">Model</label>
                     <select id="ai-cloud-model">
-                      <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Face Restoration (~$0.002/photo)</option>
                       <option value="fal-ai/clarity-upscaler" ${selFalModel === 'fal-ai/clarity-upscaler' ? 'selected' : ''}>Clarity Ultra-HD — Generative Detail (~$0.015/photo)</option>
+                      <option value="fal-ai/ccsr" ${selFalModel === 'fal-ai/ccsr' ? 'selected' : ''}>CCSR — Full-Photo Super-Resolution (~$0.005/photo)</option>
+                      <option value="fal-ai/codeformer" ${selFalModel === 'fal-ai/codeformer' ? 'selected' : ''}>CodeFormer — Face Restoration (~$0.002/photo)</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-top:6px;">
+                    <label for="ai-cloud-strength">Rebuild Strength</label>
+                    <select id="ai-cloud-strength">
+                      <option value="subtle" ${selFalStrength === 'subtle' ? 'selected' : ''}>Subtle / Faithful (Light polish)</option>
+                      <option value="balanced" ${selFalStrength === 'balanced' ? 'selected' : ''}>Balanced Restore (Recommended)</option>
+                      <option value="strong" ${selFalStrength === 'strong' ? 'selected' : ''}>Strong Rebuild (Heavy damage / noise)</option>
                     </select>
                   </div>
                   <div class="field" style="margin-top:6px;">
@@ -11292,7 +11339,11 @@
                     </div>
                     <div id="ai-fal-status" class="muted" style="font-size:11px;margin-top:4px;"></div>
                   </div>
-                  <button class="btn accent sm" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:8px;">
+                  <label class="check-row" style="margin-top:8px;border-bottom:0;">
+                    <span>Send original unedited scan (ignore Lab edits)</span>
+                    <input type="checkbox" id="chk-fal-send-original">
+                  </label>
+                  <button class="btn accent sm" type="button" id="btn-run-cloud-ai" style="width:100%;margin-top:6px;">
                     🧠 Run Cloud AI Restore (Fal.ai)
                   </button>
                 </div>
@@ -11521,17 +11572,32 @@
           window.addEventListener('archival_ai_ready', probeLocalAi, { once: true });
 
           const modelSel = body.querySelector('#ai-cloud-model');
+          const strengthSel = body.querySelector('#ai-cloud-strength');
           const keyInput = body.querySelector('#ai-fal-key');
           const statusEl = body.querySelector('#ai-fal-status');
 
-          modelSel.onchange = () => {
-            const b = window.ArchivalAiBridge;
-            if (b) b.saveAiSettings({ falModel: modelSel.value });
+          const falStrengthPresets = {
+            subtle: { falCreativity: 0.28, falResemblance: 0.82, falFidelity: 0.78 },
+            balanced: { falCreativity: 0.42, falResemblance: 0.70, falFidelity: 0.65 },
+            strong: { falCreativity: 0.58, falResemblance: 0.55, falFidelity: 0.45 }
           };
+          const saveCloudSettings = (extra = {}) => {
+            const b = window.ArchivalAiBridge;
+            if (!b) return;
+            const st = falStrengthPresets[(strengthSel && strengthSel.value) || 'balanced'] || falStrengthPresets.balanced;
+            b.saveAiSettings({
+              falModel: modelSel.value,
+              ...st,
+              ...extra
+            });
+          };
+
+          modelSel.onchange = () => saveCloudSettings();
+          if (strengthSel) strengthSel.onchange = () => saveCloudSettings();
           keyInput.onchange = () => {
             const b = window.ArchivalAiBridge;
             if (b) {
-              b.saveAiSettings({
+              saveCloudSettings({
                 provider: 'fal',
                 falApiKey: b.sanitizeFalKey(keyInput.value)
               });
@@ -11545,7 +11611,7 @@
             }
             const testBtn = body.querySelector('#btn-test-fal');
             const cleanKey = b.sanitizeFalKey(keyInput.value);
-            b.saveAiSettings({ provider: 'fal', falApiKey: cleanKey, falModel: modelSel.value });
+            saveCloudSettings({ provider: 'fal', falApiKey: cleanKey });
             testBtn.disabled = true;
             testBtn.textContent = 'Checking...';
             statusEl.textContent = 'Verifying Fal.ai key...';
@@ -11571,12 +11637,14 @@
                 statusEl.textContent = 'Please paste a Fal.ai API key (Key_ID:Key_Secret) first, or use the free built-in "Clean Dots & Upscale" button above.';
                 return;
               }
-              b.saveAiSettings({ provider: 'fal', falApiKey: cleanKey, falModel: modelSel.value });
+              saveCloudSettings({ provider: 'fal', falApiKey: cleanKey });
             }
             if (cloudBtn) cloudBtn.disabled = true;
             if (localBtn) localBtn.disabled = true;
             const activeBtn = aiMode === 'local' ? localBtn : cloudBtn;
             const origText = activeBtn ? activeBtn.textContent : '';
+            const sendOrigChk = body.querySelector('#chk-fal-send-original');
+            const sendOriginal = Boolean(sendOrigChk && sendOrigChk.checked);
             try {
               const res = await runDeepAi4KRestore(p, aiMode, (msg) => {
                 if (activeBtn) activeBtn.textContent = msg;
@@ -11586,7 +11654,7 @@
                 }
                 const ro = document.getElementById('lab-status-readout');
                 if (ro) ro.textContent = msg;
-              });
+              }, sendOriginal);
               try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
               document.getElementById('lab-status-readout').textContent = `✓ ${res.badgeLabel} complete (${p.width}×${p.height} px)`;
               notify(`✓ Cleaned spots & rebuilt ${p.id} with ${res.badgeLabel} (${p.width}×${p.height} px)!`);
