@@ -10610,23 +10610,6 @@
             }
             if (runBtn && !runBtn.disabled) {
               runBtn.textContent = p.restored4k
-                ? `✨ Re-run Restore to ${tw}×${th}`
-                : `✨ Restore Photo to 4K (${tw}×${th})`;
-            }
-          };
-
-          const refreshUpscaleReadout = () => {
-            const modeVal = body.querySelector('#lab-upscale-target').value;
-            p.upscaleTarget = modeVal;
-            const { outW: tw, outH: th } = computeUpscaleTargetDims(baseW, baseH, modeVal);
-            const tMp = ((tw * th) / 1e6).toFixed(1);
-            const dimsEl = body.querySelector('#upscale-readout-dims');
-            const runBtn = body.querySelector('#btn-run-master-restore');
-            if (dimsEl) {
-              dimsEl.innerHTML = `${baseW}×${baseH} <span class="muted">(${origMp} MP)</span> → <span style="color:var(--accent);font-weight:600;">${tw}×${th}</span> <span class="muted">(${tMp} MP)</span>`;
-            }
-            if (runBtn && !runBtn.disabled) {
-              runBtn.textContent = p.restored4k
                 ? `✨ Re-Run Full 4K Restore (${tw}×${th})`
                 : `✨ 1-Click Auto-Restore to 4K (${tw}×${th})`;
             }
