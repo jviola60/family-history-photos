@@ -13331,7 +13331,7 @@
 
       /* Lazy background dimension and EXIF extraction for imported archive items */
       function scheduleMetadataExtraction(list) {
-        const batchSize = 10;
+        const batchSize = 4;
         let index = 0;
 
         function processNextBatch() {
@@ -13350,6 +13350,7 @@
                 rec.width = rec.origWidth;
                 rec.height = rec.origHeight;
               }
+              rec.screenshot = isScreenshotPhoto(rec);
               if (rec.id === selectedId) {
                 renderSidebarCounts();
                 if (mode === 'catalog') renderInspector();
@@ -13485,112 +13486,116 @@
         );
         await new Promise((r) => setTimeout(r, 10));
 
-        const newItems = [];
-        for (let i = start; i < end; i++) {
-          const file = activeFolderImageFiles[i];
-          const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
-          const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
-          const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
-          let isoDate = fallbackDate;
-          let decade = '2000s';
-          if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
-            const parsed = window.FamilySearchClient.parseFamilySearchDate('', { filename: file.name, file: file.name });
-            if (parsed && parsed.iso && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
-              isoDate = parsed.iso;
-              decade = parsed.decade || decade;
+        try {
+          const newItems = [];
+          for (let i = start; i < end; i++) {
+            const file = activeFolderImageFiles[i];
+            const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+            const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
+            const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+            let isoDate = fallbackDate;
+            let decade = '2000s';
+            if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+              const parsed = window.FamilySearchClient.parseFamilySearchDate('', { filename: file.name, file: file.name });
+              if (parsed && parsed.iso && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
+                isoDate = parsed.iso;
+                decade = parsed.decade || decade;
+              } else {
+                const dateMatch = file.name.match(/(18\d{2}|19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+                const partialYearMatch = !dateMatch && file.name.match(/(18\d{2}|19\d{2}|20\d{2})/);
+                isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
+                const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+                decade = (yr >= 1800 && yr <= 2099) ? `${String(yr).slice(0, 3)}0s` : '2000s';
+              }
             } else {
-              const dateMatch = file.name.match(/(18\d{2}|19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-              const partialYearMatch = !dateMatch && file.name.match(/(18\d{2}|19\d{2}|20\d{2})/);
+              const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
+              const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
               isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
               const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-              decade = (yr >= 1800 && yr <= 2099) ? `${String(yr).slice(0, 3)}0s` : '2000s';
+              decade = (yr >= 1950 && yr <= 2009) ? `${String(yr).slice(0, 3)}0s` : '2000s';
             }
-          } else {
-            const dateMatch = file.name.match(/(19\d{2}|20\d{2})[-_\s.]?(\d{2})[-_\s.]?(\d{2})/);
-            const partialYearMatch = !dateMatch && file.name.match(/(19\d{2}|20\d{2})/);
-            isoDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : (partialYearMatch ? `${partialYearMatch[1]}-01-01` : fallbackDate);
-            const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-            decade = (yr >= 1950 && yr <= 2009) ? `${String(yr).slice(0, 3)}0s` : '2000s';
+            const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+            const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
+            const url = URL.createObjectURL(file);
+            const fileKb = Math.max(1, Math.round(file.size / 1024));
+
+            newItems.push({
+              id: `FH-${String(i + 1).padStart(5, '0')}`,
+              file: file.name,
+              subfolder,
+              title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
+              isoDate,
+              decade,
+              place: '',
+              branch: '',
+              people: [],
+              unnamedFaces: 0,
+              width: 1200,
+              height: 900,
+              origWidth: 1200,
+              origHeight: 900,
+              origKb: fileKb,
+              origCrop: '50% 50%',
+              origScale: 1,
+              origRestored4k: false,
+              kb: fileKb,
+              restored4k: false,
+              fsId: '',
+              fsSynced: false,
+              fsMemoryId: '',
+              inReview: false,
+              screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width: 1200, height: 900, mimeType: file.type }),
+              crop: '50% 50%',
+              scale: 1,
+              filter: 'none',
+              story: '',
+              src: url,
+              workingSrc: null,
+              _pre4kSrc: null,
+              _workingBlob: null,
+              _file: file,
+              edits: [],
+              rotation: 0,
+              straighten: 0,
+              flipH: false,
+              cropRatio: 'Original',
+              cropBox: { x: 8, y: 8, w: 84, h: 84 },
+              tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
+              color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
+              model: 'gfpgan',
+              upscaleTarget: '4k',
+              spotRemove: -1,
+              denoise: 62,
+              fidelity: 68,
+              scratchesFixed: true,
+              descreen: false,
+              deglare: false,
+              blemishesErased: 0,
+              redEyesFixed: 0,
+              eyePins: [],
+              history: []
+            });
           }
-          const year = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
-          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || `Family Print ${i + 1}`;
-          const url = URL.createObjectURL(file);
-          const fileKb = Math.max(1, Math.round(file.size / 1024));
 
-          newItems.push({
-            id: `FH-${String(i + 1).padStart(5, '0')}`,
-            file: file.name,
-            subfolder,
-            title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
-            isoDate,
-            decade,
-            place: '',
-            branch: '',
-            people: [],
-            unnamedFaces: 0,
-            width: 1200,
-            height: 900,
-            origWidth: 1200,
-            origHeight: 900,
-            origKb: fileKb,
-            origCrop: '50% 50%',
-            origScale: 1,
-            origRestored4k: false,
-            kb: fileKb,
-            restored4k: false,
-            fsId: '',
-            fsSynced: false,
-            fsMemoryId: '',
-            inReview: false,
-            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width, height, mimeType: file.type }),
-            crop: '50% 50%',
-            scale: 1,
-            filter: 'none',
-            story: '',
-            src: url,
-            workingSrc: null,
-            _pre4kSrc: null,
-            _workingBlob: null,
-            _file: file,
-            edits: [],
-            rotation: 0,
-            straighten: 0,
-            flipH: false,
-            cropRatio: 'Original',
-            cropBox: { x: 8, y: 8, w: 84, h: 84 },
-            tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
-            color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
-            model: 'gfpgan',
-            upscaleTarget: '4k',
-            spotRemove: -1,
-            denoise: 62,
-            fidelity: 68,
-            scratchesFixed: true,
-            descreen: false,
-            deglare: false,
-            blemishesErased: 0,
-            redEyesFixed: 0,
-            eyePins: [],
-            history: []
-          });
+          items = newItems;
+          restoreCatalogMetadata(items);
+          selectedId = items[0] ? items[0].id : null;
+          catalogPage = 1;
+
+          updateImportProgress('Batch Ready!', 100, `${items.length} photos ready`);
+          hideImportProgress();
+
+          notify(`Loaded Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()} (Photos ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${activeFolderImageFiles.length.toLocaleString()}).`);
+          render();
+          scheduleMetadataExtraction(items);
+
+          // Persist current batch to IndexedDB in the background so UI renders immediately
+          saveArchiveToDb(items, rootFolderName).catch(() => {});
+        } catch (batchErr) {
+          console.error('Error loading folder batch:', batchErr);
+          hideImportProgress();
+          notify(`Could not load batch: ${batchErr && batchErr.message ? batchErr.message : 'Unknown error'}`);
         }
-
-        items = newItems;
-        restoreCatalogMetadata(items);
-        selectedId = items[0] ? items[0].id : null;
-        catalogPage = 1;
-
-        updateImportProgress('Saving current batch...', 85, 'Writing IndexedDB...');
-        await new Promise((r) => setTimeout(r, 10));
-        await saveArchiveToDb(items, rootFolderName);
-
-        updateImportProgress('Batch Ready!', 100, `${items.length} photos in memory`);
-        await new Promise((r) => setTimeout(r, 100));
-        hideImportProgress();
-
-        notify(`Loaded Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()} (Photos ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${activeFolderImageFiles.length.toLocaleString()}).`);
-        render();
-        scheduleMetadataExtraction(items);
       }
 
       /* Native local folder chooser (with non-blocking chunked scan for massive archives & persistent IndexedDB cache) */
@@ -13971,7 +13976,7 @@
             fsSynced: false,
             fsMemoryId: '',
             inReview: false,
-            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width, height, mimeType: file.type }),
+            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width: 1200, height: 900, mimeType: file.type }),
             crop: '50% 50%',
             scale: 1,
             filter: 'none',
