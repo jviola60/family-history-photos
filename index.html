@@ -10246,10 +10246,17 @@
           } else {
             const saved = bridge.getAiSettings();
             const chosenModel = saved.falModel || 'fal-ai/clarity-upscaler';
+            const isCcsr = chosenModel.includes('ccsr');
+            const maxPixels = isCcsr ? 16000000 : 30000000;
+            const maxDim = isCcsr ? 4096 : 8192;
             let upFactor = upMode === '1x'
               ? 1
               : Math.max(1, Math.min(4, Math.ceil(Math.max(outW / exportCanvas.width, outH / exportCanvas.height))));
-            while (upFactor > 1 && (exportCanvas.width * upFactor * exportCanvas.height * upFactor) > 30000000) {
+            while (
+              upFactor > 1 &&
+              ((exportCanvas.width * upFactor * exportCanvas.height * upFactor) > maxPixels ||
+                Math.max(exportCanvas.width * upFactor, exportCanvas.height * upFactor) > maxDim)
+            ) {
               upFactor--;
             }
             const res = await bridge.restoreWithCloudAi(cleanedUrl, {
