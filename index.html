@@ -10246,7 +10246,12 @@
           } else {
             const saved = bridge.getAiSettings();
             const chosenModel = saved.falModel || 'fal-ai/clarity-upscaler';
-            const upFactor = upMode === '4k' ? 4 : (upMode === '2x' ? 2 : 1);
+            let upFactor = upMode === '1x'
+              ? 1
+              : Math.max(1, Math.min(4, Math.ceil(Math.max(outW / exportCanvas.width, outH / exportCanvas.height))));
+            while (upFactor > 1 && (exportCanvas.width * upFactor * exportCanvas.height * upFactor) > 30000000) {
+              upFactor--;
+            }
             const res = await bridge.restoreWithCloudAi(cleanedUrl, {
               ...saved,
               provider: 'fal',
