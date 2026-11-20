@@ -2517,6 +2517,9 @@
         <button class="btn folder-pick-btn" type="button" id="btn-open-gedcom-hub" title="Import a .ged (PAF export) to re-link broken photo paths & sync people to FamilySearch Beta">
           <span data-icon="tree"></span><span>PAF / GEDCOM (.ged)...</span>
         </button>
+        <button class="btn folder-pick-btn desktop-only" type="button" id="btn-open-drive-sync" title="Compare a local folder against Google Drive using MD5 checksums, upload missing files, or trash cloud-only files">
+          <span data-icon="copy"></span><span>Drive Verify &amp; Sync...</span>
+        </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
           ✕ Clear Demo Photos
         </button>
@@ -15037,6 +15040,322 @@
       if (btnOpenCloudHub) btnOpenCloudHub.onclick = openCloudImportHubModal;
       const btnOpenGedcomHub = document.getElementById('btn-open-gedcom-hub');
       if (btnOpenGedcomHub) btnOpenGedcomHub.onclick = openGedcomPafModal;
+
+      /* =====================================================================
+         GOOGLE DRIVE FOLDER CHECKSUM VERIFIER & SYNC UTILITY
+         ===================================================================== */
+      function openDriveSyncModal() {
+        const hub = window.CloudImportHub;
+        const sync = window.DriveSyncUtil;
+        if (!hub || !sync) {
+          notify('Drive Sync module is still loading — please try again in a second.');
+          return;
+        }
+        const saved = hub.getCloudSettings();
+        let localFiles = [];
+        let localRootName = '';
+        let driveToken = '';
+        let driveStack = [{ id: 'root', name: 'My Drive' }];
+        let selectedDriveFolder = null; // { id, name }
+        let lastReport = null;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.25);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">🛡️ Google Drive Folder Checksum Verifier &amp; Sync</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Verify with MD5 checksums that every local file made it safely to Google Drive before deleting local copies.</p>
+              </div>
+              <button type="button" class="btn sm" id="ds-close">✕</button>
+            </div>
+            <div style="padding:18px 20px;overflow-y:auto;flex:1;">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px;">
+                <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
+                  <div style="font-weight:600;font-size:13px;margin-bottom:6px;">1. Local Folder (Computer)</div>
+                  <button type="button" class="btn sm primary" id="ds-pick-local">📁 Choose Local Folder...</button>
+                  <div id="ds-local-info" class="muted" style="font-size:12px;margin-top:8px;">No local folder selected yet.</div>
+                </div>
+                <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
+                  <div style="font-weight:600;font-size:13px;margin-bottom:6px;">2. Google Drive Folder (Cloud)</div>
+                  <input type="text" id="ds-google-cid" placeholder="Google OAuth Client ID" value="${esc(saved.googleClientId || '')}" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:11.5px;margin-bottom:8px;">
+                  <button type="button" class="btn sm primary" id="ds-connect-drive">${driveToken ? '✓ Connected' : '🔗 Connect Google Drive (Read + Write)'}</button>
+                  <div id="ds-drive-selected" class="muted" style="font-size:12px;margin-top:8px;">Not connected yet.</div>
+                </div>
+              </div>
+
+              <div id="ds-drive-browser" style="display:none;border:1px solid var(--border);border-radius:8px;max-height:190px;overflow-y:auto;margin-bottom:14px;"></div>
+
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;">
+                  <input type="checkbox" id="ds-verify-md5" checked>
+                  <span>Verify <strong>MD5 Checksums</strong> (100% byte-for-byte match against Google Drive)</span>
+                </label>
+                <button type="button" class="btn accent" id="ds-run-compare" disabled>🔍 Compare Local vs. Google Drive</button>
+              </div>
+
+              <div id="ds-status" class="muted" style="font-size:12.5px;margin-bottom:10px;"></div>
+              <div id="ds-report"></div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+        overlay.querySelector('#ds-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const cidInput = overlay.querySelector('#ds-google-cid');
+        const localInfoEl = overlay.querySelector('#ds-local-info');
+        const driveSelEl = overlay.querySelector('#ds-drive-selected');
+        const browserEl = overlay.querySelector('#ds-drive-browser');
+        const compareBtn = overlay.querySelector('#ds-run-compare');
+        const statusEl = overlay.querySelector('#ds-status');
+        const reportEl = overlay.querySelector('#ds-report');
+
+        const updateCompareReady = () => {
+          compareBtn.disabled = !(localFiles.length > 0 && driveToken && selectedDriveFolder);
+        };
+
+        cidInput.onchange = () => hub.saveCloudSettings({ googleClientId: cidInput.value.trim() });
+
+        overlay.querySelector('#ds-pick-local').onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.multiple = true;
+          inp.setAttribute('webkitdirectory', '');
+          inp.setAttribute('directory', '');
+          inp.onchange = () => {
+            if (!inp.files || !inp.files.length) return;
+            localFiles = Array.from(inp.files);
+            const firstRel = (localFiles[0].webkitRelativePath || '').split('/').filter(Boolean);
+            localRootName = firstRel[0] || 'Local_Folder';
+            localInfoEl.innerHTML = `<strong>${esc(localRootName)}</strong> — ${localFiles.length.toLocaleString()} files`;
+            updateCompareReady();
+          };
+          inp.click();
+        };
+
+        const renderDriveBrowser = async () => {
+          const cur = driveStack[driveStack.length - 1];
+          browserEl.style.display = 'block';
+          browserEl.innerHTML = `<div class="muted" style="padding:10px;font-size:12px;">Loading folders in ${esc(cur.name)}...</div>`;
+          try {
+            const folders = await hub.listGoogleDriveFolders(driveToken, cur.id);
+            browserEl.innerHTML = `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--raised);border-bottom:1px solid var(--border);gap:8px;">
+                <span style="font-size:12px;font-weight:600;">Path: ${esc(driveStack.map((x) => x.name).join(' / '))}</span>
+                <div style="display:flex;gap:6px;">
+                  ${driveStack.length > 1 ? `<button type="button" class="btn sm" id="ds-up">⬅️ Up</button>` : ''}
+                  <button type="button" class="btn sm primary" id="ds-use-cur">✓ Select "${esc(cur.name)}"</button>
+                </div>
+              </div>
+              ${folders.map((f) => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--rule);">
+                  <button type="button" class="link-btn ds-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:12.5px;">📁 ${esc(f.name)}</button>
+                  <button type="button" class="btn sm ds-pick" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Select</button>
+                </div>
+              `).join('')}
+            `;
+            const upBtn = browserEl.querySelector('#ds-up');
+            if (upBtn) upBtn.onclick = () => { driveStack.pop(); renderDriveBrowser(); };
+            browserEl.querySelector('#ds-use-cur').onclick = () => {
+              selectedDriveFolder = { id: cur.id, name: cur.name };
+              driveSelEl.innerHTML = `Selected: <strong>${esc(cur.name)}</strong>`;
+              updateCompareReady();
+            };
+            browserEl.querySelectorAll('.ds-open').forEach((b) => {
+              b.onclick = () => {
+                driveStack.push({ id: b.getAttribute('data-id'), name: b.getAttribute('data-name') });
+                renderDriveBrowser();
+              };
+            });
+            browserEl.querySelectorAll('.ds-pick').forEach((b) => {
+              b.onclick = () => {
+                selectedDriveFolder = { id: b.getAttribute('data-id'), name: b.getAttribute('data-name') };
+                driveSelEl.innerHTML = `Selected: <strong>${esc(selectedDriveFolder.name)}</strong>`;
+                updateCompareReady();
+              };
+            });
+          } catch (err) {
+            browserEl.innerHTML = `<div style="padding:10px;color:var(--negative);font-size:12px;">${esc(err.message)}</div>`;
+          }
+        };
+
+        overlay.querySelector('#ds-connect-drive').onclick = async () => {
+          const cid = cidInput.value.trim();
+          hub.saveCloudSettings({ googleClientId: cid });
+          driveSelEl.textContent = 'Signing in to Google Drive...';
+          try {
+            driveToken = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive');
+            driveSelEl.textContent = 'Connected! Choose a folder below.';
+            await renderDriveBrowser();
+          } catch (err) {
+            driveSelEl.textContent = err.message;
+          }
+        };
+
+        const renderReport = () => {
+          if (!lastReport) return;
+          const { identical, missingInCloud, checksumMismatch, cloudOnly } = lastReport;
+          const toUpload = [...missingInCloud, ...checksumMismatch];
+          const allSafe = toUpload.length === 0;
+
+          reportEl.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+              <div style="padding:10px 12px;border-radius:8px;background:var(--pill-positive-bg);color:var(--pill-positive-ink);">
+                <div style="font-size:11px;font-weight:600;">IDENTICAL (SAFE)</div>
+                <div style="font-size:20px;font-weight:700;">${identical.length.toLocaleString()}</div>
+              </div>
+              <div style="padding:10px 12px;border-radius:8px;background:${toUpload.length ? 'var(--pill-warning-bg)' : 'var(--raised)'};color:${toUpload.length ? 'var(--pill-warning-ink)' : 'var(--text)'};">
+                <div style="font-size:11px;font-weight:600;">MISSING / CHANGED IN CLOUD</div>
+                <div style="font-size:20px;font-weight:700;">${toUpload.length.toLocaleString()}</div>
+              </div>
+              <div style="padding:10px 12px;border-radius:8px;background:var(--pill-info-bg);color:var(--pill-info-ink);">
+                <div style="font-size:11px;font-weight:600;">IN CLOUD ONLY</div>
+                <div style="font-size:20px;font-weight:700;">${cloudOnly.length.toLocaleString()}</div>
+              </div>
+            </div>
+
+            ${allSafe ? `
+              <div style="padding:10px 12px;border-radius:8px;background:var(--pill-positive-bg);color:var(--pill-positive-ink);font-size:12.5px;margin-bottom:12px;">
+                ✓ <strong>All ${identical.length.toLocaleString()} local files are verified in Google Drive</strong> (${toUpload.length === 0 ? '0 missing, 0 mismatched' : ''}). Your local copy has nothing missing from Drive!
+              </div>
+            ` : `
+              <div style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                <div style="padding:10px 12px;background:var(--raised);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <strong style="font-size:13px;">⬆️ Missing or Changed in Google Drive (${toUpload.length.toLocaleString()})</strong>
+                  <button type="button" class="btn sm primary" id="ds-upload-missing">Upload All ${toUpload.length.toLocaleString()} to Google Drive</button>
+                </div>
+                <div style="max-height:160px;overflow-y:auto;font-size:12px;">
+                  ${toUpload.slice(0, 200).map((item) => `
+                    <div style="padding:6px 12px;border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;gap:8px;">
+                      <span class="mono">${esc(item.relPath)}</span>
+                      <span class="muted">${esc(item.reason || 'Not in Drive')}</span>
+                    </div>
+                  `).join('')}
+                  ${toUpload.length > 200 ? `<div class="muted" style="padding:8px 12px;">Showing first 200 of ${toUpload.length.toLocaleString()}...</div>` : ''}
+                </div>
+              </div>
+            `}
+
+            ${cloudOnly.length > 0 ? `
+              <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                <div style="padding:10px 12px;background:var(--raised);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div>
+                    <strong style="font-size:13px;">☁️ In Google Drive Only (${cloudOnly.length.toLocaleString()})</strong>
+                    <div class="muted" style="font-size:11px;">These exist in Drive but NOT in your local folder (either deleted locally or already in Drive before). Moves to Drive Trash (recoverable 30 days).</div>
+                  </div>
+                  <div style="display:flex;gap:6px;">
+                    <button type="button" class="btn sm" id="ds-toggle-all-cloud">Select / Clear All</button>
+                    <button type="button" class="btn sm danger" id="ds-trash-selected">🗑️ Move Selected to Drive Trash</button>
+                  </div>
+                </div>
+                <div style="max-height:180px;overflow-y:auto;font-size:12px;">
+                  ${cloudOnly.slice(0, 300).map((df, idx) => `
+                    <label style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--rule);cursor:pointer;">
+                      <input type="checkbox" class="ds-cloud-chk" data-idx="${idx}">
+                      <span class="mono" style="flex:1;">${esc(df.relPath)}</span>
+                      <span class="muted">${Math.max(1, Math.round((df.size || 0) / 1024)).toLocaleString()} KB</span>
+                    </label>
+                  `).join('')}
+                  ${cloudOnly.length > 300 ? `<div class="muted" style="padding:8px 12px;">Showing first 300 of ${cloudOnly.length.toLocaleString()}...</div>` : ''}
+                </div>
+              </div>
+            ` : ''}
+          `;
+
+          const upBtn = reportEl.querySelector('#ds-upload-missing');
+          if (upBtn) {
+            upBtn.onclick = async () => {
+              upBtn.disabled = true;
+              const folderCache = new Map();
+              let uploaded = 0;
+              let failed = 0;
+              for (const item of toUpload) {
+                statusEl.textContent = `Uploading ${uploaded + 1}/${toUpload.length}: ${item.relPath}...`;
+                try {
+                  await sync.uploadFileToDrive(driveToken, selectedDriveFolder.id, item.relPath, item.localFile, folderCache);
+                  uploaded++;
+                } catch (e) {
+                  console.warn('Upload error:', e);
+                  failed++;
+                }
+              }
+              statusEl.textContent = `✓ Uploaded ${uploaded} file(s) to Google Drive${failed ? ` (${failed} failed)` : ''}. Re-run Compare to verify.`;
+              upBtn.disabled = false;
+              upBtn.textContent = `✓ Uploaded ${uploaded}`;
+            };
+          }
+
+          const toggleBtn = reportEl.querySelector('#ds-toggle-all-cloud');
+          if (toggleBtn) {
+            toggleBtn.onclick = () => {
+              const chks = reportEl.querySelectorAll('.ds-cloud-chk');
+              const anyUnchecked = Array.from(chks).some((c) => !c.checked);
+              chks.forEach((c) => { c.checked = anyUnchecked; });
+            };
+          }
+
+          const trashBtn = reportEl.querySelector('#ds-trash-selected');
+          if (trashBtn) {
+            trashBtn.onclick = async () => {
+              const chosen = Array.from(reportEl.querySelectorAll('.ds-cloud-chk'))
+                .filter((c) => c.checked)
+                .map((c) => cloudOnly[Number(c.getAttribute('data-idx'))])
+                .filter(Boolean);
+              if (!chosen.length) {
+                notify('Select at least one Cloud-Only file to move to Drive Trash.');
+                return;
+              }
+              if (!confirm(`Move ${chosen.length} file(s) to Google Drive Trash? (Recoverable in Google Drive Trash for 30 days.)`)) {
+                return;
+              }
+              trashBtn.disabled = true;
+              let trashed = 0;
+              for (const df of chosen) {
+                statusEl.textContent = `Moving to Drive Trash (${trashed + 1}/${chosen.length}): ${df.relPath}...`;
+                try {
+                  await sync.trashDriveFile(driveToken, df.id);
+                  trashed++;
+                } catch (e) {
+                  console.warn('Trash failed:', e);
+                }
+              }
+              lastReport.cloudOnly = cloudOnly.filter((df) => !chosen.includes(df));
+              statusEl.textContent = `✓ Moved ${trashed} file(s) to Google Drive Trash.`;
+              renderReport();
+            };
+          }
+        };
+
+        compareBtn.onclick = async () => {
+          compareBtn.disabled = true;
+          reportEl.innerHTML = '';
+          const verifyMd5 = Boolean(overlay.querySelector('#ds-verify-md5').checked);
+          try {
+            statusEl.textContent = `Scanning Google Drive folder "${selectedDriveFolder.name}"...`;
+            const driveFiles = await sync.scanDriveFolderAllFiles(driveToken, selectedDriveFolder.id, selectedDriveFolder.name, (p) => {
+              statusEl.textContent = `Scanning Drive (${p.filesFound.toLocaleString()} files found in ${p.currentPath})...`;
+            });
+            statusEl.textContent = `Comparing ${localFiles.length.toLocaleString()} local files against ${driveFiles.length.toLocaleString()} Drive files...`;
+            lastReport = await sync.compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 }, (p) => {
+              statusEl.textContent = `Verifying ${p.checked.toLocaleString()} / ${p.total.toLocaleString()}: ${p.currentName}`;
+            });
+            statusEl.textContent = `Comparison complete!`;
+            renderReport();
+          } catch (err) {
+            statusEl.textContent = `Error: ${err.message}`;
+          } finally {
+            compareBtn.disabled = false;
+          }
+        };
+      }
+
+      const btnOpenDriveSync = document.getElementById('btn-open-drive-sync');
+      if (btnOpenDriveSync) btnOpenDriveSync.onclick = openDriveSyncModal;
 
       if (window.FamilyHistoryTutorial) {
         window.FamilyHistoryTutorial.init({
