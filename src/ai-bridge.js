@@ -10,6 +10,8 @@ import {
   checkLocalAiHealth,
   restoreWithLocalAi
 } from './lib/localAiService.js';
+import * as CloudHub from './lib/cloudHub.js';
+import * as GedcomParser from './lib/gedcomParser.js';
 
 if (typeof window !== 'undefined') {
   window.ArchivalAiBridge = {
@@ -22,5 +24,7 @@ if (typeof window !== 'undefined') {
     checkLocalAiHealth,
     restoreWithLocalAi
   };
+  window.CloudImportHub = CloudHub;
+  window.GedcomImporter = GedcomParser;
   window.dispatchEvent(new CustomEvent('archival_ai_ready'));
 }

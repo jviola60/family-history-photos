@@ -2188,6 +2188,172 @@
     return localMatches;
   }
 
+  function buildGedcomXName(personData) {
+    var fullName = String((personData && personData.name) || '').trim();
+    var parts = fullName.split(/\s+/).filter(Boolean);
+    var given = String((personData && personData.given) || (parts.length > 1 ? parts.slice(0, -1).join(' ') : fullName)).trim();
+    var surname = String((personData && personData.surname) || (parts.length > 1 ? parts[parts.length - 1] : '')).trim();
+    var nameParts = [];
+    if (given) nameParts.push({ type: 'http://gedcomx.org/Given', value: given });
+    if (surname) nameParts.push({ type: 'http://gedcomx.org/Surname', value: surname });
+    return {
+      type: 'http://gedcomx.org/BirthName',
+      preferred: true,
+      nameForms: [{
+        fullText: fullName || (given + ' ' + surname).trim(),
+        parts: nameParts
+      }]
+    };
+  }
+
+  function buildGedcomXGender(sex) {
+    var s = String(sex || '').trim().toUpperCase();
+    if (s === 'M' || s === 'MALE') return { type: 'http://gedcomx.org/Male' };
+    if (s === 'F' || s === 'FEMALE') return { type: 'http://gedcomx.org/Female' };
+    return null;
+  }
+
+  function buildGedcomXFact(typeUri, dateStr, placeStr) {
+    var fact = { type: typeUri };
+    if (dateStr && String(dateStr).trim()) {
+      fact.date = { original: String(dateStr).trim() };
+    }
+    if (placeStr && String(placeStr).trim()) {
+      fact.place = { original: String(placeStr).trim() };
+    }
+    return (fact.date || fact.place) ? fact : null;
+  }
+
+  async function createPerson(personData) {
+    var stored = getStoredToken();
+    if (!stored || !stored.access_token) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    if (!personData || !personData.name) {
+      throw new Error('Person name is required to create a FamilySearch record.');
+    }
+    var facts = [];
+    var birthFact = buildGedcomXFact('http://gedcomx.org/Birth', personData.birthDate, personData.birthPlace);
+    if (birthFact) facts.push(birthFact);
+    var deathFact = buildGedcomXFact('http://gedcomx.org/Death', personData.deathDate, personData.deathPlace);
+    if (deathFact) facts.push(deathFact);
+
+    var personObj = {
+      living: !personData.deathDate,
+      names: [buildGedcomXName(personData)],
+      facts: facts
+    };
+    var gender = buildGedcomXGender(personData.sex);
+    if (gender) personObj.gender = gender;
+    if (personData.notes && String(personData.notes).trim()) {
+      personObj.notes = [{ text: String(personData.notes).trim() }];
+    }
+
+    var res = await fetch(API_BASE + '/platform/tree/persons', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + stored.access_token,
+        'Content-Type': 'application/x-gedcomx-v1+json',
+        'Accept': 'application/x-gedcomx-v1+json',
+        'X-Reason': 'Added from Family History Photos / PAF archive'
+      },
+      body: JSON.stringify({ persons: [personObj] })
+    });
+
+    if (!res.ok) {
+      var errTxt = await res.text().catch(function () { return ''; });
+      throw new Error('FamilySearch createPerson failed (' + res.status + '): ' + (errTxt || res.statusText));
+    }
+
+    var entityId = res.headers.get('X-ENTITY-ID') || '';
+    var loc = res.headers.get('Location') || '';
+    if (!entityId && loc) {
+      var m = loc.match(/\/persons\/([A-Z0-9-]+)/i);
+      if (m) entityId = m[1];
+    }
+    return {
+      id: entityId,
+      url: loc || (WEB_BASE + '/tree/person/details/' + entityId)
+    };
+  }
+
+  async function populatePersonMissingFields(personId, personData) {
+    var stored = getStoredToken();
+    if (!stored || !stored.access_token) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var pid = String(personId || '').trim().toUpperCase();
+    if (!pid) throw new Error('Valid FamilySearch Person ID (PID) is required.');
+
+    var getRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
+      headers: {
+        'Authorization': 'Bearer ' + stored.access_token,
+        'Accept': 'application/x-gedcomx-v1+json'
+      }
+    });
+    if (!getRes.ok) {
+      throw new Error('Could not load FamilySearch person ' + pid + ' (' + getRes.status + ')');
+    }
+    var existingData = await getRes.json();
+    var existingPerson = (existingData && existingData.persons && existingData.persons[0]) || {};
+    var existingFacts = Array.isArray(existingPerson.facts) ? existingPerson.facts : [];
+
+    var hasBirth = existingFacts.some(function (f) { return f.type === 'http://gedcomx.org/Birth'; });
+    var hasDeath = existingFacts.some(function (f) { return f.type === 'http://gedcomx.org/Death'; });
+    var hasGender = existingPerson.gender && existingPerson.gender.type && existingPerson.gender.type !== 'http://gedcomx.org/Unknown';
+
+    var patchPerson = { id: pid };
+    var added = [];
+
+    var newFacts = [];
+    if (!hasBirth) {
+      var bf = buildGedcomXFact('http://gedcomx.org/Birth', personData.birthDate, personData.birthPlace);
+      if (bf) { newFacts.push(bf); added.push('Birth'); }
+    }
+    if (!hasDeath) {
+      var df = buildGedcomXFact('http://gedcomx.org/Death', personData.deathDate, personData.deathPlace);
+      if (df) { newFacts.push(df); added.push('Death'); }
+    }
+    if (newFacts.length > 0) patchPerson.facts = newFacts;
+
+    if (!hasGender) {
+      var g = buildGedcomXGender(personData.sex);
+      if (g) { patchPerson.gender = g; added.push('Gender'); }
+    }
+
+    if (personData.notes && String(personData.notes).trim()) {
+      var noteTxt = String(personData.notes).trim();
+      var existingNotes = Array.isArray(existingPerson.notes) ? existingPerson.notes : [];
+      var alreadyHasNote = existingNotes.some(function (n) { return n.text && n.text.indexOf(noteTxt.slice(0, 40)) !== -1; });
+      if (!alreadyHasNote) {
+        patchPerson.notes = [{ text: noteTxt }];
+        added.push('Notes');
+      }
+    }
+
+    if (added.length === 0) {
+      return { updated: false, added: [], id: pid };
+    }
+
+    var postRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + stored.access_token,
+        'Content-Type': 'application/x-gedcomx-v1+json',
+        'Accept': 'application/x-gedcomx-v1+json',
+        'X-Reason': 'Populated missing vital fields from Family History Photos / PAF archive'
+      },
+      body: JSON.stringify({ persons: [patchPerson] })
+    });
+
+    if (!postRes.ok) {
+      var errTxt = await postRes.text().catch(function () { return ''; });
+      throw new Error('FamilySearch update failed (' + postRes.status + '): ' + (errTxt || postRes.statusText));
+    }
+
+    return { updated: true, added: added, id: pid };
+  }
+
   global.FamilySearchClient = {
     getClientId: getClientId,
     setClientId: setClientId,
@@ -2205,6 +2371,8 @@
     checkMemoryExists: checkMemoryExists,
     createFreshUploadBlob: createFreshUploadBlob,
     searchPersons: searchPersons,
+    createPerson: createPerson,
+    populatePersonMissingFields: populatePersonMissingFields,
     isPidValidForPersonName: isPidValidForPersonName,
     KNOWN_FAMILY: KNOWN_FAMILY,
     parseFamilySearchDate: parseFamilySearchDate,

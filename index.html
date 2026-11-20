@@ -2511,6 +2511,12 @@
         <button class="btn folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
+        <button class="btn folder-pick-btn" type="button" id="btn-open-cloud-hub" title="Connect Google Drive, Google Photos, OneDrive, or iCloud / ZIP without using hard drive space">
+          <span data-icon="spark"></span><span>Import from Cloud...</span>
+        </button>
+        <button class="btn folder-pick-btn" type="button" id="btn-open-gedcom-hub" title="Import a .ged (PAF export) to re-link broken photo paths & sync people to FamilySearch Beta">
+          <span data-icon="tree"></span><span>PAF / GEDCOM (.ged)...</span>
+        </button>
         <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
           ✕ Clear Demo Photos
         </button>
@@ -3320,6 +3326,24 @@
   <script src="/help-tutorial.js"></script>
   <script type="module" src="/src/ai-bridge.js"></script>
   <script>
+    (function handleOAuthPopupCallback() {
+      try {
+        if (window.opener && window.location.hash && window.location.hash.indexOf('access_token=') !== -1) {
+          var hashParams = new URLSearchParams(window.location.hash.slice(1));
+          var st = hashParams.get('state') || '';
+          if (st.indexOf('od_') === 0) {
+            window.opener.postMessage({
+              type: 'fhp_onedrive_token',
+              state: st,
+              accessToken: hashParams.get('access_token'),
+              error: hashParams.get('error'),
+              errorDescription: hashParams.get('error_description')
+            }, window.location.origin);
+            window.close();
+          }
+        }
+      } catch (_) {}
+    })();
     (async () => {
       const { cloneItems, stats, ICONS, esc, notify, branches } = window.TasteArchive;
 
@@ -13537,9 +13561,48 @@
         await new Promise((r) => setTimeout(r, 10));
 
         try {
+          // If any items in this batch are lazy cloud descriptors (Google Drive / Google Photos / OneDrive),
+          // download ONLY this batch of 50 (concurrency 4) so zero hard drive space is used.
+          const batchSlice = activeFolderImageFiles.slice(start, end);
+          const pendingCloud = batchSlice.filter((f) => f && f.isCloudFile && !f._cachedFile);
+          if (pendingCloud.length > 0) {
+            let doneCount = 0;
+            const CONCURRENCY = 4;
+            let cursor = 0;
+            const workers = Array.from({ length: Math.min(CONCURRENCY, pendingCloud.length) }, async () => {
+              while (cursor < pendingCloud.length) {
+                const target = pendingCloud[cursor++];
+                try {
+                  const downloaded = await target.fetchFile();
+                  if (target.webkitRelativePath && !downloaded.webkitRelativePath) {
+                    try {
+                      Object.defineProperty(downloaded, 'webkitRelativePath', {
+                        value: target.webkitRelativePath,
+                        configurable: true
+                      });
+                    } catch (_) {}
+                  }
+                  target._cachedFile = downloaded;
+                } catch (dlErr) {
+                  console.warn('Cloud download failed for', target.name, dlErr);
+                }
+                doneCount++;
+                const pct = Math.min(85, Math.round(35 + (doneCount / pendingCloud.length) * 50));
+                updateImportProgress(
+                  `Downloading cloud photos (${doneCount}/${pendingCloud.length})...`,
+                  pct,
+                  `Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()}`
+                );
+              }
+            });
+            await Promise.all(workers);
+          }
+
           const newItems = [];
           for (let i = start; i < end; i++) {
-            const file = activeFolderImageFiles[i];
+            const rawEntry = activeFolderImageFiles[i];
+            const file = (rawEntry && rawEntry.isCloudFile) ? rawEntry._cachedFile : rawEntry;
+            if (!file) continue;
             const relParts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
             const subfolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : rootFolderName;
             const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
@@ -13629,6 +13692,9 @@
 
           items = newItems;
           await restoreCatalogMetadata(items);
+          if (window._activeGedcomData && window.GedcomImporter) {
+            window.GedcomImporter.relinkPhotosWithGedcom(window._activeGedcomData, items);
+          }
           selectedId = items[0] ? items[0].id : null;
           catalogPage = 1;
 
@@ -14422,6 +14488,555 @@
 
       setAppLoadingProgress(100, 'Ready!');
       dismissAppLoadingScreen();
+
+      /* =====================================================================
+         CLOUD IMPORT HUB (Google Drive, Google Photos, OneDrive, iCloud/ZIP)
+         ===================================================================== */
+      async function loadCloudFilesIntoArchive(fileList, sourceLabel) {
+        if (!fileList || !fileList.length) {
+          notify('No photos were found to load.');
+          return;
+        }
+        rootFolderName = sourceLabel || 'Cloud_Photos';
+        isCustomFolder = true;
+        activeFolder = null;
+        activeQueue = 'all';
+        catalogPage = 1;
+        search = '';
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = '';
+        try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
+
+        activeFolderImageFiles = fileList;
+        activeFolderBatchIndex = 0;
+        duplicateResolved = false;
+        ignoredDupPairKeys = new Set();
+        await loadFolderBatch(0);
+      }
+
+      function openCloudImportHubModal() {
+        const hub = window.CloudImportHub;
+        if (!hub) {
+          notify('Cloud module is still loading — please try again in a second.');
+          return;
+        }
+        const saved = hub.getCloudSettings();
+        let activeTab = 'gdrive';
+        let gdriveToken = '';
+        let gdriveStack = [{ id: 'root', name: 'My Drive' }];
+        let odToken = '';
+        let odStack = [{ id: 'root', name: 'OneDrive' }];
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.25);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">☁️ Import from Cloud (Zero Hard Drive Space)</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Connect Google Drive, Google Photos, OneDrive, or drop an iCloud / Takeout ZIP.</p>
+              </div>
+              <button type="button" class="btn sm" id="cloud-modal-close">✕</button>
+            </div>
+            <div style="display:flex;gap:6px;padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);flex-wrap:wrap;">
+              <button type="button" class="btn sm primary" data-ctab="gdrive">Google Drive (Folder Scan)</button>
+              <button type="button" class="btn sm" data-ctab="gphotos">Google Photos</button>
+              <button type="button" class="btn sm" data-ctab="onedrive">Microsoft OneDrive</button>
+              <button type="button" class="btn sm" data-ctab="icloud">Apple iCloud &amp; ZIP</button>
+            </div>
+            <div id="cloud-modal-body" style="padding:18px 20px;overflow-y:auto;flex:1;"></div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+        overlay.querySelector('#cloud-modal-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const renderTab = () => {
+          overlay.querySelectorAll('[data-ctab]').forEach((b) => {
+            const on = b.getAttribute('data-ctab') === activeTab;
+            b.className = `btn sm ${on ? 'primary' : ''}`;
+          });
+          const body = overlay.querySelector('#cloud-modal-body');
+          const cur = hub.getCloudSettings();
+
+          if (activeTab === 'gdrive') {
+            body.innerHTML = `
+              <p style="font-size:13px;margin:0 0 10px;">Choose a folder in <strong>Google Drive</strong> and the app will recursively scan it for photos and load them in batches of 50 without filling your hard drive.</p>
+              <div class="field" style="margin-bottom:10px;">
+                <label style="font-size:12px;font-weight:600;">Google OAuth Client ID</label>
+                <input type="text" id="inp-google-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                <div class="muted" style="font-size:11px;margin-top:4px;">In Google Cloud Console → Credentials → Web Client ID, add <code>${esc(window.location.origin)}</code> to Authorized JavaScript origins.</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                <button type="button" class="btn primary sm" id="btn-gdrive-connect">${gdriveToken ? '✓ Connected — Refresh Folders' : '🔗 Connect Google Drive'}</button>
+                ${gdriveToken ? `<button type="button" class="btn accent sm" id="btn-gdrive-scan-cur">📂 Scan "${esc(gdriveStack[gdriveStack.length - 1].name)}"</button>` : ''}
+              </div>
+              <div id="gdrive-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+              <div id="gdrive-folders" style="border:1px solid var(--border);border-radius:8px;max-height:240px;overflow-y:auto;"></div>
+            `;
+            const cidInput = body.querySelector('#inp-google-cid');
+            cidInput.onchange = () => hub.saveCloudSettings({ googleClientId: cidInput.value.trim() });
+
+            const loadGdriveList = async () => {
+              const status = body.querySelector('#gdrive-status');
+              const listEl = body.querySelector('#gdrive-folders');
+              const folder = gdriveStack[gdriveStack.length - 1];
+              status.textContent = `Loading folders in ${folder.name}...`;
+              try {
+                const folders = await hub.listGoogleDriveFolders(gdriveToken, folder.id);
+                status.textContent = `Path: ${gdriveStack.map((x) => x.name).join(' / ')}`;
+                listEl.innerHTML = `
+                  ${gdriveStack.length > 1 ? `<button type="button" class="nav-item" id="gd-up" style="width:100%;border-bottom:1px solid var(--rule);">⬅️ Back to ${esc(gdriveStack[gdriveStack.length - 2].name)}</button>` : ''}
+                  ${folders.length === 0 ? '<div class="muted" style="padding:14px;font-size:12px;">No subfolders here. Click "Scan" above to scan this folder for photos.</div>' : folders.map((f) => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--rule);gap:8px;">
+                      <button type="button" class="link-btn gd-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:13px;font-weight:500;">📁 ${esc(f.name)}</button>
+                      <button type="button" class="btn sm gd-scan" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Scan Folder</button>
+                    </div>
+                  `).join('')}
+                `;
+                const upBtn = listEl.querySelector('#gd-up');
+                if (upBtn) upBtn.onclick = () => { gdriveStack.pop(); renderTab(); loadGdriveList(); };
+                listEl.querySelectorAll('.gd-open').forEach((b) => {
+                  b.onclick = () => {
+                    gdriveStack.push({ id: b.getAttribute('data-id'), name: b.getAttribute('data-name') });
+                    renderTab();
+                    loadGdriveList();
+                  };
+                });
+                listEl.querySelectorAll('.gd-scan').forEach((b) => {
+                  b.onclick = async () => {
+                    const fid = b.getAttribute('data-id');
+                    const fname = b.getAttribute('data-name');
+                    status.textContent = `Scanning "${fname}" for photos...`;
+                    try {
+                      const files = await hub.scanGoogleDriveFolder(gdriveToken, fid, fname, (p) => {
+                        status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                      });
+                      closeModal();
+                      await loadCloudFilesIntoArchive(files, `GDrive_${fname}`);
+                    } catch (e) {
+                      status.textContent = e.message;
+                    }
+                  };
+                });
+              } catch (err) {
+                status.textContent = err.message;
+              }
+            };
+
+            body.querySelector('#btn-gdrive-connect').onclick = async () => {
+              const cid = cidInput.value.trim();
+              hub.saveCloudSettings({ googleClientId: cid });
+              const status = body.querySelector('#gdrive-status');
+              status.textContent = 'Signing in to Google Drive...';
+              try {
+                gdriveToken = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive.readonly');
+                renderTab();
+                await loadGdriveList();
+              } catch (err) {
+                status.textContent = err.message;
+              }
+            };
+            const scanCur = body.querySelector('#btn-gdrive-scan-cur');
+            if (scanCur) {
+              scanCur.onclick = async () => {
+                const folder = gdriveStack[gdriveStack.length - 1];
+                const status = body.querySelector('#gdrive-status');
+                status.textContent = `Scanning "${folder.name}"...`;
+                try {
+                  const files = await hub.scanGoogleDriveFolder(gdriveToken, folder.id, folder.name, (p) => {
+                    status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                  });
+                  closeModal();
+                  await loadCloudFilesIntoArchive(files, `GDrive_${folder.name}`);
+                } catch (e) {
+                  status.textContent = e.message;
+                }
+              };
+            }
+            if (gdriveToken) loadGdriveList();
+          } else if (activeTab === 'gphotos') {
+            body.innerHTML = `
+              <p style="font-size:13px;margin:0 0 10px;">Select albums or photos directly from <strong>Google Photos</strong> (via Google’s official Photos Picker), or drop a downloaded Google Photos / Takeout <code>.zip</code> below.</p>
+              <div class="field" style="margin-bottom:10px;">
+                <label style="font-size:12px;font-weight:600;">Google OAuth Client ID</label>
+                <input type="text" id="inp-gphotos-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                <div class="muted" style="font-size:11px;margin-top:4px;">Enable the <strong>Google Photos Picker API</strong> in your Google Cloud project.</div>
+              </div>
+              <button type="button" class="btn primary" id="btn-gphotos-pick" style="width:100%;margin-bottom:10px;">📷 Open Google Photos Picker</button>
+              <div id="gphotos-status" class="muted" style="font-size:12px;margin-bottom:12px;"></div>
+              <div style="border-top:1px solid var(--border);padding-top:12px;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Or import a Google Photos / Takeout .zip archive:</label>
+                <input type="file" id="inp-gphotos-zip" accept=".zip">
+              </div>
+            `;
+            const cidInput = body.querySelector('#inp-gphotos-cid');
+            cidInput.onchange = () => hub.saveCloudSettings({ googleClientId: cidInput.value.trim() });
+            body.querySelector('#btn-gphotos-pick').onclick = async () => {
+              const cid = cidInput.value.trim();
+              hub.saveCloudSettings({ googleClientId: cid });
+              const status = body.querySelector('#gphotos-status');
+              try {
+                const picked = await hub.launchGooglePhotosPicker(cid, (msg) => { status.textContent = msg; });
+                closeModal();
+                await loadCloudFilesIntoArchive(picked, 'Google_Photos');
+              } catch (err) {
+                status.textContent = err.message;
+              }
+            };
+            body.querySelector('#inp-gphotos-zip').onchange = async (e) => {
+              const zf = e.target.files && e.target.files[0];
+              if (!zf) return;
+              const status = body.querySelector('#gphotos-status');
+              status.textContent = 'Unpacking ZIP in memory...';
+              const extracted = await hub.extractImagesFromZip(zf, 'Google_Photos', (p) => {
+                status.textContent = `Unpacking ${p.extracted} / ${p.total} photos...`;
+              });
+              closeModal();
+              await loadCloudFilesIntoArchive(extracted, 'Google_Photos_ZIP');
+            };
+          } else if (activeTab === 'onedrive') {
+            body.innerHTML = `
+              <p style="font-size:13px;margin:0 0 10px;">Connect <strong>Microsoft OneDrive</strong> to scan a folder recursively, or use the quick OneDrive File Picker.</p>
+              <div class="field" style="margin-bottom:10px;">
+                <label style="font-size:12px;font-weight:600;">Microsoft Entra / Azure Client ID</label>
+                <input type="text" id="inp-od-cid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${esc(cur.microsoftClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                <div class="muted" style="font-size:11px;margin-top:4px;">In Azure App Registration → Authentication (SPA), add <code>${esc(window.location.origin + window.location.pathname)}</code> as Redirect URI and enable implicit Access Tokens.</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                <button type="button" class="btn primary sm" id="btn-od-connect">${odToken ? '✓ Connected — Refresh Folders' : '🔗 Connect OneDrive Folders'}</button>
+                ${odToken ? `<button type="button" class="btn accent sm" id="btn-od-scan-cur">📂 Scan "${esc(odStack[odStack.length - 1].name)}"</button>` : ''}
+                <button type="button" class="btn sm" id="btn-od-picker">Picker SDK (Individual Photos)</button>
+              </div>
+              <div id="od-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+              <div id="od-folders" style="border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;"></div>
+            `;
+            const cidInput = body.querySelector('#inp-od-cid');
+            cidInput.onchange = () => hub.saveCloudSettings({ microsoftClientId: cidInput.value.trim() });
+
+            const loadOdList = async () => {
+              const status = body.querySelector('#od-status');
+              const listEl = body.querySelector('#od-folders');
+              const folder = odStack[odStack.length - 1];
+              status.textContent = `Loading OneDrive folders in ${folder.name}...`;
+              try {
+                const folders = await hub.listOneDriveFolders(odToken, folder.id);
+                status.textContent = `Path: ${odStack.map((x) => x.name).join(' / ')}`;
+                listEl.innerHTML = `
+                  ${odStack.length > 1 ? `<button type="button" class="nav-item" id="od-up" style="width:100%;border-bottom:1px solid var(--rule);">⬅️ Back to ${esc(odStack[odStack.length - 2].name)}</button>` : ''}
+                  ${folders.length === 0 ? '<div class="muted" style="padding:14px;font-size:12px;">No subfolders here. Click "Scan" above to load photos from this folder.</div>' : folders.map((f) => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--rule);gap:8px;">
+                      <button type="button" class="link-btn od-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:13px;font-weight:500;">📁 ${esc(f.name)}</button>
+                      <button type="button" class="btn sm od-scan" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Scan Folder</button>
+                    </div>
+                  `).join('')}
+                `;
+                const upBtn = listEl.querySelector('#od-up');
+                if (upBtn) upBtn.onclick = () => { odStack.pop(); renderTab(); loadOdList(); };
+                listEl.querySelectorAll('.od-open').forEach((b) => {
+                  b.onclick = () => {
+                    odStack.push({ id: b.getAttribute('data-id'), name: b.getAttribute('data-name') });
+                    renderTab();
+                    loadOdList();
+                  };
+                });
+                listEl.querySelectorAll('.od-scan').forEach((b) => {
+                  b.onclick = async () => {
+                    const fid = b.getAttribute('data-id');
+                    const fname = b.getAttribute('data-name');
+                    status.textContent = `Scanning "${fname}"...`;
+                    try {
+                      const files = await hub.scanOneDriveFolder(odToken, fid, fname, (p) => {
+                        status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                      });
+                      closeModal();
+                      await loadCloudFilesIntoArchive(files, `OneDrive_${fname}`);
+                    } catch (e) {
+                      status.textContent = e.message;
+                    }
+                  };
+                });
+              } catch (err) {
+                status.textContent = err.message;
+              }
+            };
+
+            body.querySelector('#btn-od-connect').onclick = async () => {
+              const cid = cidInput.value.trim();
+              hub.saveCloudSettings({ microsoftClientId: cid });
+              const status = body.querySelector('#od-status');
+              status.textContent = 'Opening Microsoft sign-in...';
+              try {
+                odToken = await hub.requestOneDriveToken(cid);
+                renderTab();
+                await loadOdList();
+              } catch (err) {
+                status.textContent = err.message;
+              }
+            };
+            const scanCur = body.querySelector('#btn-od-scan-cur');
+            if (scanCur) {
+              scanCur.onclick = async () => {
+                const folder = odStack[odStack.length - 1];
+                const status = body.querySelector('#od-status');
+                status.textContent = `Scanning "${folder.name}"...`;
+                try {
+                  const files = await hub.scanOneDriveFolder(odToken, folder.id, folder.name, (p) => {
+                    status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                  });
+                  closeModal();
+                  await loadCloudFilesIntoArchive(files, `OneDrive_${folder.name}`);
+                } catch (e) {
+                  status.textContent = e.message;
+                }
+              };
+            }
+            body.querySelector('#btn-od-picker').onclick = async () => {
+              const cid = cidInput.value.trim();
+              const status = body.querySelector('#od-status');
+              status.textContent = 'Opening OneDrive Picker...';
+              try {
+                const picked = await hub.launchOneDrivePickerSdk(cid);
+                if (picked.length > 0) {
+                  closeModal();
+                  await loadCloudFilesIntoArchive(picked, 'OneDrive');
+                } else {
+                  status.textContent = 'No photos selected.';
+                }
+              } catch (e) {
+                status.textContent = e.message;
+              }
+            };
+            if (odToken) loadOdList();
+          } else {
+            body.innerHTML = `
+              <p style="font-size:13px;margin:0 0 10px;">Apple does not offer a web API for third-party apps to scan iCloud directly, so use either option below:</p>
+              <ol style="font-size:12.5px;line-height:1.55;margin:0 0 14px;padding-left:18px;">
+                <li><strong>iCloud.com ZIP (No sync needed):</strong> Open <a href="https://www.icloud.com/photos" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">icloud.com/photos</a>, select an album or photos, click the <strong>Download</strong> icon (<code>iCloud Photos.zip</code>), and select that ZIP below.</li>
+                <li><strong>iCloud for Windows:</strong> If iCloud for Windows is installed, click <strong>Scan Entire Folder...</strong> in the left sidebar and pick her <code>iCloud Photos</code> folder.</li>
+              </ol>
+              <div style="padding:14px;border:1px dashed var(--control);border-radius:8px;background:var(--raised);">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Select iCloud Photos.zip (or any cloud ZIP archive):</label>
+                <input type="file" id="inp-icloud-zip" accept=".zip">
+                <div id="icloud-status" class="muted" style="font-size:12px;margin-top:8px;"></div>
+              </div>
+            `;
+            body.querySelector('#inp-icloud-zip').onchange = async (e) => {
+              const zf = e.target.files && e.target.files[0];
+              if (!zf) return;
+              const status = body.querySelector('#icloud-status');
+              status.textContent = 'Unpacking iCloud ZIP in memory...';
+              const extracted = await hub.extractImagesFromZip(zf, 'iCloud_Photos', (p) => {
+                status.textContent = `Unpacking ${p.extracted} / ${p.total} photos...`;
+              });
+              closeModal();
+              await loadCloudFilesIntoArchive(extracted, 'iCloud_Photos');
+            };
+          }
+        };
+
+        overlay.querySelectorAll('[data-ctab]').forEach((b) => {
+          b.onclick = () => {
+            activeTab = b.getAttribute('data-ctab');
+            renderTab();
+          };
+        });
+        renderTab();
+      }
+
+      /* =====================================================================
+         PAF / GEDCOM (.ged) IMPORTER, PHOTO RE-LINKER & FAMILYSEARCH TREE
+         ===================================================================== */
+      function openGedcomPafModal() {
+        const gp = window.GedcomImporter;
+        if (!gp) {
+          notify('GEDCOM module is still loading — please try again in a second.');
+          return;
+        }
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:740px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.25);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">🌳 PAF / GEDCOM (.ged) Importer &amp; Photo Re-Linker</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Reconnect broken PAF photo links by filename, browse 100K+ people, and sync missing people/fields to FamilySearch Beta.</p>
+              </div>
+              <button type="button" class="btn sm" id="ged-modal-close">✕</button>
+            </div>
+            <div style="padding:18px 20px;overflow-y:auto;flex:1;" id="ged-modal-body">
+              <div style="padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border);margin-bottom:14px;font-size:12.5px;line-height:1.5;">
+                <strong>Have a <code>.paf</code> file?</strong> Open it in <strong>PAF</strong> (or free <strong>RootsMagic Essentials</strong> / <strong>Ancestral Quest Basics</strong>) and choose <strong>File → Export → GEDCOM (<code>.ged</code>)</strong>. That preserves all 100K+ names, dates, places, notes, and the original broken photo paths so we can re-link them automatically here.
+              </div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                <input type="file" id="inp-ged-file" accept=".ged,.gedcom">
+                <button type="button" class="btn sm accent" id="btn-ged-relink-now" ${window._activeGedcomData ? '' : 'disabled'}>🔗 Re-Link Current Batch</button>
+              </div>
+              <div id="ged-status" class="muted" style="font-size:12.5px;margin-bottom:12px;">
+                ${window._activeGedcomData ? `Loaded: <strong>${esc(window._activeGedcomData.fileName)}</strong> — ${window._activeGedcomData.peopleList.length.toLocaleString()} people, ${window._activeGedcomData.totalPhotoLinks.toLocaleString()} photo links.` : 'No .ged file loaded yet.'}
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:12px;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Search People in GEDCOM / PAF (tag to selected photo or send to FamilySearch Beta):</label>
+                <input type="search" id="inp-ged-search" placeholder="Type a name (e.g., Patricia Gill)..." style="width:100%;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;margin-bottom:10px;">
+                <div id="ged-results" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+        overlay.querySelector('#ged-modal-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const statusEl = overlay.querySelector('#ged-status');
+        const resultsEl = overlay.querySelector('#ged-results');
+        const searchInp = overlay.querySelector('#inp-ged-search');
+        const relinkBtn = overlay.querySelector('#btn-ged-relink-now');
+
+        const renderSearch = () => {
+          const gd = window._activeGedcomData;
+          if (!gd) {
+            resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:12px;">Load a .ged file above to search people.</div>';
+            return;
+          }
+          const q = searchInp.value.trim().toLowerCase();
+          const matches = [];
+          for (let i = 0; i < gd.peopleList.length && matches.length < 40; i++) {
+            const person = gd.peopleList[i];
+            if (!q || (person.name && person.name.toLowerCase().includes(q))) {
+              matches.push(person);
+            }
+          }
+          if (matches.length === 0) {
+            resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:12px;">No matching people found.</div>';
+            return;
+          }
+          const curPhoto = currentPhoto();
+          resultsEl.innerHTML = matches.map((person, idx) => `
+            <div style="padding:10px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <div style="min-width:200px;flex:1;">
+                <div style="font-weight:600;font-size:13px;">${esc(person.name || 'Unnamed')} <span class="mono muted" style="font-size:11px;">(${esc(person.id)})</span></div>
+                <div class="muted" style="font-size:11.5px;">
+                  ${person.birthDate || person.birthPlace ? `b. ${esc(person.birthDate || '')} ${esc(person.birthPlace || '')}` : ''}
+                  ${person.deathDate || person.deathPlace ? ` · d. ${esc(person.deathDate || '')} ${esc(person.deathPlace || '')}` : ''}
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${curPhoto ? `<button type="button" class="btn sm ged-tag" data-idx="${idx}">+ Tag to ${esc(curPhoto.id)}</button>` : ''}
+                <button type="button" class="btn sm primary ged-fs" data-idx="${idx}">Sync to FamilySearch Beta</button>
+              </div>
+            </div>
+          `).join('');
+
+          resultsEl.querySelectorAll('.ged-tag').forEach((btn) => {
+            btn.onclick = () => {
+              const person = matches[Number(btn.getAttribute('data-idx'))];
+              const p = currentPhoto();
+              if (!p || !person) return;
+              if (!Array.isArray(p.people)) p.people = [];
+              if (!p.people.some((x) => (x.name || '').toLowerCase() === (person.name || '').toLowerCase())) {
+                p.people.push({
+                  name: person.name,
+                  rel: 'Relative',
+                  branch: person.surname || p.branch || '',
+                  gedId: person.id,
+                  sex: person.sex,
+                  birthDate: person.birthDate,
+                  birthPlace: person.birthPlace,
+                  deathDate: person.deathDate,
+                  deathPlace: person.deathPlace,
+                  notes: person.notes
+                });
+                saveItemMetadata(p);
+                render();
+                notify(`Tagged ${person.name} on ${p.id}.`);
+              } else {
+                notify(`${person.name} is already tagged on ${p.id}.`);
+              }
+            };
+          });
+
+          resultsEl.querySelectorAll('.ged-fs').forEach((btn) => {
+            btn.onclick = async () => {
+              const person = matches[Number(btn.getAttribute('data-idx'))];
+              const fs = window.FamilySearchClient;
+              if (!fs || !fs.getStoredToken()) {
+                notify('Please sign in to FamilySearch first (top bar "Sign in: FamilySearch").');
+                return;
+              }
+              btn.disabled = true;
+              btn.textContent = 'Searching FS...';
+              try {
+                const found = await fs.searchPersons(person.name);
+                if (found && found.length > 0) {
+                  const top = found[0];
+                  btn.textContent = `Updating ${top.id}...`;
+                  const upd = await fs.populatePersonMissingFields(top.id, person);
+                  if (upd.updated) {
+                    notify(`Updated ${top.id} (${person.name}) on FamilySearch Beta — added: ${upd.added.join(', ')}`);
+                    btn.textContent = `✓ Updated ${top.id}`;
+                  } else {
+                    notify(`${top.id} (${person.name}) already has all these fields on FamilySearch Beta.`);
+                    btn.textContent = `✓ Matched ${top.id}`;
+                  }
+                } else {
+                  btn.textContent = 'Creating...';
+                  const created = await fs.createPerson(person);
+                  notify(`Created ${person.name} on FamilySearch Beta (${created.id})!`);
+                  btn.textContent = `✓ Created ${created.id}`;
+                }
+              } catch (err) {
+                notify(err.message || 'FamilySearch sync failed.');
+                btn.disabled = false;
+                btn.textContent = 'Sync to FamilySearch Beta';
+              }
+            };
+          });
+        };
+
+        overlay.querySelector('#inp-ged-file').onchange = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          statusEl.textContent = 'Parsing GEDCOM file...';
+          try {
+            const gedData = await gp.parseGedcomFile(file, (p) => {
+              statusEl.textContent = `${p.stage} (${p.pct}%)`;
+            });
+            window._activeGedcomData = gedData;
+            const res = gp.relinkPhotosWithGedcom(gedData, items);
+            if (res.matchedPhotos > 0) {
+              items.forEach((p) => { if (p.people && p.people.length) saveItemMetadata(p); });
+              render();
+            }
+            relinkBtn.disabled = false;
+            statusEl.innerHTML = `✓ Parsed <strong>${gedData.peopleList.length.toLocaleString()} people</strong> and <strong>${gedData.totalPhotoLinks.toLocaleString()} photo links</strong>. Re-linked <strong>${res.matchedPhotos}</strong> photos (${res.totalLinksRestored} person links restored) in the current view.`;
+            renderSearch();
+          } catch (err) {
+            statusEl.textContent = `Error reading GEDCOM: ${err.message}`;
+          }
+        };
+
+        relinkBtn.onclick = () => {
+          if (!window._activeGedcomData) return;
+          const res = gp.relinkPhotosWithGedcom(window._activeGedcomData, items);
+          items.forEach((p) => { if (p.people && p.people.length) saveItemMetadata(p); });
+          render();
+          statusEl.innerHTML = `✓ Re-linked <strong>${res.matchedPhotos}</strong> photos (${res.totalLinksRestored} person links restored) in the current batch.`;
+        };
+
+        searchInp.oninput = renderSearch;
+        renderSearch();
+      }
+
+      const btnOpenCloudHub = document.getElementById('btn-open-cloud-hub');
+      if (btnOpenCloudHub) btnOpenCloudHub.onclick = openCloudImportHubModal;
+      const btnOpenGedcomHub = document.getElementById('btn-open-gedcom-hub');
+      if (btnOpenGedcomHub) btnOpenGedcomHub.onclick = openGedcomPafModal;
 
       if (window.FamilyHistoryTutorial) {
         window.FamilyHistoryTutorial.init({

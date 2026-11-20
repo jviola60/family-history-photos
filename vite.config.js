@@ -12,8 +12,8 @@ const CSP = [
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
-  "connect-src 'self' blob: data: https://*.familysearch.org https://*.identbeta.familysearch.org https://rest.alpha.fal.ai https://fal.run https://*.fal.ai https://*.fal.media https://www.googleapis.com https://apis.google.com https://accounts.google.com https://graph.microsoft.com https://*.sharepoint.com https://*.live.net https://*.1drv.ms https://tile.openstreetmap.org https://*.tile.openstreetmap.org http://localhost:8008 http://127.0.0.1:8008",
-  "frame-src https://*.google.com https://*.live.net https://*.microsoft.com https://*.office.com https://accounts.google.com",
+  "connect-src 'self' blob: data: https://*.familysearch.org https://*.identbeta.familysearch.org https://rest.alpha.fal.ai https://fal.run https://*.fal.ai https://*.fal.media https://www.googleapis.com https://apis.google.com https://accounts.google.com https://photospicker.googleapis.com https://*.googleusercontent.com https://login.microsoftonline.com https://graph.microsoft.com https://*.sharepoint.com https://*.live.net https://*.1drv.ms https://tile.openstreetmap.org https://*.tile.openstreetmap.org http://localhost:8008 http://127.0.0.1:8008",
+  "frame-src https://*.google.com https://*.live.net https://*.microsoft.com https://*.office.com https://accounts.google.com https://login.microsoftonline.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'"
