@@ -88,6 +88,15 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
   const identical = [];
   const missingInCloud = [];
   const checksumMismatch = [];
+  const unreadable = [];
+
+  const safeComputeMd5 = async (file) => {
+    try {
+      return { ok: true, md5: await computeFileMd5(file) };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'File could not be read' };
+    }
+  };
 
   const total = localFiles.length;
   for (let i = 0; i < total; i++) {
@@ -111,41 +120,54 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
         continue;
       }
       if (verifyMd5 && df.md5Checksum) {
-        const localMd5 = await computeFileMd5(lf);
-        if (localMd5 !== df.md5Checksum) {
+        const res = await safeComputeMd5(lf);
+        if (!res.ok) {
+          unreadable.push({ localFile: lf, relPath, driveFile: df, reason: `Size matched, MD5 skipped (${res.error})` });
+          continue;
+        }
+        if (res.md5 !== df.md5Checksum) {
           checksumMismatch.push({
             localFile: lf,
             relPath,
             driveFile: df,
-            localMd5,
+            localMd5: res.md5,
             reason: 'MD5 checksum mismatch'
           });
           continue;
         }
-        identical.push({ localFile: lf, relPath, driveFile: df, localMd5 });
+        identical.push({ localFile: lf, relPath, driveFile: df, localMd5: res.md5 });
       } else {
         identical.push({ localFile: lf, relPath, driveFile: df, localMd5: '' });
       }
     } else {
       // Check if an identical file exists in Drive under a different folder/name via MD5
       let movedMatch = null;
+      let readFailed = null;
       if (verifyMd5 && driveByMd5.size > 0) {
-        const localMd5 = await computeFileMd5(lf);
-        const candidates = driveByMd5.get(localMd5);
-        if (candidates && candidates.length > 0) {
-          movedMatch = candidates[0];
-          matchedDriveIds.add(movedMatch.id);
-          identical.push({
-            localFile: lf,
-            relPath,
-            driveFile: movedMatch,
-            localMd5,
-            movedNote: `In Drive at: ${movedMatch.relPath}`
-          });
+        const res = await safeComputeMd5(lf);
+        if (!res.ok) {
+          readFailed = res.error;
+        } else {
+          const candidates = driveByMd5.get(res.md5);
+          if (candidates && candidates.length > 0) {
+            movedMatch = candidates[0];
+            matchedDriveIds.add(movedMatch.id);
+            identical.push({
+              localFile: lf,
+              relPath,
+              driveFile: movedMatch,
+              localMd5: res.md5,
+              movedNote: `In Drive at: ${movedMatch.relPath}`
+            });
+          }
         }
       }
       if (!movedMatch) {
-        missingInCloud.push({ localFile: lf, relPath });
+        if (readFailed) {
+          unreadable.push({ localFile: lf, relPath, driveFile: null, reason: readFailed });
+        } else {
+          missingInCloud.push({ localFile: lf, relPath });
+        }
       }
     }
 
@@ -160,7 +182,8 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
     identical,
     missingInCloud,
     checksumMismatch,
-    cloudOnly
+    cloudOnly,
+    unreadable
   };
 }
 

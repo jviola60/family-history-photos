@@ -15199,7 +15199,7 @@
 
         const renderReport = () => {
           if (!lastReport) return;
-          const { identical, missingInCloud, checksumMismatch, cloudOnly } = lastReport;
+          const { identical, missingInCloud, checksumMismatch, cloudOnly, unreadable = [] } = lastReport;
           const toUpload = [...missingInCloud, ...checksumMismatch];
           const allSafe = toUpload.length === 0;
 
@@ -15240,6 +15240,24 @@
                 </div>
               </div>
             `}
+
+            ${unreadable.length > 0 ? `
+              <div style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                <div style="padding:10px 12px;background:var(--raised);border-bottom:1px solid var(--border);">
+                  <strong style="font-size:13px;">⚠️ Unreadable / Locked Local Files Skipped (${unreadable.length.toLocaleString()})</strong>
+                  <div class="muted" style="font-size:11px;">These files could not be read by the browser (e.g., virtual cloud placeholders, locked system files, or permission issues).</div>
+                </div>
+                <div style="max-height:140px;overflow-y:auto;font-size:12px;">
+                  ${unreadable.slice(0, 150).map((item) => `
+                    <div style="padding:6px 12px;border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;gap:8px;">
+                      <span class="mono">${esc(item.relPath)}</span>
+                      <span class="muted">${esc(item.reason || 'Unreadable')}</span>
+                    </div>
+                  `).join('')}
+                  ${unreadable.length > 150 ? `<div class="muted" style="padding:8px 12px;">Showing first 150 of ${unreadable.length.toLocaleString()}...</div>` : ''}
+                </div>
+              </div>
+            ` : ''}
 
             ${cloudOnly.length > 0 ? `
               <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
