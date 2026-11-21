@@ -4025,6 +4025,7 @@
 
       async function saveArchiveToDb(itemsList, folderName) {
         try {
+          try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
           const db = await openArchiveDb();
           if (!db) return false;
           const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
@@ -4039,15 +4040,71 @@
 
           metaStore.put({ key: 'folder', value: folderName });
           metaStore.put({ key: 'isCustom', value: true });
+          metaStore.put({ key: 'demoCleared', value: true });
           metaStore.put({ key: 'lastSaved', value: Date.now() });
 
-          return new Promise((resolve) => {
+          const ok = await new Promise((resolve) => {
             tx.oncomplete = () => resolve(true);
             tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
           });
+          if (ok) return true;
+
+          // Fallback if one virtual/unreadable _file blob aborted the batch transaction:
+          // save metadata first, then put items individually (retrying without _file if needed).
+          await setMetaInDb('folder', folderName);
+          await setMetaInDb('isCustom', true);
+          await setMetaInDb('demoCleared', true);
+          await setMetaInDb('lastSaved', Date.now());
+          for (const item of itemsList) {
+            const entry = cleanEntryForDb(item);
+            const savedOne = await new Promise((resolve) => {
+              try {
+                const t2 = db.transaction([DB_STORE], 'readwrite');
+                t2.objectStore(DB_STORE).put(entry);
+                t2.oncomplete = () => resolve(true);
+                t2.onerror = () => resolve(false);
+              } catch (_) { resolve(false); }
+            });
+            if (!savedOne && entry._file) {
+              delete entry._file;
+              await new Promise((resolve) => {
+                try {
+                  const t3 = db.transaction([DB_STORE], 'readwrite');
+                  t3.objectStore(DB_STORE).put(entry);
+                  t3.oncomplete = () => resolve(true);
+                  t3.onerror = () => resolve(false);
+                } catch (_) { resolve(false); }
+              });
+            }
+          }
+          return true;
         } catch (e) {
           console.warn('Could not save archive to IndexedDB:', e);
           return false;
+        }
+      }
+
+      function saveSessionState() {
+        try {
+          const st = {
+            selectedId: selectedId || null,
+            mode: mode || 'catalog',
+            layout: layout || 'ledger',
+            activeQueue: activeQueue || 'all',
+            catalogPage: catalogPage || 1,
+            updatedAt: Date.now()
+          };
+          localStorage.setItem('fhp_session_state', JSON.stringify(st));
+        } catch (_) {}
+      }
+
+      function loadSessionState() {
+        try {
+          const raw = localStorage.getItem('fhp_session_state');
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
         }
       }
 
@@ -12844,6 +12901,7 @@
                                 }
 
       function render() {
+        saveSessionState();
         renderSidebarCounts();
 
         const authBtn = document.getElementById('btn-fs-auth');
@@ -14460,6 +14518,18 @@
             rootFolderName = savedArchive.folderName || 'Saved_Photos';
             isCustomFolder = true;
             selectedId = items[0] ? items[0].id : null;
+            const prevSession = loadSessionState();
+            if (prevSession) {
+              if (prevSession.selectedId && items.some((p) => p.id === prevSession.selectedId)) {
+                selectedId = prevSession.selectedId;
+              }
+              if (prevSession.mode && !params.get('mode')) mode = prevSession.mode;
+              if (prevSession.layout && !params.get('layout')) layout = prevSession.layout;
+              if (prevSession.activeQueue) activeQueue = prevSession.activeQueue;
+              if (typeof prevSession.catalogPage === 'number' && prevSession.catalogPage >= 1) {
+                catalogPage = prevSession.catalogPage;
+              }
+            }
           } else if (isDemoCleared || isMobile()) {
             items = [];
             rootFolderName = isMobile() ? '(Photo Gallery)' : '(No folder opened)';
