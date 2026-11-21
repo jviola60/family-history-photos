@@ -15094,6 +15094,11 @@
           return '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Matches-FS</span>';
         };
 
+        const vitalConflict = rows.some((r) => (r.factType === 'http://gedcomx.org/Birth' || r.factType === 'http://gedcomx.org/Death') && r.status === 'diff');
+        if (vitalConflict) {
+          rows.forEach((r) => { r.checked = false; });
+        }
+
         const candOptions = (Array.isArray(candidates) ? candidates : []).map((c) => {
           const desc = [c.name, c.lifespan || [c.birthDate, c.deathDate].filter(Boolean).join('–'), c.birthPlace].filter(Boolean).join(' · ');
           return `<option value="${esc(c.id)}" ${c.id === activePid ? 'selected' : ''}>${esc(c.id)} — ${esc(desc)}</option>`;
@@ -15119,6 +15124,11 @@
               <button type="button" class="btn sm" id="fs-cmp-create-new" style="margin-left:auto;">+ Not a Match? Create New Person</button>
             </div>
             <div style="padding:14px 20px;overflow-y:auto;flex:1;">
+              ${vitalConflict ? `
+                <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:12.5px;line-height:1.45;">
+                  <strong>⚠️ Possible Wrong Person:</strong> FamilySearch <strong>${esc(activePid)}</strong> has a different Birth/Death than Mom’s GEDCOM. All checkboxes were unchecked for safety — pick the right person in <strong>Match</strong> above, paste their exact <strong>PID</strong>, or click <strong>+ Not a Match? Create New Person</strong>.
+                </div>
+              ` : ''}
               ${rows.length === 0 ? '<div class="muted" style="padding:16px;">No comparable fields found in this GEDCOM record.</div>' : `
                 <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                   <thead>
@@ -15395,7 +15405,10 @@
               const person = matches[Number(btn.getAttribute('data-idx'))];
               const fs = window.FamilySearchClient;
               if (!fs || !fs.getStoredToken()) {
-                notify('Please sign in to FamilySearch first (top bar "Sign in: FamilySearch").');
+                fsUser = null;
+                render();
+                notify('FamilySearch session expired — opening FamilySearch Beta sign-in...');
+                if (fs && typeof fs.startLogin === 'function') fs.startLogin();
                 return;
               }
               btn.disabled = true;
