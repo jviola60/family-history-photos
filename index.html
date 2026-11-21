@@ -14920,12 +14920,13 @@
         renderTab();
       }
 
-      async function openFamilySearchCompareModal(person, pid, sourceBtn) {
+      async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = []) {
         const fs = window.FamilySearchClient;
         if (!fs || !fs.getPersonForCompare || !fs.extractStructuredPafData || !fs.applyPersonCompareUpdates) {
           return false;
         }
-        const live = await fs.getPersonForCompare(pid);
+        let activePid = String(pid || '').trim().toUpperCase();
+        const live = await fs.getPersonForCompare(activePid);
         const paf = fs.extractStructuredPafData(person);
 
         const fmtFsFact = (f) => {
@@ -15090,8 +15091,13 @@
           if (st === 'missing') return '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Add</span>';
           if (st === 'better') return '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">More Detailed (Replace)</span>';
           if (st === 'diff') return '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Different (Replace?)</span>';
-          return '<span style="background:var(--raised);color:var(--muted);padding:2px 6px;border-radius:4px;font-size:10.5px;">Matches FS</span>';
+          return '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Matches-FS</span>';
         };
+
+        const candOptions = (Array.isArray(candidates) ? candidates : []).map((c) => {
+          const desc = [c.name, c.lifespan || [c.birthDate, c.deathDate].filter(Boolean).join('–'), c.birthPlace].filter(Boolean).join(' · ');
+          return `<option value="${esc(c.id)}" ${c.id === activePid ? 'selected' : ''}>${esc(c.id)} — ${esc(desc)}</option>`;
+        }).join('');
 
         const cmpOverlay = document.createElement('div');
         cmpOverlay.className = 'modal-backdrop';
@@ -15100,10 +15106,17 @@
           <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:880px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.35);overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
-                <h2 style="font-size:16px;font-weight:700;margin:0;">Compare &amp; Update FamilySearch Beta — ${esc(live.displayName)} (${esc(pid)})</h2>
+                <h2 style="font-size:16px;font-weight:700;margin:0;">Compare &amp; Update FamilySearch Beta — ${esc(live.displayName)} (${esc(activePid)})</h2>
                 <p class="muted" style="font-size:12px;margin:2px 0 0;">Check the items from Mom’s PAF / GEDCOM record to add or replace on FamilySearch Beta.</p>
               </div>
               <button type="button" class="btn sm" id="fs-cmp-close">✕</button>
+            </div>
+            <div style="padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;">
+              ${candOptions ? `<label style="font-weight:600;">Match:</label><select id="fs-cmp-cand" style="max-width:320px;padding:4px 8px;border:1px solid var(--control);border-radius:6px;font-size:12px;">${candOptions}</select>` : ''}
+              <label style="font-weight:600;">Or PID:</label>
+              <input type="text" id="fs-cmp-pid-inp" value="${esc(activePid)}" placeholder="e.g. KNSJ-JSW" style="width:108px;padding:4px 8px;border:1px solid var(--control);border-radius:6px;font-size:12px;text-transform:uppercase;">
+              <button type="button" class="btn sm" id="fs-cmp-load-pid">Load PID</button>
+              <button type="button" class="btn sm" id="fs-cmp-create-new" style="margin-left:auto;">+ Not a Match? Create New Person</button>
             </div>
             <div style="padding:14px 20px;overflow-y:auto;flex:1;">
               ${rows.length === 0 ? '<div class="muted" style="padding:16px;">No comparable fields found in this GEDCOM record.</div>' : `
@@ -15119,7 +15132,7 @@
                   </thead>
                   <tbody>
                     ${rows.map((r, i) => `
-                      <tr style="border-bottom:1px solid var(--rule);vertical-align:top;${r.status === 'match' ? 'opacity:0.65;' : ''}">
+                      <tr style="border-bottom:1px solid var(--rule);vertical-align:top;">
                         <td style="padding:9px 6px;"><input type="checkbox" class="fs-cmp-chk" data-idx="${i}" ${r.checked ? 'checked' : ''} ${r.status === 'match' ? 'disabled' : ''}></td>
                         <td style="padding:9px 8px;font-weight:600;">${esc(r.label)}</td>
                         <td style="padding:9px 8px;word-break:break-word;">${esc(r.fsText)}</td>
@@ -15133,7 +15146,7 @@
               <div id="fs-cmp-status" class="muted" style="margin-top:12px;font-size:12px;"></div>
             </div>
             <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(pid)}" target="_blank" rel="noopener" class="btn sm">Open ${esc(pid)} on FamilySearch Beta ↗</a>
+              <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(activePid)}" target="_blank" rel="noopener" class="btn sm">Open ${esc(activePid)} on FamilySearch Beta ↗</a>
               <div style="display:flex;gap:8px;">
                 <button type="button" class="btn sm" id="fs-cmp-cancel">Cancel</button>
                 <button type="button" class="btn sm primary" id="fs-cmp-apply">Apply Checked Updates</button>
@@ -15147,6 +15160,49 @@
         cmpOverlay.querySelector('#fs-cmp-close').onclick = closeCmp;
         cmpOverlay.querySelector('#fs-cmp-cancel').onclick = closeCmp;
         cmpOverlay.onclick = (e) => { if (e.target === cmpOverlay) closeCmp(); };
+
+        const candSel = cmpOverlay.querySelector('#fs-cmp-cand');
+        if (candSel) {
+          candSel.onchange = async () => {
+            const nextPid = candSel.value;
+            if (!nextPid || nextPid === activePid) return;
+            closeCmp();
+            await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates);
+          };
+        }
+        const loadPidBtn = cmpOverlay.querySelector('#fs-cmp-load-pid');
+        const pidInp = cmpOverlay.querySelector('#fs-cmp-pid-inp');
+        if (loadPidBtn && pidInp) {
+          loadPidBtn.onclick = async () => {
+            const nextPid = pidInp.value.trim().toUpperCase();
+            if (!nextPid) return;
+            loadPidBtn.disabled = true;
+            loadPidBtn.textContent = 'Loading...';
+            try {
+              closeCmp();
+              await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates);
+            } catch (err) {
+              notify(err.message || 'Could not load that PID.');
+            }
+          };
+        }
+        const createNewBtn = cmpOverlay.querySelector('#fs-cmp-create-new');
+        if (createNewBtn) {
+          createNewBtn.onclick = async () => {
+            createNewBtn.disabled = true;
+            createNewBtn.textContent = 'Creating...';
+            try {
+              const created = await fs.createPerson(person);
+              notify(`Created new person ${person.name} on FamilySearch Beta (${created.id})!`);
+              if (sourceBtn) sourceBtn.textContent = `✓ Created ${created.id}`;
+              closeCmp();
+            } catch (err) {
+              notify(err.message || 'Could not create person.');
+              createNewBtn.disabled = false;
+              createNewBtn.textContent = '+ Not a Match? Create New Person';
+            }
+          };
+        }
 
         const applyBtn = cmpOverlay.querySelector('#fs-cmp-apply');
         const cmpStatus = cmpOverlay.querySelector('#fs-cmp-status');
@@ -15345,11 +15401,16 @@
               btn.disabled = true;
               btn.textContent = 'Searching FS...';
               try {
-                const found = await fs.searchPersons(person.name);
+                const found = await fs.searchPersons(person.name, {
+                  birthDate: person.birthDate,
+                  birthPlace: person.birthPlace,
+                  deathDate: person.deathDate,
+                  deathPlace: person.deathPlace
+                });
                 if (found && found.length > 0) {
                   const top = found[0];
                   btn.textContent = `Loading ${top.id}...`;
-                  const opened = await openFamilySearchCompareModal(person, top.id, btn);
+                  const opened = await openFamilySearchCompareModal(person, top.id, btn, found);
                   if (opened) {
                     btn.disabled = false;
                     btn.textContent = `Compare ${top.id}`;

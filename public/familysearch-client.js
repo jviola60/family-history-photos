@@ -2071,9 +2071,10 @@
       .map(function (item) { return item.candidate; });
   }
 
-  async function searchPersons(query) {
+  async function searchPersons(query, opts) {
     if (!query || !query.trim()) return [];
     var trimmed = query.trim();
+    var searchOpts = opts || {};
 
     // If query contains multiple comma or semicolon separated names, search each and combine
     if (trimmed.includes(',') && !trimmed.includes('-') && !/^[A-Za-z0-9]{4}-[A-Za-z0-9]{3,4}$/.test(trimmed)) {
@@ -2136,27 +2137,33 @@
 
     // 3. Search Family Tree REST API
     try {
-      var searchParams = new URLSearchParams();
-      var parts = trimmed.split(/\s+/).filter(Boolean);
-      if (parts.length === 1) {
-        searchParams.set('q.surname', parts[0]);
-      } else {
-        searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
-        searchParams.set('q.surname', parts[parts.length - 1]);
-      }
-      searchParams.set('count', '8');
-
-      var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
-        headers: {
-          'Authorization': 'Bearer ' + token.accessToken,
-          'Accept': 'application/x-gedcomx-atom+json'
+      var runTreeSearch = async function (useVitalFilters) {
+        var searchParams = new URLSearchParams();
+        var parts = trimmed.split(/\s+/).filter(Boolean);
+        if (parts.length === 1) {
+          searchParams.set('q.surname', parts[0]);
+        } else {
+          searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
+          searchParams.set('q.surname', parts[parts.length - 1]);
         }
-      });
+        if (useVitalFilters) {
+          if (searchOpts.birthDate) searchParams.set('q.birthLikeDate', searchOpts.birthDate);
+          if (searchOpts.birthPlace) searchParams.set('q.birthLikePlace', searchOpts.birthPlace);
+          if (searchOpts.deathDate) searchParams.set('q.deathLikeDate', searchOpts.deathDate);
+          if (searchOpts.deathPlace) searchParams.set('q.deathLikePlace', searchOpts.deathPlace);
+        }
+        searchParams.set('count', '10');
 
-      if (searchRes.ok) {
+        var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Accept': 'application/x-gedcomx-atom+json'
+          }
+        });
+        if (!searchRes.ok) return [];
         var sData = await searchRes.json();
         var entries = sData.entries || [];
-        var serverResults = entries.map(function (e) {
+        return entries.map(function (e) {
           var g = e.content && e.content.gedcomx;
           var pers = g && g.persons && g.persons[0];
           var disp = pers && pers.display || {};
@@ -2166,10 +2173,22 @@
             id: id,
             name: name,
             lifespan: disp.lifespan || '',
-            gender: disp.gender || ''
+            gender: disp.gender || '',
+            birthDate: disp.birthDate || '',
+            birthPlace: disp.birthPlace || '',
+            deathDate: disp.deathDate || '',
+            deathPlace: disp.deathPlace || ''
           };
         }).filter(function (r) { return Boolean(r.id); });
+      };
 
+      var hasVitals = Boolean(searchOpts.birthDate || searchOpts.birthPlace || searchOpts.deathDate || searchOpts.deathPlace);
+      var serverResults = hasVitals ? await runTreeSearch(true) : [];
+      if (serverResults.length === 0) {
+        serverResults = await runTreeSearch(false);
+      }
+
+      if (serverResults.length > 0 || localMatches.length > 0) {
         var seen = new Set();
         var combined = [];
         localMatches.forEach(function (m) { seen.add(m.id); combined.push(m); });
@@ -2179,7 +2198,27 @@
             combined.push(r);
           }
         });
-        return rankMatches(combined, query);
+        var ranked = rankMatches(combined, query);
+        if (hasVitals) {
+          var bYr = (String(searchOpts.birthDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
+          var dYr = (String(searchOpts.deathDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
+          var bPl = String(searchOpts.birthPlace || '').toLowerCase();
+          ranked.sort(function (a, b) {
+            var scoreVital = function (c) {
+              var s = 0;
+              var hay = [c.lifespan, c.birthDate, c.birthPlace, c.deathDate, c.deathPlace].join(' ').toLowerCase();
+              if (bYr && hay.includes(bYr)) s += 50;
+              if (dYr && hay.includes(dYr)) s += 50;
+              if (bPl) {
+                var tokens = bPl.split(/[,\s]+/).filter(function (t) { return t.length > 2; });
+                tokens.forEach(function (t) { if (hay.includes(t)) s += 15; });
+              }
+              return s;
+            };
+            return scoreVital(b) - scoreVital(a);
+          });
+        }
+        return ranked;
       }
     } catch (searchErr) {
       console.warn('FamilySearch tree search notice:', searchErr);
@@ -2407,7 +2446,7 @@
           place: curEventPlace,
           label: 'WWI / Military Draft Registration'
         });
-      } else if ((curEventType === 'Census' || curEventType === 'Residence') && (curEventDate || curEventPlace)) {
+      } else if ((curEventType === 'Census' || curEventType === 'Residence') && curEventPlace) {
         var rKey = (curEventDate + '|' + curEventPlace).toLowerCase();
         if (!seenRes[rKey]) {
           seenRes[rKey] = true;
