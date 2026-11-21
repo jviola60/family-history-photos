@@ -62,11 +62,17 @@ export async function scanDriveFolderAllFiles(token, folderId = 'root', folderNa
   return results;
 }
 
-function getLocalRelPath(file) {
+function getLocalRelPath(file, stripMyDrivePrefix = false) {
   const raw = (file.webkitRelativePath || file.name || '').replace(/\\/g, '/');
   const parts = raw.split('/').filter(Boolean);
-  return parts.length > 1 ? parts.slice(1).join('/') : (parts[0] || file.name);
+  let rel = parts.length > 1 ? parts.slice(1).join('/') : (parts[0] || file.name);
+  if (stripMyDrivePrefix && /^My Drive\//i.test(rel)) {
+    rel = rel.slice('My Drive/'.length);
+  }
+  return rel;
 }
+
+const GOOGLE_DOC_EXT_RE = /\.(gdoc|gsheet|gslides|gdraw|gform|gsite|gmap|glink)$/i;
 
 /**
  * Compares a local folder's FileList/array against a Google Drive folder's file list.
@@ -75,15 +81,20 @@ function getLocalRelPath(file) {
 export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 = true } = {}, onProgress = null) {
   const driveByRelPath = new Map();
   const driveByMd5 = new Map();
+  const driveSizes = new Set();
   const matchedDriveIds = new Set();
+  let driveHasMyDrivePrefix = false;
 
   for (const df of driveFiles) {
+    if (/^My Drive\//i.test(df.relPath)) driveHasMyDrivePrefix = true;
     driveByRelPath.set(df.relPath.toLowerCase(), df);
+    if (df.size > 0) driveSizes.add(df.size);
     if (df.md5Checksum) {
       if (!driveByMd5.has(df.md5Checksum)) driveByMd5.set(df.md5Checksum, []);
       driveByMd5.get(df.md5Checksum).push(df);
     }
   }
+  const stripMyDrivePrefix = !driveHasMyDrivePrefix;
 
   const identical = [];
   const missingInCloud = [];
@@ -98,19 +109,35 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
     }
   };
 
+  let lastProgressAt = 0;
   const total = localFiles.length;
   for (let i = 0; i < total; i++) {
     const lf = localFiles[i];
-    const relPath = getLocalRelPath(lf);
+    const relPath = getLocalRelPath(lf, stripMyDrivePrefix);
     const key = relPath.toLowerCase();
     const df = driveByRelPath.get(key);
 
-    if (onProgress && (i % 15 === 0 || i === total - 1)) {
+    const now = Date.now();
+    if (onProgress && (i % 15 === 0 || i === total - 1 || now - lastProgressAt > 200)) {
+      lastProgressAt = now;
       onProgress({
         checked: i + 1,
         total,
         currentName: relPath
       });
+    }
+
+    if (GOOGLE_DOC_EXT_RE.test(lf.name || '')) {
+      // Google Workspace virtual shortcuts (.gdoc, .gsheet, etc.) live in Drive natively and have no binary MD5
+      const stemKey = key.replace(GOOGLE_DOC_EXT_RE, '');
+      const docMatch = df || driveByRelPath.get(stemKey);
+      if (docMatch) {
+        matchedDriveIds.add(docMatch.id);
+        identical.push({ localFile: lf, relPath, driveFile: docMatch, localMd5: '' });
+      } else {
+        missingInCloud.push({ localFile: lf, relPath });
+      }
+      continue;
     }
 
     if (df) {
@@ -141,9 +168,10 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
       }
     } else {
       // Check if an identical file exists in Drive under a different folder/name via MD5
+      // Optimization: only read/hash the local file if at least one file in Drive has the exact same byte size!
       let movedMatch = null;
       let readFailed = null;
-      if (verifyMd5 && driveByMd5.size > 0) {
+      if (verifyMd5 && driveByMd5.size > 0 && (lf.size === 0 || driveSizes.has(lf.size))) {
         const res = await safeComputeMd5(lf);
         if (!res.ok) {
           readFailed = res.error;
