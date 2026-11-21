@@ -2736,7 +2736,8 @@
           body: JSON.stringify({ sourceDescriptions: [sdObj] })
         });
         if (!sdRes.ok) {
-          warnings.push('Could not create source "' + sdObj.titles[0].value + '" (' + sdRes.status + ')');
+          var sdErr = await sdRes.text().catch(function () { return ''; });
+          warnings.push('Could not create source "' + sdObj.titles[0].value + '" (' + sdRes.status + (sdErr ? ': ' + sdErr.slice(0, 120) : '') + ')');
           continue;
         }
         var sdId = sdRes.headers.get('X-ENTITY-ID') || '';
@@ -2749,28 +2750,38 @@
           warnings.push('Created source "' + sdObj.titles[0].value + '" but missing ID to attach.');
           continue;
         }
-        var attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/sources', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + stored.accessToken,
-            'Content-Type': 'application/x-gedcomx-v1+json',
-            'Accept': 'application/x-gedcomx-v1+json',
-            'X-Reason': 'Attached source citation from Mom\'s PAF / GEDCOM archive'
-          },
-          body: JSON.stringify({
-            persons: [{
-              id: pid,
-              sources: [{
-                description: API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(sdId),
-                descriptionId: sdId
-              }]
+        var attachBody = JSON.stringify({
+          persons: [{
+            id: pid,
+            sources: [{
+              description: API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(sdId),
+              descriptionId: sdId
             }]
-          })
+          }]
         });
+        var attachHeaders = {
+          'Authorization': 'Bearer ' + stored.accessToken,
+          'Content-Type': 'application/x-gedcomx-v1+json',
+          'Accept': 'application/x-gedcomx-v1+json',
+          'X-Reason': 'Attached source citation from Mom\'s PAF / GEDCOM archive'
+        };
+        var attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/source-references', {
+          method: 'POST',
+          headers: attachHeaders,
+          body: attachBody
+        });
+        if (attRes.status === 404 || attRes.status === 405) {
+          attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/sources', {
+            method: 'POST',
+            headers: attachHeaders,
+            body: attachBody
+          });
+        }
         if (attRes.ok) {
           attachedSources++;
         } else {
-          warnings.push('Could not attach source "' + sdObj.titles[0].value + '" (' + attRes.status + ')');
+          var attErr = await attRes.text().catch(function () { return ''; });
+          warnings.push('Could not attach source "' + sdObj.titles[0].value + '" (' + attRes.status + (attErr ? ': ' + attErr.slice(0, 120) : '') + ')');
         }
       } catch (e) {
         warnings.push('Source attach error: ' + e.message);

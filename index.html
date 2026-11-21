@@ -14938,6 +14938,23 @@
         };
         const fmtPafFact = (d, pl, v) => [v || '', d || '', pl || ''].filter(Boolean).join(' · ');
 
+        const normVitalStr = (s) => String(s || '').toLowerCase()
+          .replace(/\bjanuary\b/g, 'jan').replace(/\bfebruary\b/g, 'feb').replace(/\bmarch\b/g, 'mar')
+          .replace(/\bapril\b/g, 'apr').replace(/\bjune\b/g, 'jun').replace(/\bjuly\b/g, 'jul')
+          .replace(/\baugust\b/g, 'aug').replace(/\bseptember\b/g, 'sep').replace(/\boctober\b/g, 'oct')
+          .replace(/\bnovember\b/g, 'nov').replace(/\bdecember\b/g, 'dec')
+          .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin')
+          .replace(/,\s*(united states|usa|u\.s\.a\.|us)\b/g, '')
+          .replace(/[^a-z0-9]+/g, ' ').trim();
+
+        const isVitalEquivalent = (a, b) => {
+          const na = normVitalStr(a);
+          const nb = normVitalStr(b);
+          return Boolean(na && nb && (na === nb || na.includes(nb) || nb.includes(na)));
+        };
+
+        const extractYear = (s) => (String(s || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
+
         const rows = [];
 
         // 1. Birth
@@ -14945,9 +14962,9 @@
         const fsBirthTxt = fmtFsFact(fsBirth);
         const pafBirthTxt = fmtPafFact(paf.birthDate, paf.birthPlace);
         if (pafBirthTxt) {
-          const isSame = fsBirthTxt.toLowerCase() === pafBirthTxt.toLowerCase();
+          const isSame = isVitalEquivalent(fsBirthTxt, pafBirthTxt);
           const isMissing = !fsBirthTxt;
-          const isBetter = !isMissing && !isSame && pafBirthTxt.length > fsBirthTxt.length;
+          const isBetter = !isMissing && !isSame && pafBirthTxt.length > fsBirthTxt.length && (!extractYear(fsBirthTxt) || extractYear(fsBirthTxt) === extractYear(pafBirthTxt));
           rows.push({
             kind: 'fact',
             factType: 'http://gedcomx.org/Birth',
@@ -14967,9 +14984,9 @@
         const fsDeathTxt = fmtFsFact(fsDeath);
         const pafDeathTxt = fmtPafFact(paf.deathDate, paf.deathPlace);
         if (pafDeathTxt) {
-          const isSame = fsDeathTxt.toLowerCase() === pafDeathTxt.toLowerCase();
+          const isSame = isVitalEquivalent(fsDeathTxt, pafDeathTxt);
           const isMissing = !fsDeathTxt;
-          const isBetter = !isMissing && !isSame && pafDeathTxt.length > fsDeathTxt.length;
+          const isBetter = !isMissing && !isSame && pafDeathTxt.length > fsDeathTxt.length && (!extractYear(fsDeathTxt) || extractYear(fsDeathTxt) === extractYear(pafDeathTxt));
           rows.push({
             kind: 'fact',
             factType: 'http://gedcomx.org/Death',
@@ -15249,11 +15266,18 @@
             if (res.addedNote) summary.push('Collaborate Note');
             if (res.attachedSources) summary.push(`${res.attachedSources} source(s)`);
             const msg = summary.length
-              ? `✓ Updated ${pid}: ${summary.join(', ')}.${res.warnings.length ? ' (' + res.warnings.join('; ') + ')' : ''}`
+              ? `✓ Updated ${activePid}: ${summary.join(', ')}.${res.warnings.length ? ' (' + res.warnings.join('; ') + ')' : ''}`
               : `Finished (${res.warnings.join('; ') || 'no changes applied'}).`;
+            if (res.warnings.length && !summary.length) {
+              cmpStatus.style.color = '#991b1b';
+              cmpStatus.textContent = msg;
+              applyBtn.disabled = false;
+              applyBtn.textContent = 'Apply Checked Updates';
+              return;
+            }
             notify(msg);
             if (sourceBtn) {
-              sourceBtn.textContent = `✓ Synced ${pid}`;
+              sourceBtn.textContent = `✓ Synced ${activePid}`;
               sourceBtn.disabled = false;
             }
             closeCmp();
