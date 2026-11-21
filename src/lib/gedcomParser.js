@@ -184,6 +184,15 @@ export async function parseGedcomFile(file, onProgress = null) {
     }
 
     if (level === 2) {
+      if (tag === 'OBJE' && (curType === 'INDI' || curType === 'FAM')) {
+        flushInlineObje();
+        if (val.startsWith('@') && val.endsWith('@')) {
+          curRec.objeIds.push(val.replace(/@/g, ''));
+        } else {
+          curInlineObje = { file: '', title: '', note: '', subTag: '' };
+        }
+        continue;
+      }
       if (curType === 'INDI') {
         if (curSub === 'NAME') {
           if (tag === 'GIVN') curRec.given = val;
@@ -197,24 +206,45 @@ export async function parseGedcomFile(file, onProgress = null) {
         } else if (curSub === 'NOTE' && (tag === 'CONT' || tag === 'CONC')) {
           curRec.notes += (tag === 'CONT' ? '\n' : '') + val;
         } else if (curSub === 'OBJE' && curInlineObje) {
-          if (tag === 'FILE') curInlineObje.file = val;
-          else if (tag === 'TITL') curInlineObje.title = val;
-          else if (tag === 'NOTE') curInlineObje.note = val;
+          curInlineObje.subTag = tag;
+          if (tag === 'FILE' && val) curInlineObje.file = val;
+          else if (tag === 'TITL' && val) curInlineObje.title = val;
+          else if (tag === 'NOTE' && val) curInlineObje.note = curInlineObje.note ? `${curInlineObje.note}\n${val}` : val;
         }
       } else if (curType === 'OBJE') {
         if (curSub === 'FILE' && tag === 'TITL' && val) curRec.title = val;
         else if (curSub === 'NOTE' && (tag === 'CONT' || tag === 'CONC')) {
           curRec.note += (tag === 'CONT' ? '\n' : '') + val;
+        } else if (curSub === 'TITL' && (tag === 'CONT' || tag === 'CONC')) {
+          curRec.title += (tag === 'CONT' ? '\n' : '') + val;
         }
       } else if (curType === 'FAM') {
         if (curSub === 'MARR') {
           if (tag === 'DATE') curRec.marrDate = val;
           else if (tag === 'PLAC') curRec.marrPlace = val;
         } else if (curSub === 'OBJE' && curInlineObje) {
-          if (tag === 'FILE') curInlineObje.file = val;
-          else if (tag === 'TITL') curInlineObje.title = val;
-          else if (tag === 'NOTE') curInlineObje.note = val;
+          curInlineObje.subTag = tag;
+          if (tag === 'FILE' && val) curInlineObje.file = val;
+          else if (tag === 'TITL' && val) curInlineObje.title = val;
+          else if (tag === 'NOTE' && val) curInlineObje.note = curInlineObje.note ? `${curInlineObje.note}\n${val}` : val;
         }
+      }
+      continue;
+    }
+
+    if (level >= 3 && curInlineObje) {
+      if (tag === 'FILE' && val) {
+        curInlineObje.file = val;
+        curInlineObje.subTag = 'FILE';
+      } else if (tag === 'TITL' && val) {
+        curInlineObje.title = val;
+        curInlineObje.subTag = 'TITL';
+      } else if (tag === 'NOTE' && val) {
+        curInlineObje.note = curInlineObje.note ? `${curInlineObje.note}\n${val}` : val;
+        curInlineObje.subTag = 'NOTE';
+      } else if ((tag === 'CONT' || tag === 'CONC')) {
+        if (curInlineObje.subTag === 'NOTE') curInlineObje.note += (tag === 'CONT' ? '\n' : '') + val;
+        else if (curInlineObje.subTag === 'TITL') curInlineObje.title += (tag === 'CONT' ? '\n' : '') + val;
       }
     }
   }
@@ -288,13 +318,15 @@ export async function parseGedcomFile(file, onProgress = null) {
 
 export function relinkPhotosWithGedcom(gedData, photoItems) {
   if (!gedData || !Array.isArray(photoItems)) {
-    return { matchedPhotos: 0, totalLinksRestored: 0 };
+    return { matchedPhotos: 0, newlyUpdatedPhotos: 0, totalLinksRestored: 0, matchedIds: [] };
   }
   let matchedPhotos = 0;
+  let newlyUpdatedPhotos = 0;
   let totalLinksRestored = 0;
+  const matchedIds = [];
 
   for (const p of photoItems) {
-    const fileName = extractBasename(p.file || '').toLowerCase();
+    const fileName = extractBasename(p.file || p.filename || '').toLowerCase();
     if (!fileName) continue;
     let matches = gedData.fileIndexByName.get(fileName);
     if (!matches || matches.length === 0) {
@@ -304,12 +336,22 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
     if (!matches || matches.length === 0) continue;
 
     matchedPhotos++;
+    matchedIds.push(p.id);
+    let photoChanged = false;
     const seenNames = new Set((p.people || []).map((x) => (x.name || '').toLowerCase()));
+    const linkedSummaries = [];
 
     for (const m of matches) {
       for (const pid of m.personIds) {
         const person = gedData.peopleById.get(pid);
         if (!person || !person.name) continue;
+        const lifeBits = [
+          person.birthDate || person.birthPlace ? `b. ${[person.birthDate, person.birthPlace].filter(Boolean).join(', ')}` : '',
+          person.deathDate || person.deathPlace ? `d. ${[person.deathDate, person.deathPlace].filter(Boolean).join(', ')}` : ''
+        ].filter(Boolean).join(' · ');
+        const summaryLine = `${person.name}${lifeBits ? ` (${lifeBits})` : ''}${person.notes ? ` — ${person.notes}` : ''}`;
+        if (!linkedSummaries.includes(summaryLine)) linkedSummaries.push(summaryLine);
+
         const key = person.name.toLowerCase();
         if (!seenNames.has(key)) {
           seenNames.add(key);
@@ -327,16 +369,20 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
             notes: person.notes
           });
           totalLinksRestored++;
+          photoChanged = true;
         }
       }
       if (m.title && (!p.title || p.title === stripExt(p.file) || /^Family Print/i.test(p.title))) {
         p.title = m.title;
+        photoChanged = true;
       }
       if (m.note && !p.story) {
         p.story = m.note;
+        photoChanged = true;
       }
       if (m.eventPlace && !p.place) {
         p.place = m.eventPlace;
+        photoChanged = true;
       }
       if (m.eventDate && !p.isoDate) {
         const iso = gedDateToIso(m.eventDate);
@@ -344,10 +390,17 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
           p.isoDate = iso;
           const yr = Number(iso.slice(0, 4));
           if (yr >= 1700 && yr <= 2099) p.decade = `${String(yr).slice(0, 3)}0s`;
+          photoChanged = true;
         }
       }
     }
+
+    if (!p.story && linkedSummaries.length > 0) {
+      p.story = linkedSummaries.join('\n');
+      photoChanged = true;
+    }
+    if (photoChanged) newlyUpdatedPhotos++;
   }
 
-  return { matchedPhotos, totalLinksRestored };
+  return { matchedPhotos, newlyUpdatedPhotos, totalLinksRestored, matchedIds };
 }

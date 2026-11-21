@@ -14948,6 +14948,8 @@
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
                 <input type="file" id="inp-ged-file" accept=".ged,.gedcom">
                 <button type="button" class="btn sm accent" id="btn-ged-relink-now" ${window._activeGedcomData ? '' : 'disabled'}>🔗 Re-Link Current Batch</button>
+                <button type="button" class="btn sm" id="btn-ged-search-drive" ${window._activeGedcomData ? '' : 'disabled'}>☁️ Search Google Drive for Matches</button>
+                <button type="button" class="btn sm" id="btn-ged-export-meta" ${window._activeGedcomData ? '' : 'disabled'}>💾 Export Matched JPEGs w/ Metadata</button>
               </div>
               <div id="ged-status" class="muted" style="font-size:12.5px;margin-bottom:12px;">
                 ${window._activeGedcomData ? `Loaded: <strong>${esc(window._activeGedcomData.fileName)}</strong> — ${window._activeGedcomData.peopleList.length.toLocaleString()} people, ${window._activeGedcomData.totalPhotoLinks.toLocaleString()} photo links.` : 'No .ged file loaded yet.'}
@@ -14970,6 +14972,24 @@
         const resultsEl = overlay.querySelector('#ged-results');
         const searchInp = overlay.querySelector('#inp-ged-search');
         const relinkBtn = overlay.querySelector('#btn-ged-relink-now');
+        const driveSearchBtn = overlay.querySelector('#btn-ged-search-drive');
+        const exportMetaBtn = overlay.querySelector('#btn-ged-export-meta');
+
+        const persistAndSelectRelinked = async (res) => {
+          const matchedSet = new Set(res.matchedIds || []);
+          items.forEach((p) => {
+            if (matchedSet.has(p.id) || (p.people && p.people.length)) {
+              saveItemMetadata(p);
+            }
+          });
+          if (res.matchedIds && res.matchedIds.length > 0 && !matchedSet.has(selectedId)) {
+            selectedId = res.matchedIds[0];
+          }
+          if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+            await saveArchiveToDb(items, rootFolderName);
+          }
+          render();
+        };
 
         const renderSearch = () => {
           const gd = window._activeGedcomData;
@@ -15083,24 +15103,107 @@
             window._activeGedcomData = gedData;
             const res = gp.relinkPhotosWithGedcom(gedData, items);
             if (res.matchedPhotos > 0) {
-              items.forEach((p) => { if (p.people && p.people.length) saveItemMetadata(p); });
-              render();
+              await persistAndSelectRelinked(res);
             }
             relinkBtn.disabled = false;
-            statusEl.innerHTML = `✓ Parsed <strong>${gedData.peopleList.length.toLocaleString()} people</strong> and <strong>${gedData.totalPhotoLinks.toLocaleString()} photo links</strong>. Re-linked <strong>${res.matchedPhotos}</strong> photos (${res.totalLinksRestored} person links restored) in the current view.`;
+            if (driveSearchBtn) driveSearchBtn.disabled = false;
+            if (exportMetaBtn) exportMetaBtn.disabled = false;
+            statusEl.innerHTML = `✓ Parsed <strong>${gedData.peopleList.length.toLocaleString()} people</strong> and <strong>${gedData.totalPhotoLinks.toLocaleString()} photo links</strong>. Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.totalLinksRestored} new person links restored).`;
             renderSearch();
           } catch (err) {
             statusEl.textContent = `Error reading GEDCOM: ${err.message}`;
           }
         };
 
-        relinkBtn.onclick = () => {
+        relinkBtn.onclick = async () => {
           if (!window._activeGedcomData) return;
           const res = gp.relinkPhotosWithGedcom(window._activeGedcomData, items);
-          items.forEach((p) => { if (p.people && p.people.length) saveItemMetadata(p); });
-          render();
-          statusEl.innerHTML = `✓ Re-linked <strong>${res.matchedPhotos}</strong> photos (${res.totalLinksRestored} person links restored) in the current batch.`;
+          await persistAndSelectRelinked(res);
+          statusEl.innerHTML = `✓ Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.newlyUpdatedPhotos} newly updated, ${res.totalLinksRestored} new person links restored).`;
         };
+
+        if (driveSearchBtn) {
+          driveSearchBtn.onclick = async () => {
+            const gd = window._activeGedcomData;
+            const hub = window.CloudImportHub;
+            if (!gd) return;
+            if (!hub) {
+              notify('Cloud module is still loading — please try again in a second.');
+              return;
+            }
+            const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
+            let cid = (settings.googleClientId || '').trim();
+            if (!cid) {
+              cid = (window.prompt('Enter your Google OAuth Client ID to search Google Drive:', '') || '').trim();
+              if (!cid) return;
+              if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
+            }
+            driveSearchBtn.disabled = true;
+            statusEl.textContent = 'Signing in to Google Drive...';
+            try {
+              const token = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive.readonly');
+              statusEl.textContent = 'Scanning Google Drive for photos matching your GEDCOM...';
+              const allDriveImages = await hub.scanGoogleDriveFolder(token, 'root', 'My Drive', (p) => {
+                statusEl.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} images seen)`;
+              });
+              const matchedDriveFiles = allDriveImages.filter((f) => {
+                const base = String(f.name || '').trim().toLowerCase();
+                if (!base) return false;
+                if (gd.fileIndexByName.has(base)) return true;
+                const stem = base.replace(/\.[^.]+$/, '').trim().toLowerCase();
+                return stem ? gd.fileIndexByStem.has(stem) : false;
+              });
+              if (matchedDriveFiles.length === 0) {
+                statusEl.innerHTML = `Scanned <strong>${allDriveImages.length.toLocaleString()}</strong> Google Drive images, but none matched the <strong>${gd.totalPhotoLinks.toLocaleString()}</strong> filenames in <strong>${esc(gd.fileName)}</strong>.`;
+                driveSearchBtn.disabled = false;
+                return;
+              }
+              statusEl.textContent = `Found ${matchedDriveFiles.length} matching photos in Google Drive! Importing & populating GEDCOM metadata...`;
+              await loadCloudFilesIntoArchive(matchedDriveFiles, 'GDrive_GEDCOM_Matches');
+              const res = gp.relinkPhotosWithGedcom(gd, items);
+              await persistAndSelectRelinked(res);
+              statusEl.innerHTML = `✓ Found &amp; imported <strong>${matchedDriveFiles.length}</strong> matching photos from Google Drive and populated GEDCOM metadata on <strong>${res.matchedPhotos}</strong> photos!`;
+              notify(`Loaded ${matchedDriveFiles.length} GEDCOM-matched photos from Google Drive!`);
+            } catch (err) {
+              statusEl.textContent = `Google Drive search failed: ${err.message}`;
+            } finally {
+              driveSearchBtn.disabled = false;
+            }
+          };
+        }
+
+        if (exportMetaBtn) {
+          exportMetaBtn.onclick = async () => {
+            const gd = window._activeGedcomData;
+            if (!gd) return;
+            if (!window.JpegMetadataWriter || !window.JpegMetadataWriter.downloadJpegWithMetadata) {
+              notify('JPEG Metadata Writer is still loading — please try again in a second.');
+              return;
+            }
+            const res = gp.relinkPhotosWithGedcom(gd, items);
+            const matchedSet = new Set(res.matchedIds || []);
+            const targets = items.filter((p) => matchedSet.has(p.id));
+            if (targets.length === 0) {
+              statusEl.textContent = 'No GEDCOM-matched photos in the current batch to export yet.';
+              return;
+            }
+            exportMetaBtn.disabled = true;
+            let exported = 0;
+            try {
+              for (let i = 0; i < targets.length; i++) {
+                statusEl.textContent = `Embedding GEDCOM metadata into JPEG ${i + 1} / ${targets.length}...`;
+                const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(targets[i], targets[i]);
+                if (ok) exported++;
+              }
+              statusEl.innerHTML = `✓ Exported <strong>${exported}</strong> JPEG${exported === 1 ? '' : 's'} with embedded EXIF/IPTC GEDCOM metadata to Downloads.`;
+              notify(`Exported ${exported} JPEGs with embedded GEDCOM metadata!`);
+            } catch (err) {
+              statusEl.textContent = `JPEG metadata export failed: ${err.message}`;
+            } finally {
+              exportMetaBtn.disabled = false;
+            }
+          };
+        }
 
         searchInp.oninput = renderSearch;
         renderSearch();

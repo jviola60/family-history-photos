@@ -2226,7 +2226,7 @@
 
   async function createPerson(personData) {
     var stored = getStoredToken();
-    if (!stored || !stored.access_token) {
+    if (!stored || !stored.accessToken) {
       throw new Error('Please sign in to FamilySearch first.');
     }
     if (!personData || !personData.name) {
@@ -2252,7 +2252,7 @@
     var res = await fetch(API_BASE + '/platform/tree/persons', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + stored.access_token,
+        'Authorization': 'Bearer ' + stored.accessToken,
         'Content-Type': 'application/x-gedcomx-v1+json',
         'Accept': 'application/x-gedcomx-v1+json',
         'X-Reason': 'Added from Family History Photos / PAF archive'
@@ -2279,7 +2279,7 @@
 
   async function populatePersonMissingFields(personId, personData) {
     var stored = getStoredToken();
-    if (!stored || !stored.access_token) {
+    if (!stored || !stored.accessToken) {
       throw new Error('Please sign in to FamilySearch first.');
     }
     var pid = String(personId || '').trim().toUpperCase();
@@ -2287,7 +2287,7 @@
 
     var getRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
       headers: {
-        'Authorization': 'Bearer ' + stored.access_token,
+        'Authorization': 'Bearer ' + stored.accessToken,
         'Accept': 'application/x-gedcomx-v1+json'
       }
     });
@@ -2338,7 +2338,7 @@
     var postRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + stored.access_token,
+        'Authorization': 'Bearer ' + stored.accessToken,
         'Content-Type': 'application/x-gedcomx-v1+json',
         'Accept': 'application/x-gedcomx-v1+json',
         'X-Reason': 'Populated missing vital fields from Family History Photos / PAF archive'
