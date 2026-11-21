@@ -14920,6 +14920,286 @@
         renderTab();
       }
 
+      async function openFamilySearchCompareModal(person, pid, sourceBtn) {
+        const fs = window.FamilySearchClient;
+        if (!fs || !fs.getPersonForCompare || !fs.extractStructuredPafData || !fs.applyPersonCompareUpdates) {
+          return false;
+        }
+        const live = await fs.getPersonForCompare(pid);
+        const paf = fs.extractStructuredPafData(person);
+
+        const fmtFsFact = (f) => {
+          if (!f) return '';
+          const d = (f.date && f.date.original) || '';
+          const pl = (f.place && f.place.original) || '';
+          const v = f.value || '';
+          return [v, d, pl].filter(Boolean).join(' · ');
+        };
+        const fmtPafFact = (d, pl, v) => [v || '', d || '', pl || ''].filter(Boolean).join(' · ');
+
+        const rows = [];
+
+        // 1. Birth
+        const fsBirth = live.facts.find((f) => f.type === 'http://gedcomx.org/Birth');
+        const fsBirthTxt = fmtFsFact(fsBirth);
+        const pafBirthTxt = fmtPafFact(paf.birthDate, paf.birthPlace);
+        if (pafBirthTxt) {
+          const isSame = fsBirthTxt.toLowerCase() === pafBirthTxt.toLowerCase();
+          const isMissing = !fsBirthTxt;
+          const isBetter = !isMissing && !isSame && pafBirthTxt.length > fsBirthTxt.length;
+          rows.push({
+            kind: 'fact',
+            factType: 'http://gedcomx.org/Birth',
+            existingFactId: fsBirth ? fsBirth.id : '',
+            label: 'Birth (Vitals)',
+            fsText: fsBirthTxt || '— (missing)',
+            pafText: pafBirthTxt,
+            date: paf.birthDate,
+            place: paf.birthPlace,
+            status: isSame ? 'match' : (isMissing ? 'missing' : (isBetter ? 'better' : 'diff')),
+            checked: isMissing || isBetter
+          });
+        }
+
+        // 2. Death
+        const fsDeath = live.facts.find((f) => f.type === 'http://gedcomx.org/Death');
+        const fsDeathTxt = fmtFsFact(fsDeath);
+        const pafDeathTxt = fmtPafFact(paf.deathDate, paf.deathPlace);
+        if (pafDeathTxt) {
+          const isSame = fsDeathTxt.toLowerCase() === pafDeathTxt.toLowerCase();
+          const isMissing = !fsDeathTxt;
+          const isBetter = !isMissing && !isSame && pafDeathTxt.length > fsDeathTxt.length;
+          rows.push({
+            kind: 'fact',
+            factType: 'http://gedcomx.org/Death',
+            existingFactId: fsDeath ? fsDeath.id : '',
+            label: 'Death (Vitals)',
+            fsText: fsDeathTxt || '— (missing)',
+            pafText: pafDeathTxt,
+            date: paf.deathDate,
+            place: paf.deathPlace,
+            status: isSame ? 'match' : (isMissing ? 'missing' : (isBetter ? 'better' : 'diff')),
+            checked: isMissing || isBetter
+          });
+        }
+
+        // 3. Gender
+        const fsGenderType = live.gender && live.gender.type;
+        const fsGenderTxt = fsGenderType === 'http://gedcomx.org/Male' ? 'Male' : (fsGenderType === 'http://gedcomx.org/Female' ? 'Female' : '');
+        const pafGenderTxt = paf.sex === 'M' ? 'Male' : (paf.sex === 'F' ? 'Female' : '');
+        if (pafGenderTxt) {
+          const isSame = fsGenderTxt === pafGenderTxt;
+          const isMissing = !fsGenderTxt;
+          rows.push({
+            kind: 'gender',
+            label: 'Gender (Vitals)',
+            fsText: fsGenderTxt || '— (missing)',
+            pafText: pafGenderTxt,
+            sex: paf.sex,
+            status: isSame ? 'match' : (isMissing ? 'missing' : 'diff'),
+            checked: isMissing
+          });
+        }
+
+        // 4. Occupations
+        const fsOccs = live.facts.filter((f) => f.type === 'http://gedcomx.org/Occupation');
+        paf.occupations.forEach((occ) => {
+          const already = fsOccs.some((f) => fmtFsFact(f).toLowerCase().includes(occ.value.toLowerCase()));
+          rows.push({
+            kind: 'fact',
+            factType: 'http://gedcomx.org/Occupation',
+            label: 'Occupation (Other Info)',
+            fsText: fsOccs.length ? fsOccs.map(fmtFsFact).join('; ') : '— (none)',
+            pafText: occ.value,
+            value: occ.value,
+            status: already ? 'match' : 'missing',
+            checked: !already
+          });
+        });
+
+        // 5. Residences / Census
+        const fsRes = live.facts.filter((f) => f.type === 'http://gedcomx.org/Residence');
+        paf.residences.forEach((r) => {
+          const pTxt = fmtPafFact(r.date, r.place);
+          const already = fsRes.some((f) => {
+            const ft = fmtFsFact(f).toLowerCase();
+            return (r.date && ft.includes(r.date.toLowerCase())) && (r.place && ft.includes(r.place.split(',')[0].toLowerCase()));
+          });
+          rows.push({
+            kind: 'fact',
+            factType: 'http://gedcomx.org/Residence',
+            label: 'Residence / Census (Other Info)',
+            fsText: fsRes.length ? fsRes.map(fmtFsFact).slice(0, 2).join('; ') : '— (none)',
+            pafText: pTxt,
+            date: r.date,
+            place: r.place,
+            status: already ? 'match' : 'missing',
+            checked: !already
+          });
+        });
+
+        // 6. Military / Draft
+        const fsMil = live.facts.filter((f) => f.type === 'http://gedcomx.org/MilitaryService');
+        paf.military.forEach((m) => {
+          const pTxt = fmtPafFact(m.date, m.place, m.label);
+          const already = fsMil.some((f) => fmtFsFact(f).toLowerCase().includes('1917') || fmtFsFact(f).toLowerCase().includes('draft'));
+          rows.push({
+            kind: 'fact',
+            factType: 'http://gedcomx.org/MilitaryService',
+            label: 'Military / Draft (Other Info)',
+            fsText: fsMil.length ? fsMil.map(fmtFsFact).join('; ') : '— (none)',
+            pafText: pTxt,
+            date: m.date,
+            place: m.place,
+            value: m.label,
+            status: already ? 'match' : 'missing',
+            checked: !already
+          });
+        });
+
+        // 7. Source Citations
+        const existingSrcTxt = (live.sourceDescriptions || []).map((sd) => ((sd.titles && sd.titles[0] && sd.titles[0].value) || '') + ' ' + (sd.about || '')).join('\n').toLowerCase();
+        paf.sources.forEach((src) => {
+          const already = (src.url && existingSrcTxt.includes(src.url.toLowerCase())) || (src.title && existingSrcTxt.includes(src.title.toLowerCase()));
+          rows.push({
+            kind: 'source',
+            label: 'Source (Sources Tab)',
+            fsText: already ? 'Already attached' : '— (not attached)',
+            pafText: src.title + (src.url ? ` (${src.url})` : ''),
+            source: src,
+            status: already ? 'match' : 'missing',
+            checked: !already
+          });
+        });
+
+        // 8. Collaborate Note (always available & checked if not already posted)
+        if (paf.rawNote) {
+          const alreadyNote = live.notes.some((n) => n.text && n.text.indexOf(paf.rawNote.slice(0, 40)) !== -1);
+          rows.push({
+            kind: 'note',
+            label: 'PAF / GEDCOM Note (Collaborate Tab)',
+            fsText: alreadyNote ? 'Already in Collaborate' : (live.notes.length ? `${live.notes.length} existing note(s)` : '— (none)'),
+            pafText: paf.rawNote.slice(0, 140) + (paf.rawNote.length > 140 ? '…' : ''),
+            noteText: paf.rawNote,
+            status: alreadyNote ? 'match' : 'missing',
+            checked: !alreadyNote
+          });
+        }
+
+        const badgeHtml = (st) => {
+          if (st === 'missing') return '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Add</span>';
+          if (st === 'better') return '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">More Detailed (Replace)</span>';
+          if (st === 'diff') return '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Different (Replace?)</span>';
+          return '<span style="background:var(--raised);color:var(--muted);padding:2px 6px;border-radius:4px;font-size:10.5px;">Matches FS</span>';
+        };
+
+        const cmpOverlay = document.createElement('div');
+        cmpOverlay.className = 'modal-backdrop';
+        cmpOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.65);z-index:100005;display:flex;align-items:center;justify-content:center;padding:16px;';
+        cmpOverlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:880px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.35);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:16px;font-weight:700;margin:0;">Compare &amp; Update FamilySearch Beta — ${esc(live.displayName)} (${esc(pid)})</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Check the items from Mom’s PAF / GEDCOM record to add or replace on FamilySearch Beta.</p>
+              </div>
+              <button type="button" class="btn sm" id="fs-cmp-close">✕</button>
+            </div>
+            <div style="padding:14px 20px;overflow-y:auto;flex:1;">
+              ${rows.length === 0 ? '<div class="muted" style="padding:16px;">No comparable fields found in this GEDCOM record.</div>' : `
+                <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                  <thead>
+                    <tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;">
+                      <th style="padding:8px 6px;width:32px;">Sync</th>
+                      <th style="padding:8px 8px;width:180px;">Field / Tab</th>
+                      <th style="padding:8px 8px;">FamilySearch Beta (Current)</th>
+                      <th style="padding:8px 8px;">Mom’s PAF / GEDCOM</th>
+                      <th style="padding:8px 8px;width:130px;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows.map((r, i) => `
+                      <tr style="border-bottom:1px solid var(--rule);vertical-align:top;${r.status === 'match' ? 'opacity:0.65;' : ''}">
+                        <td style="padding:9px 6px;"><input type="checkbox" class="fs-cmp-chk" data-idx="${i}" ${r.checked ? 'checked' : ''} ${r.status === 'match' ? 'disabled' : ''}></td>
+                        <td style="padding:9px 8px;font-weight:600;">${esc(r.label)}</td>
+                        <td style="padding:9px 8px;word-break:break-word;">${esc(r.fsText)}</td>
+                        <td style="padding:9px 8px;word-break:break-word;">${esc(r.pafText)}</td>
+                        <td style="padding:9px 8px;">${badgeHtml(r.status)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              `}
+              <div id="fs-cmp-status" class="muted" style="margin-top:12px;font-size:12px;"></div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(pid)}" target="_blank" rel="noopener" class="btn sm">Open ${esc(pid)} on FamilySearch Beta ↗</a>
+              <div style="display:flex;gap:8px;">
+                <button type="button" class="btn sm" id="fs-cmp-cancel">Cancel</button>
+                <button type="button" class="btn sm primary" id="fs-cmp-apply">Apply Checked Updates</button>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(cmpOverlay);
+
+        const closeCmp = () => { if (cmpOverlay.parentNode) cmpOverlay.parentNode.removeChild(cmpOverlay); };
+        cmpOverlay.querySelector('#fs-cmp-close').onclick = closeCmp;
+        cmpOverlay.querySelector('#fs-cmp-cancel').onclick = closeCmp;
+        cmpOverlay.onclick = (e) => { if (e.target === cmpOverlay) closeCmp(); };
+
+        const applyBtn = cmpOverlay.querySelector('#fs-cmp-apply');
+        const cmpStatus = cmpOverlay.querySelector('#fs-cmp-status');
+        applyBtn.onclick = async () => {
+          const selected = [];
+          cmpOverlay.querySelectorAll('.fs-cmp-chk').forEach((chk) => {
+            if (chk.checked) selected.push(rows[Number(chk.getAttribute('data-idx'))]);
+          });
+          if (selected.length === 0) {
+            cmpStatus.textContent = 'Select at least one item to update.';
+            return;
+          }
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Updating FamilySearch Beta...';
+          cmpStatus.textContent = `Applying ${selected.length} update(s) to ${pid}...`;
+          try {
+            const plan = {
+              factUpdates: selected.filter((r) => r.kind === 'fact').map((r) => ({
+                factType: r.factType,
+                existingFactId: r.existingFactId || '',
+                date: r.date || '',
+                place: r.place || '',
+                value: r.value || '',
+                label: r.label
+              })),
+              genderUpdate: (selected.find((r) => r.kind === 'gender') || {}).sex || '',
+              noteText: (selected.find((r) => r.kind === 'note') || {}).noteText || '',
+              sourcesToAttach: selected.filter((r) => r.kind === 'source').map((r) => r.source)
+            };
+            const res = await fs.applyPersonCompareUpdates(pid, plan);
+            const summary = [];
+            if (res.updatedFacts.length) summary.push(`${res.updatedFacts.length} fact(s)`);
+            if (res.updatedGender) summary.push('Gender');
+            if (res.addedNote) summary.push('Collaborate Note');
+            if (res.attachedSources) summary.push(`${res.attachedSources} source(s)`);
+            const msg = summary.length
+              ? `✓ Updated ${pid}: ${summary.join(', ')}.${res.warnings.length ? ' (' + res.warnings.join('; ') + ')' : ''}`
+              : `Finished (${res.warnings.join('; ') || 'no changes applied'}).`;
+            notify(msg);
+            if (sourceBtn) {
+              sourceBtn.textContent = `✓ Synced ${pid}`;
+              sourceBtn.disabled = false;
+            }
+            closeCmp();
+          } catch (err) {
+            cmpStatus.textContent = err.message || 'Update failed.';
+            applyBtn.disabled = false;
+            applyBtn.textContent = 'Apply Checked Updates';
+          }
+        };
+        return true;
+      }
+
       /* =====================================================================
          PAF / GEDCOM (.ged) IMPORTER, PHOTO RE-LINKER & FAMILYSEARCH TREE
          ===================================================================== */
@@ -15068,14 +15348,20 @@
                 const found = await fs.searchPersons(person.name);
                 if (found && found.length > 0) {
                   const top = found[0];
-                  btn.textContent = `Updating ${top.id}...`;
-                  const upd = await fs.populatePersonMissingFields(top.id, person);
-                  if (upd.updated) {
-                    notify(`Updated ${top.id} (${person.name}) on FamilySearch Beta — added: ${upd.added.join(', ')}`);
-                    btn.textContent = `✓ Updated ${top.id}`;
+                  btn.textContent = `Loading ${top.id}...`;
+                  const opened = await openFamilySearchCompareModal(person, top.id, btn);
+                  if (opened) {
+                    btn.disabled = false;
+                    btn.textContent = `Compare ${top.id}`;
                   } else {
-                    notify(`${top.id} (${person.name}) already has all these fields on FamilySearch Beta.`);
-                    btn.textContent = `✓ Matched ${top.id}`;
+                    const upd = await fs.populatePersonMissingFields(top.id, person);
+                    if (upd.updated) {
+                      notify(`Updated ${top.id} (${person.name}) on FamilySearch Beta — added: ${upd.added.join(', ')}`);
+                      btn.textContent = `✓ Updated ${top.id}`;
+                    } else {
+                      notify(`${top.id} (${person.name}) already has all these fields on FamilySearch Beta.`);
+                      btn.textContent = `✓ Matched ${top.id}`;
+                    }
                   }
                 } else {
                   btn.textContent = 'Creating...';

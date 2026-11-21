@@ -2378,6 +2378,376 @@
     return { updated: true, added: added, id: pid };
   }
 
+  function extractStructuredPafData(personData) {
+    var p = personData || {};
+    var rawNote = String(p.notes || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+    var lines = rawNote.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+
+    var birthDate = p.birthDate || '';
+    var birthPlace = p.birthPlace || '';
+    var deathDate = p.deathDate || '';
+    var deathPlace = p.deathPlace || '';
+    var occupations = [];
+    var residences = [];
+    var military = [];
+    var sources = [];
+    var seenOcc = {};
+    var seenRes = {};
+    var seenSrc = {};
+
+    var curSection = '';
+    var curEventType = '';
+    var curEventDate = '';
+    var curEventPlace = '';
+
+    var flushEvent = function () {
+      if (curEventType === 'Draft Registration' && (curEventDate || curEventPlace)) {
+        military.push({
+          date: curEventDate,
+          place: curEventPlace,
+          label: 'WWI / Military Draft Registration'
+        });
+      } else if ((curEventType === 'Census' || curEventType === 'Residence') && (curEventDate || curEventPlace)) {
+        var rKey = (curEventDate + '|' + curEventPlace).toLowerCase();
+        if (!seenRes[rKey]) {
+          seenRes[rKey] = true;
+          residences.push({ date: curEventDate, place: curEventPlace });
+        }
+      }
+      curEventType = '';
+      curEventDate = '';
+      curEventPlace = '';
+    };
+
+    var birthCity = '';
+    var birthCounty = '';
+    var birthState = '';
+    var birthCountry = '';
+    var deathCity = '';
+    var deathCounty = '';
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var low = line.toLowerCase();
+
+      if (/^source citation:?$/i.test(line) || /^citing this record:?$/i.test(line) || /^source information:?$/i.test(line)) {
+        curSection = 'SOURCE_NEXT';
+        continue;
+      }
+      if (curSection === 'SOURCE_NEXT' || /^source citation:/i.test(line)) {
+        var cit = line.replace(/^source citation:\s*/i, '').trim();
+        curSection = '';
+        if (cit && cit.length > 12 && !seenSrc[cit]) {
+          seenSrc[cit] = true;
+          var urlM = cit.match(/https?:\/\/[^\s)>\]]+/i);
+          var titleM = cit.match(/"([^"]{4,90})"/);
+          sources.push({
+            title: titleM ? titleM[1].replace(/,\s*$/, '') : cit.slice(0, 60),
+            citation: cit,
+            url: urlM ? urlM[0] : ''
+          });
+        }
+        continue;
+      }
+
+      if (/united states world war i draft/i.test(line)) {
+        flushEvent();
+        curEventType = 'Draft Registration';
+        continue;
+      }
+      if (/united states census,\s*(1[789]\d{2}|20\d{2})/i.test(line)) {
+        flushEvent();
+        curEventType = 'Census';
+        var cm = line.match(/(1[789]\d{2}|20\d{2})/);
+        if (cm) curEventDate = cm[1];
+        continue;
+      }
+
+      var kv = line.match(/^([^:\t]{2,36}):\s*(.+)$/) || line.match(/^([^\t]{2,36})\t+(.+)$/);
+      if (kv) {
+        var k = kv[1].trim().toLowerCase();
+        var v = kv[2].trim();
+        if (!v) continue;
+
+        if (k === 'event' || k === 'event type') {
+          if (curEventType && curEventType !== v) flushEvent();
+          curEventType = v;
+        } else if (k === 'event date' || k === 'event year') {
+          curEventDate = v;
+          if (curEventType === 'Birth' && !birthDate) birthDate = v;
+          if (curEventType === 'Death' && !deathDate) deathDate = v;
+        } else if (k === 'event place') {
+          curEventPlace = v;
+          if (curEventType === 'Birth' && (!birthPlace || v.length > birthPlace.length)) birthPlace = v;
+          if (curEventType === 'Death' && (!deathPlace || v.length > deathPlace.length)) deathPlace = v;
+        } else if (k === 'birth date' && !birthDate) {
+          birthDate = v;
+        } else if ((k === 'birth place' || k === 'birthplace') && !/^,\s*,/.test(v)) {
+          if (!birthPlace || v.length > birthPlace.length) birthPlace = v;
+        } else if (k === 'birth city') {
+          birthCity = v;
+        } else if (k === 'birth county') {
+          birthCounty = v;
+        } else if (k === 'birth state') {
+          birthState = v;
+        } else if (k === 'birth country') {
+          birthCountry = v;
+        } else if (k === 'death date' && !deathDate) {
+          deathDate = v;
+        } else if (k === 'city of death') {
+          deathCity = v;
+        } else if (k === 'county of death') {
+          deathCounty = v;
+        } else if (k === 'occupation' || k === 'occupation of decedent') {
+          var oKey = v.toLowerCase();
+          if (!seenOcc[oKey]) {
+            seenOcc[oKey] = true;
+            occupations.push({ value: v });
+          }
+        } else if (k === 'residence place') {
+          var rk = ('|' + v).toLowerCase();
+          if (!seenRes[rk]) {
+            seenRes[rk] = true;
+            residences.push({ date: '', place: v });
+          }
+        }
+      } else if (/https?:\/\/(www\.)?familysearch\.org\/(ark:|pal:)/i.test(line) && !seenSrc[line]) {
+        seenSrc[line] = true;
+        var uM = line.match(/https?:\/\/[^\s)>\]]+/i);
+        var tM = line.match(/"([^"]{4,90})"/);
+        sources.push({
+          title: tM ? tM[1].replace(/,\s*$/, '') : 'FamilySearch Record Citation',
+          citation: line,
+          url: uM ? uM[0] : ''
+        });
+      }
+    }
+    flushEvent();
+
+    var builtBirth = [birthCity, birthCounty, birthState, birthCountry].filter(Boolean).join(', ');
+    if (builtBirth && (!birthPlace || builtBirth.length > birthPlace.length)) {
+      birthPlace = builtBirth;
+    }
+    var builtDeath = [deathCity, deathCounty].filter(Boolean).join(', ');
+    if (builtDeath && !deathPlace) {
+      deathPlace = builtDeath;
+    }
+
+    return {
+      birthDate: birthDate,
+      birthPlace: birthPlace,
+      deathDate: deathDate,
+      deathPlace: deathPlace,
+      sex: p.sex || '',
+      occupations: occupations,
+      residences: residences,
+      military: military,
+      sources: sources,
+      rawNote: rawNote
+    };
+  }
+
+  async function getPersonForCompare(personId) {
+    var stored = getStoredToken();
+    if (!stored || !stored.accessToken) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var pid = String(personId || '').trim().toUpperCase();
+    if (!pid) throw new Error('Valid FamilySearch Person ID (PID) is required.');
+
+    var res = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '?sourceDescriptions=true', {
+      headers: {
+        'Authorization': 'Bearer ' + stored.accessToken,
+        'Accept': 'application/x-gedcomx-v1+json'
+      }
+    });
+    if (!res.ok) {
+      throw new Error('Could not load FamilySearch person ' + pid + ' (' + res.status + ')');
+    }
+    var data = await res.json();
+    var person = (data && data.persons && data.persons[0]) || {};
+    var sourceDescriptions = Array.isArray(data && data.sourceDescriptions) ? data.sourceDescriptions : [];
+
+    var displayName = (person.display && person.display.name) ||
+      (person.names && person.names[0] && person.names[0].nameForms && person.names[0].nameForms[0] && person.names[0].nameForms[0].fullText) ||
+      pid;
+
+    return {
+      id: pid,
+      displayName: displayName,
+      person: person,
+      facts: Array.isArray(person.facts) ? person.facts : [],
+      gender: person.gender || null,
+      notes: Array.isArray(person.notes) ? person.notes : [],
+      sources: Array.isArray(person.sources) ? person.sources : [],
+      sourceDescriptions: sourceDescriptions
+    };
+  }
+
+  async function applyPersonCompareUpdates(personId, plan) {
+    var stored = getStoredToken();
+    if (!stored || !stored.accessToken) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var pid = String(personId || '').trim().toUpperCase();
+    if (!pid) throw new Error('Valid FamilySearch Person ID (PID) is required.');
+
+    var patchPerson = { id: pid };
+    var newFacts = [];
+    var updatedFacts = [];
+    var warnings = [];
+
+    (plan.factUpdates || []).forEach(function (item) {
+      var fact = { type: item.factType };
+      if (item.existingFactId) fact.id = item.existingFactId;
+      if (item.date && String(item.date).trim()) {
+        fact.date = { original: String(item.date).trim() };
+      }
+      if (item.place && String(item.place).trim()) {
+        fact.place = { original: String(item.place).trim() };
+      }
+      if (item.value && String(item.value).trim()) {
+        fact.value = String(item.value).trim();
+      }
+      if (fact.date || fact.place || fact.value) {
+        newFacts.push(fact);
+        updatedFacts.push(item.label || item.factType);
+      }
+    });
+
+    if (newFacts.length > 0) patchPerson.facts = newFacts;
+
+    var updatedGender = false;
+    if (plan.genderUpdate) {
+      var g = buildGedcomXGender(plan.genderUpdate);
+      if (g) {
+        patchPerson.gender = g;
+        updatedGender = true;
+      }
+    }
+
+    var addedNote = false;
+    if (plan.noteText && String(plan.noteText).trim()) {
+      var cleanNote = String(plan.noteText).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
+      if (cleanNote) {
+        patchPerson.notes = [{ subject: 'PAF / GEDCOM Note', text: cleanNote }];
+        addedNote = true;
+      }
+    }
+
+    if (newFacts.length > 0 || updatedGender || addedNote) {
+      var postRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + stored.accessToken,
+          'Content-Type': 'application/x-gedcomx-v1+json',
+          'Accept': 'application/x-gedcomx-v1+json',
+          'X-Reason': plan.reason || 'Updated from Mom\'s PAF / GEDCOM archive via Family History Photos'
+        },
+        body: JSON.stringify({ persons: [patchPerson] })
+      });
+
+      if (!postRes.ok) {
+        var errTxt = await postRes.text().catch(function () { return ''; });
+        if (postRes.status === 400 && patchPerson.notes && /note/i.test(errTxt)) {
+          delete patchPerson.notes;
+          addedNote = false;
+          warnings.push('Collaborate note was rejected by FamilySearch (400), retrying facts...');
+          if (newFacts.length > 0 || updatedGender) {
+            var retryRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + stored.accessToken,
+                'Content-Type': 'application/x-gedcomx-v1+json',
+                'Accept': 'application/x-gedcomx-v1+json',
+                'X-Reason': plan.reason || 'Updated from Mom\'s PAF / GEDCOM archive via Family History Photos'
+              },
+              body: JSON.stringify({ persons: [patchPerson] })
+            });
+            if (!retryRes.ok) {
+              var retryErr = await retryRes.text().catch(function () { return ''; });
+              throw new Error('FamilySearch update failed (' + retryRes.status + '): ' + (retryErr || retryRes.statusText));
+            }
+          }
+        } else {
+          throw new Error('FamilySearch update failed (' + postRes.status + '): ' + (errTxt || postRes.statusText));
+        }
+      }
+    }
+
+    var attachedSources = 0;
+    var srcList = Array.isArray(plan.sourcesToAttach) ? plan.sourcesToAttach : [];
+    for (var i = 0; i < srcList.length; i++) {
+      var src = srcList[i];
+      try {
+        var sdObj = {
+          titles: [{ value: String(src.title || 'PAF / GEDCOM Source').slice(0, 120) }],
+          citations: [{ value: String(src.citation || src.title || '').slice(0, 2000) }]
+        };
+        if (src.url && /^https?:\/\//i.test(src.url)) {
+          sdObj.about = src.url;
+        }
+        var sdRes = await fetch(API_BASE + '/platform/sources/descriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + stored.accessToken,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json'
+          },
+          body: JSON.stringify({ sourceDescriptions: [sdObj] })
+        });
+        if (!sdRes.ok) {
+          warnings.push('Could not create source "' + sdObj.titles[0].value + '" (' + sdRes.status + ')');
+          continue;
+        }
+        var sdId = sdRes.headers.get('X-ENTITY-ID') || '';
+        var sdLoc = sdRes.headers.get('Location') || '';
+        if (!sdId && sdLoc) {
+          var sm = sdLoc.match(/\/descriptions\/([A-Za-z0-9_-]+)/i);
+          if (sm) sdId = sm[1];
+        }
+        if (!sdId) {
+          warnings.push('Created source "' + sdObj.titles[0].value + '" but missing ID to attach.');
+          continue;
+        }
+        var attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/sources', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + stored.accessToken,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json',
+            'X-Reason': 'Attached source citation from Mom\'s PAF / GEDCOM archive'
+          },
+          body: JSON.stringify({
+            persons: [{
+              id: pid,
+              sources: [{
+                description: API_BASE + '/platform/sources/descriptions/' + encodeURIComponent(sdId),
+                descriptionId: sdId
+              }]
+            }]
+          })
+        });
+        if (attRes.ok) {
+          attachedSources++;
+        } else {
+          warnings.push('Could not attach source "' + sdObj.titles[0].value + '" (' + attRes.status + ')');
+        }
+      } catch (e) {
+        warnings.push('Source attach error: ' + e.message);
+      }
+    }
+
+    return {
+      id: pid,
+      updatedFacts: updatedFacts,
+      updatedGender: updatedGender,
+      addedNote: addedNote,
+      attachedSources: attachedSources,
+      warnings: warnings
+    };
+  }
+
   global.FamilySearchClient = {
     getClientId: getClientId,
     setClientId: setClientId,
@@ -2397,6 +2767,9 @@
     searchPersons: searchPersons,
     createPerson: createPerson,
     populatePersonMissingFields: populatePersonMissingFields,
+    extractStructuredPafData: extractStructuredPafData,
+    getPersonForCompare: getPersonForCompare,
+    applyPersonCompareUpdates: applyPersonCompareUpdates,
     isPidValidForPersonName: isPidValidForPersonName,
     KNOWN_FAMILY: KNOWN_FAMILY,
     parseFamilySearchDate: parseFamilySearchDate,
