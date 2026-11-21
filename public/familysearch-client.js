@@ -2246,7 +2246,10 @@
     var gender = buildGedcomXGender(personData.sex);
     if (gender) personObj.gender = gender;
     if (personData.notes && String(personData.notes).trim()) {
-      personObj.notes = [{ text: String(personData.notes).trim() }];
+      var cleanCreateNote = String(personData.notes).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
+      if (cleanCreateNote) {
+        personObj.notes = [{ subject: 'PAF / GEDCOM Note', text: cleanCreateNote }];
+      }
     }
 
     var res = await fetch(API_BASE + '/platform/tree/persons', {
@@ -2322,11 +2325,11 @@
     }
 
     if (personData.notes && String(personData.notes).trim()) {
-      var noteTxt = String(personData.notes).trim();
+      var noteTxt = String(personData.notes).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
       var existingNotes = Array.isArray(existingPerson.notes) ? existingPerson.notes : [];
       var alreadyHasNote = existingNotes.some(function (n) { return n.text && n.text.indexOf(noteTxt.slice(0, 40)) !== -1; });
-      if (!alreadyHasNote) {
-        patchPerson.notes = [{ text: noteTxt }];
+      if (noteTxt && !alreadyHasNote) {
+        patchPerson.notes = [{ subject: 'PAF / GEDCOM Note', text: noteTxt }];
         added.push('Notes');
       }
     }
@@ -2348,6 +2351,27 @@
 
     if (!postRes.ok) {
       var errTxt = await postRes.text().catch(function () { return ''; });
+      // If FamilySearch rejects the TF note (e.g., 400 on note creation), retry vital fields without notes so Birth/Death/Gender still sync
+      if (postRes.status === 400 && patchPerson.notes && /note/i.test(errTxt)) {
+        delete patchPerson.notes;
+        added = added.filter(function (a) { return a !== 'Notes'; });
+        if (added.length === 0) {
+          return { updated: false, added: [], id: pid };
+        }
+        var retryRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + stored.accessToken,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json',
+            'X-Reason': 'Populated missing vital fields from Family History Photos / PAF archive'
+          },
+          body: JSON.stringify({ persons: [patchPerson] })
+        });
+        if (retryRes.ok) {
+          return { updated: true, added: added, id: pid };
+        }
+      }
       throw new Error('FamilySearch update failed (' + postRes.status + '): ' + (errTxt || postRes.statusText));
     }
 
