@@ -19,6 +19,18 @@ function stripExt(filename) {
   return String(filename || '').replace(/\.[^.]+$/, '').trim().toLowerCase();
 }
 
+function normalizeFileStem(filename) {
+  return stripExt(filename)
+    .replace(/\s*\(\d+\)\s*$/g, '')
+    .replace(/(?:[-_\s]+(?:copy|edited|restored|4k|scan|crop|\d+))+\s*$/gi, '')
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+function extractNameTokens(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 2);
+}
+
 function parseGedYear(dateStr) {
   const m = String(dateStr || '').match(/\b(17\d{2}|18\d{2}|19\d{2}|20\d{2})\b/);
   return m ? Number(m[1]) : null;
@@ -255,6 +267,7 @@ export async function parseGedcomFile(file, onProgress = null) {
   // Build O(1) filename lookup index for broken PAF photo paths
   const fileIndexByName = new Map();
   const fileIndexByStem = new Map();
+  const fileIndexByNorm = new Map();
   let totalPhotoLinks = 0;
 
   const addLink = (rawPath, title, note, personIds, eventDate = '', eventPlace = '') => {
@@ -269,6 +282,12 @@ export async function parseGedcomFile(file, onProgress = null) {
     if (stem) {
       if (!fileIndexByStem.has(stem)) fileIndexByStem.set(stem, []);
       fileIndexByStem.get(stem).push(entry);
+    }
+
+    const norm = normalizeFileStem(base);
+    if (norm && norm.length >= 4) {
+      if (!fileIndexByNorm.has(norm)) fileIndexByNorm.set(norm, []);
+      fileIndexByNorm.get(norm).push(entry);
     }
   };
 
@@ -302,18 +321,88 @@ export async function parseGedcomFile(file, onProgress = null) {
   }
 
   const peopleList = Array.from(peopleById.values());
+  const peopleByFullNorm = new Map();
+  const peopleByFirstLast = new Map();
+  for (const person of peopleList) {
+    const toks = extractNameTokens(person.name);
+    if (toks.length === 0) continue;
+    const fullKey = toks.join(' ');
+    if (!peopleByFullNorm.has(fullKey)) peopleByFullNorm.set(fullKey, []);
+    peopleByFullNorm.get(fullKey).push(person);
+    if (toks.length >= 2) {
+      const flKey = `${toks[0]} ${toks[toks.length - 1]}`;
+      if (!peopleByFirstLast.has(flKey)) peopleByFirstLast.set(flKey, []);
+      peopleByFirstLast.get(flKey).push(person);
+    }
+  }
+
   if (onProgress) onProgress({ stage: 'Complete', pct: 100 });
 
   return {
     fileName: file.name,
     peopleById,
     peopleList,
+    peopleByFullNorm,
+    peopleByFirstLast,
     objeCount: objeById.size,
     famCount: famById.size,
     totalPhotoLinks,
     fileIndexByName,
-    fileIndexByStem
+    fileIndexByStem,
+    fileIndexByNorm
   };
+}
+
+export function findGedcomPeopleByName(gedData, rawName) {
+  if (!gedData || !rawName) return [];
+  const toks = extractNameTokens(rawName);
+  if (toks.length === 0) return [];
+  const fullKey = toks.join(' ');
+  const exact = gedData.peopleByFullNorm && gedData.peopleByFullNorm.get(fullKey);
+  if (exact && exact.length > 0) return exact;
+  if (toks.length >= 2 && gedData.peopleByFirstLast) {
+    const flKey = `${toks[0]} ${toks[toks.length - 1]}`;
+    const fl = gedData.peopleByFirstLast.get(flKey);
+    if (fl && fl.length > 0) return fl;
+  }
+  return [];
+}
+
+export function matchFilenameToGedcom(gedData, rawFileName) {
+  if (!gedData || !rawFileName) return { type: null, matches: [], personMatches: [] };
+  const fileName = extractBasename(rawFileName).toLowerCase();
+  if (!fileName) return { type: null, matches: [], personMatches: [] };
+
+  let matches = gedData.fileIndexByName.get(fileName);
+  if (matches && matches.length > 0) return { type: 'obje_exact', matches, personMatches: [] };
+
+  const stem = stripExt(fileName);
+  if (stem) {
+    matches = gedData.fileIndexByStem.get(stem);
+    if (matches && matches.length > 0) return { type: 'obje_stem', matches, personMatches: [] };
+  }
+
+  const norm = normalizeFileStem(fileName);
+  if (norm && gedData.fileIndexByNorm) {
+    matches = gedData.fileIndexByNorm.get(norm);
+    if (matches && matches.length > 0) return { type: 'obje_fuzzy', matches, personMatches: [] };
+  }
+
+  // Fallback: check if the filename itself contains a person's First + Last name from GEDCOM (e.g., "Patricia_Gill_1965.jpg")
+  const fileToks = extractNameTokens(stripExt(fileName).replace(/[_-]+/g, ' '));
+  if (fileToks.length >= 2 && gedData.peopleByFirstLast) {
+    for (let i = 0; i < fileToks.length; i++) {
+      for (let j = i + 1; j < fileToks.length; j++) {
+        const flKey = `${fileToks[i]} ${fileToks[j]}`;
+        const hits = gedData.peopleByFirstLast.get(flKey);
+        if (hits && hits.length > 0 && hits.length <= 3) {
+          return { type: 'filename_name', matches: [], personMatches: hits };
+        }
+      }
+    }
+  }
+
+  return { type: null, matches: [], personMatches: [] };
 }
 
 export function relinkPhotosWithGedcom(gedData, photoItems) {
@@ -325,15 +414,71 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
   let totalLinksRestored = 0;
   const matchedIds = [];
 
-  for (const p of photoItems) {
-    const fileName = extractBasename(p.file || p.filename || '').toLowerCase();
-    if (!fileName) continue;
-    let matches = gedData.fileIndexByName.get(fileName);
-    if (!matches || matches.length === 0) {
-      const stem = stripExt(fileName);
-      if (stem) matches = gedData.fileIndexByStem.get(stem);
+  const attachPersonToPhoto = (p, person, seenNames, linkedSummaries) => {
+    if (!person || !person.name) return false;
+    const lifeBits = [
+      person.birthDate || person.birthPlace ? `b. ${[person.birthDate, person.birthPlace].filter(Boolean).join(', ')}` : '',
+      person.deathDate || person.deathPlace ? `d. ${[person.deathDate, person.deathPlace].filter(Boolean).join(', ')}` : ''
+    ].filter(Boolean).join(' · ');
+    const summaryLine = `${person.name}${lifeBits ? ` (${lifeBits})` : ''}${person.notes ? ` — ${person.notes}` : ''}`;
+    if (!linkedSummaries.includes(summaryLine)) linkedSummaries.push(summaryLine);
+
+    const key = person.name.toLowerCase();
+    const existing = (p.people || []).find((x) => (x.name || '').toLowerCase() === key);
+    if (existing) {
+      let enriched = false;
+      if (!existing.gedId && person.id) { existing.gedId = person.id; enriched = true; }
+      if (!existing.birthDate && person.birthDate) { existing.birthDate = person.birthDate; enriched = true; }
+      if (!existing.birthPlace && person.birthPlace) { existing.birthPlace = person.birthPlace; enriched = true; }
+      if (!existing.deathDate && person.deathDate) { existing.deathDate = person.deathDate; enriched = true; }
+      if (!existing.deathPlace && person.deathPlace) { existing.deathPlace = person.deathPlace; enriched = true; }
+      if (!existing.notes && person.notes) { existing.notes = person.notes; enriched = true; }
+      return enriched;
     }
-    if (!matches || matches.length === 0) continue;
+    if (!seenNames.has(key)) {
+      seenNames.add(key);
+      if (!Array.isArray(p.people)) p.people = [];
+      p.people.push({
+        name: person.name,
+        rel: 'Relative',
+        branch: person.surname || p.branch || '',
+        gedId: person.id,
+        sex: person.sex,
+        birthDate: person.birthDate,
+        birthPlace: person.birthPlace,
+        deathDate: person.deathDate,
+        deathPlace: person.deathPlace,
+        notes: person.notes
+      });
+      totalLinksRestored++;
+      return true;
+    }
+    return false;
+  };
+
+  for (const p of photoItems) {
+    const rawFile = p.file || p.filename || '';
+    const fnMatch = matchFilenameToGedcom(gedData, rawFile);
+    const matches = fnMatch.matches || [];
+    const personMatches = fnMatch.personMatches || [];
+
+    // Also check existing tagged people/faces on this photo (matches even without middle name)
+    const tagPeople = [];
+    const existingTags = [
+      ...(Array.isArray(p.people) ? p.people.map((x) => x.name) : []),
+      ...(Array.isArray(p.faces) ? p.faces.map((f) => f.name) : [])
+    ].filter(Boolean);
+    for (const tagName of existingTags) {
+      const found = findGedcomPeopleByName(gedData, tagName);
+      if (found.length === 1) {
+        tagPeople.push(found[0]);
+      } else if (found.length > 1) {
+        const exact = found.find((x) => (x.name || '').toLowerCase() === tagName.toLowerCase());
+        if (exact) tagPeople.push(exact);
+      }
+    }
+
+    if (matches.length === 0 && personMatches.length === 0 && tagPeople.length === 0) continue;
 
     matchedPhotos++;
     matchedIds.push(p.id);
@@ -344,33 +489,7 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
     for (const m of matches) {
       for (const pid of m.personIds) {
         const person = gedData.peopleById.get(pid);
-        if (!person || !person.name) continue;
-        const lifeBits = [
-          person.birthDate || person.birthPlace ? `b. ${[person.birthDate, person.birthPlace].filter(Boolean).join(', ')}` : '',
-          person.deathDate || person.deathPlace ? `d. ${[person.deathDate, person.deathPlace].filter(Boolean).join(', ')}` : ''
-        ].filter(Boolean).join(' · ');
-        const summaryLine = `${person.name}${lifeBits ? ` (${lifeBits})` : ''}${person.notes ? ` — ${person.notes}` : ''}`;
-        if (!linkedSummaries.includes(summaryLine)) linkedSummaries.push(summaryLine);
-
-        const key = person.name.toLowerCase();
-        if (!seenNames.has(key)) {
-          seenNames.add(key);
-          if (!Array.isArray(p.people)) p.people = [];
-          p.people.push({
-            name: person.name,
-            rel: 'Relative',
-            branch: person.surname || p.branch || '',
-            gedId: person.id,
-            sex: person.sex,
-            birthDate: person.birthDate,
-            birthPlace: person.birthPlace,
-            deathDate: person.deathDate,
-            deathPlace: person.deathPlace,
-            notes: person.notes
-          });
-          totalLinksRestored++;
-          photoChanged = true;
-        }
+        if (attachPersonToPhoto(p, person, seenNames, linkedSummaries)) photoChanged = true;
       }
       if (m.title && (!p.title || p.title === stripExt(p.file) || /^Family Print/i.test(p.title))) {
         p.title = m.title;
@@ -393,6 +512,13 @@ export function relinkPhotosWithGedcom(gedData, photoItems) {
           photoChanged = true;
         }
       }
+    }
+
+    for (const pm of personMatches) {
+      if (attachPersonToPhoto(p, pm, seenNames, linkedSummaries)) photoChanged = true;
+    }
+    for (const tp of tagPeople) {
+      if (attachPersonToPhoto(p, tp, seenNames, linkedSummaries)) photoChanged = true;
     }
 
     if (!p.story && linkedSummaries.length > 0) {

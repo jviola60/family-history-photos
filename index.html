@@ -15333,7 +15333,12 @@
               <div style="border-top:1px solid var(--border);padding-top:12px;">
                 <div id="ged-active-photo-bar" style="margin-bottom:10px;"></div>
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Search People in GEDCOM / PAF (compare &amp; sync to FamilySearch Beta, tag to photo, or open in Photo Lab):</label>
-                <input type="search" id="inp-ged-search" placeholder="Type a name (e.g., Patricia Gill)..." style="width:100%;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;margin-bottom:10px;">
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+                  <input type="search" id="inp-ged-search" placeholder="Type a name (e.g., Patricia Gill)..." style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;">
+                  <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" id="chk-ged-relinked-only"> Re-Linked Photos Only
+                  </label>
+                </div>
                 <div id="ged-results" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
               </div>
             </div>
@@ -15349,6 +15354,7 @@
         const activePhotoBarEl = overlay.querySelector('#ged-active-photo-bar');
         const resultsEl = overlay.querySelector('#ged-results');
         const searchInp = overlay.querySelector('#inp-ged-search');
+        const relinkedOnlyChk = overlay.querySelector('#chk-ged-relinked-only');
         const relinkBtn = overlay.querySelector('#btn-ged-relink-now');
         const driveSearchBtn = overlay.querySelector('#btn-ged-search-drive');
         const exportMetaBtn = overlay.querySelector('#btn-ged-export-meta');
@@ -15408,21 +15414,6 @@
             resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:12px;">Load a .ged file above to search people.</div>';
             return;
           }
-          const q = searchInp.value.trim().toLowerCase();
-          const matches = [];
-          for (let i = 0; i < gd.peopleList.length && matches.length < 40; i++) {
-            const person = gd.peopleList[i];
-            if (!q || (person.name && person.name.toLowerCase().includes(q))) {
-              matches.push(person);
-            }
-          }
-          if (matches.length === 0) {
-            resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:12px;">No matching people found.</div>';
-            return;
-          }
-          const curPhoto = currentPhoto();
-          renderActivePhotoBar();
-
           const findLinkedPhotoForPerson = (person) => {
             if (!Array.isArray(items) || !items.length || !person) return null;
             const pNameLow = (person.name || '').toLowerCase();
@@ -15433,14 +15424,36 @@
             ) || null;
           };
 
-          resultsEl.innerHTML = matches.map((person, idx) => {
-            const linkedPhoto = findLinkedPhotoForPerson(person);
+          const q = searchInp.value.trim().toLowerCase();
+          const onlyRelinked = Boolean(relinkedOnlyChk && relinkedOnlyChk.checked);
+          const linkedRows = [];
+          const otherRows = [];
+          for (let i = 0; i < gd.peopleList.length; i++) {
+            const person = gd.peopleList[i];
+            if (q && !(person.name && person.name.toLowerCase().includes(q))) continue;
+            const lp = findLinkedPhotoForPerson(person);
+            if (lp) {
+              linkedRows.push({ person, linkedPhoto: lp });
+            } else if (!onlyRelinked && otherRows.length < 40) {
+              otherRows.push({ person, linkedPhoto: null });
+            }
+          }
+          const combinedRows = [...linkedRows, ...otherRows].slice(0, 50);
+          const matches = combinedRows.map((r) => r.person);
+          if (matches.length === 0) {
+            resultsEl.innerHTML = `<div class="muted" style="padding:14px;font-size:12px;">${onlyRelinked ? 'No re-linked photos in the current batch yet.' : 'No matching people found.'}</div>`;
+            return;
+          }
+          const curPhoto = currentPhoto();
+          renderActivePhotoBar();
+
+          resultsEl.innerHTML = combinedRows.map(({ person, linkedPhoto }, idx) => {
             const linkedThumb = linkedPhoto ? (linkedPhoto.workingSrc || linkedPhoto.src || 'sample.jpg') : '';
             return `
-            <div style="padding:10px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div style="padding:10px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${linkedPhoto ? 'background:rgba(22,163,74,0.06);' : ''}">
               ${linkedPhoto ? `<img src="${esc(linkedThumb)}" alt="" title="${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">` : ''}
               <div style="min-width:190px;flex:1;">
-                <div style="font-weight:600;font-size:13px;">${esc(person.name || 'Unnamed')} <span class="mono muted" style="font-size:11px;">(${esc(person.id)})</span></div>
+                <div style="font-weight:600;font-size:13px;">${esc(person.name || 'Unnamed')} <span class="mono muted" style="font-size:11px;">(${esc(person.id)})</span> ${linkedPhoto ? '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">Re-Linked</span>' : ''}</div>
                 <div class="muted" style="font-size:11.5px;">
                   ${person.birthDate || person.birthPlace ? `b. ${esc(person.birthDate || '')} ${esc(person.birthPlace || '')}` : ''}
                   ${person.deathDate || person.deathPlace ? ` · d. ${esc(person.deathDate || '')} ${esc(person.deathPlace || '')}` : ''}
@@ -15574,6 +15587,7 @@
           const res = gp.relinkPhotosWithGedcom(window._activeGedcomData, items);
           await persistAndSelectRelinked(res);
           statusEl.innerHTML = `✓ Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.newlyUpdatedPhotos} newly updated, ${res.totalLinksRestored} new person links restored).`;
+          renderSearch();
         };
 
         if (driveSearchBtn) {
@@ -15601,6 +15615,11 @@
                 statusEl.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} images seen)`;
               });
               const matchedDriveFiles = allDriveImages.filter((f) => {
+                if (!f || !f.name) return false;
+                if (gp.matchFilenameToGedcom) {
+                  const m = gp.matchFilenameToGedcom(gd, f.name);
+                  return Boolean(m && m.type);
+                }
                 const base = String(f.name || '').trim().toLowerCase();
                 if (!base) return false;
                 if (gd.fileIndexByName.has(base)) return true;
@@ -15608,7 +15627,7 @@
                 return stem ? gd.fileIndexByStem.has(stem) : false;
               });
               if (matchedDriveFiles.length === 0) {
-                statusEl.innerHTML = `Scanned <strong>${allDriveImages.length.toLocaleString()}</strong> Google Drive images, but none matched the <strong>${gd.totalPhotoLinks.toLocaleString()}</strong> filenames in <strong>${esc(gd.fileName)}</strong>.`;
+                statusEl.innerHTML = `Scanned <strong>${allDriveImages.length.toLocaleString()}</strong> Google Drive images, but none matched the <strong>${gd.totalPhotoLinks.toLocaleString()}</strong> filenames or person names in <strong>${esc(gd.fileName)}</strong>.`;
                 driveSearchBtn.disabled = false;
                 return;
               }
@@ -15617,6 +15636,7 @@
               const res = gp.relinkPhotosWithGedcom(gd, items);
               await persistAndSelectRelinked(res);
               statusEl.innerHTML = `✓ Found &amp; imported <strong>${matchedDriveFiles.length}</strong> matching photos from Google Drive and populated GEDCOM metadata on <strong>${res.matchedPhotos}</strong> photos!`;
+              renderSearch();
               notify(`Loaded ${matchedDriveFiles.length} GEDCOM-matched photos from Google Drive!`);
             } catch (err) {
               statusEl.textContent = `Google Drive search failed: ${err.message}`;
@@ -15660,6 +15680,7 @@
         }
 
         searchInp.oninput = renderSearch;
+        if (relinkedOnlyChk) relinkedOnlyChk.onchange = renderSearch;
         renderSearch();
       }
 
