@@ -15331,7 +15331,8 @@
                 ${window._activeGedcomData ? `Loaded: <strong>${esc(window._activeGedcomData.fileName)}</strong> — ${window._activeGedcomData.peopleList.length.toLocaleString()} people, ${window._activeGedcomData.totalPhotoLinks.toLocaleString()} photo links.` : 'No .ged file loaded yet.'}
               </div>
               <div style="border-top:1px solid var(--border);padding-top:12px;">
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Search People in GEDCOM / PAF (tag to selected photo or send to FamilySearch Beta):</label>
+                <div id="ged-active-photo-bar" style="margin-bottom:10px;"></div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Search People in GEDCOM / PAF (compare &amp; sync to FamilySearch Beta, tag to photo, or open in Photo Lab):</label>
                 <input type="search" id="inp-ged-search" placeholder="Type a name (e.g., Patricia Gill)..." style="width:100%;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;margin-bottom:10px;">
                 <div id="ged-results" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
               </div>
@@ -15345,11 +15346,45 @@
         overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
 
         const statusEl = overlay.querySelector('#ged-status');
+        const activePhotoBarEl = overlay.querySelector('#ged-active-photo-bar');
         const resultsEl = overlay.querySelector('#ged-results');
         const searchInp = overlay.querySelector('#inp-ged-search');
         const relinkBtn = overlay.querySelector('#btn-ged-relink-now');
         const driveSearchBtn = overlay.querySelector('#btn-ged-search-drive');
         const exportMetaBtn = overlay.querySelector('#btn-ged-export-meta');
+
+        const openPhotoInLab = (photoItem) => {
+          if (!photoItem) return;
+          selectedId = photoItem.id;
+          mode = 'lab';
+          closeModal();
+          render();
+        };
+
+        const renderActivePhotoBar = () => {
+          if (!activePhotoBarEl) return;
+          const cp = currentPhoto();
+          if (!cp) {
+            activePhotoBarEl.innerHTML = '';
+            return;
+          }
+          const thumbSrc = cp.workingSrc || cp.src || 'sample.jpg';
+          const taggedNames = Array.isArray(cp.people) && cp.people.length
+            ? cp.people.map((x) => x.name).filter(Boolean).join(', ')
+            : 'No people tagged yet';
+          activePhotoBarEl.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
+              <img src="${esc(thumbSrc)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Selected Photo: ${esc(cp.title || cp.file || cp.id)} <span class="mono muted" style="font-size:11px;">(${esc(cp.id)})</span></div>
+                <div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Tagged: ${esc(taggedNames)}</div>
+              </div>
+              <button type="button" class="btn sm" id="btn-ged-open-cur-lab">🖼️ Open in Photo Lab</button>
+            </div>
+          `;
+          const labBtn = activePhotoBarEl.querySelector('#btn-ged-open-cur-lab');
+          if (labBtn) labBtn.onclick = () => openPhotoInLab(cp);
+        };
 
         const persistAndSelectRelinked = async (res) => {
           const matchedSet = new Set(res.matchedIds || []);
@@ -15386,21 +15421,48 @@
             return;
           }
           const curPhoto = currentPhoto();
-          resultsEl.innerHTML = matches.map((person, idx) => `
+          renderActivePhotoBar();
+
+          const findLinkedPhotoForPerson = (person) => {
+            if (!Array.isArray(items) || !items.length || !person) return null;
+            const pNameLow = (person.name || '').toLowerCase();
+            return items.find((p) =>
+              Array.isArray(p.people) && p.people.some((x) =>
+                (x.gedId && x.gedId === person.id) || (pNameLow && (x.name || '').toLowerCase() === pNameLow)
+              )
+            ) || null;
+          };
+
+          resultsEl.innerHTML = matches.map((person, idx) => {
+            const linkedPhoto = findLinkedPhotoForPerson(person);
+            const linkedThumb = linkedPhoto ? (linkedPhoto.workingSrc || linkedPhoto.src || 'sample.jpg') : '';
+            return `
             <div style="padding:10px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <div style="min-width:200px;flex:1;">
+              ${linkedPhoto ? `<img src="${esc(linkedThumb)}" alt="" title="${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">` : ''}
+              <div style="min-width:190px;flex:1;">
                 <div style="font-weight:600;font-size:13px;">${esc(person.name || 'Unnamed')} <span class="mono muted" style="font-size:11px;">(${esc(person.id)})</span></div>
                 <div class="muted" style="font-size:11.5px;">
                   ${person.birthDate || person.birthPlace ? `b. ${esc(person.birthDate || '')} ${esc(person.birthPlace || '')}` : ''}
                   ${person.deathDate || person.deathPlace ? ` · d. ${esc(person.deathDate || '')} ${esc(person.deathPlace || '')}` : ''}
                 </div>
+                ${linkedPhoto ? `<div class="muted" style="font-size:11px;margin-top:2px;">Linked photo: <strong>${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}</strong></div>` : ''}
               </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${curPhoto ? `<button type="button" class="btn sm ged-tag" data-idx="${idx}">+ Tag to ${esc(curPhoto.id)}</button>` : ''}
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                ${linkedPhoto ? `<button type="button" class="btn sm ged-lab" data-idx="${idx}" title="Open this person's linked photo in Photo Lab">🖼️ Photo Lab</button>` : ''}
+                ${curPhoto ? `<button type="button" class="btn sm ged-tag" data-idx="${idx}" title="Tag onto ${esc(curPhoto.title || curPhoto.file || curPhoto.id)}">+ Tag to Selected Photo</button>` : ''}
                 <button type="button" class="btn sm primary ged-fs" data-idx="${idx}">Sync to FamilySearch Beta</button>
               </div>
             </div>
-          `).join('');
+          `;
+          }).join('');
+
+          resultsEl.querySelectorAll('.ged-lab').forEach((btn) => {
+            btn.onclick = () => {
+              const person = matches[Number(btn.getAttribute('data-idx'))];
+              const linked = findLinkedPhotoForPerson(person);
+              if (linked) openPhotoInLab(linked);
+            };
+          });
 
           resultsEl.querySelectorAll('.ged-tag').forEach((btn) => {
             btn.onclick = () => {
@@ -15423,7 +15485,8 @@
                 });
                 saveItemMetadata(p);
                 render();
-                notify(`Tagged ${person.name} on ${p.id}.`);
+                renderSearch();
+                notify(`Tagged ${person.name} on ${p.title || p.file || p.id}.`);
               } else {
                 notify(`${person.name} is already tagged on ${p.id}.`);
               }
