@@ -2137,22 +2137,24 @@
 
     // 3. Search Family Tree REST API
     try {
-      var runTreeSearch = async function (useVitalFilters) {
+      var runTreeSearch = async function (givenOverride, useYears) {
         var searchParams = new URLSearchParams();
         var parts = trimmed.split(/\s+/).filter(Boolean);
         if (parts.length === 1) {
           searchParams.set('q.surname', parts[0]);
         } else {
-          searchParams.set('q.givenName', parts.slice(0, -1).join(' '));
+          searchParams.set('q.givenName', givenOverride || parts.slice(0, -1).join(' '));
           searchParams.set('q.surname', parts[parts.length - 1]);
         }
-        if (useVitalFilters) {
-          if (searchOpts.birthDate) searchParams.set('q.birthLikeDate', searchOpts.birthDate);
-          if (searchOpts.birthPlace) searchParams.set('q.birthLikePlace', searchOpts.birthPlace);
-          if (searchOpts.deathDate) searchParams.set('q.deathLikeDate', searchOpts.deathDate);
-          if (searchOpts.deathPlace) searchParams.set('q.deathLikePlace', searchOpts.deathPlace);
+        if (useYears) {
+          var bYear = (String(searchOpts.birthDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1];
+          var dYear = (String(searchOpts.deathDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1];
+          if (bYear) searchParams.set('q.birthLikeDate', bYear);
+          else if (searchOpts.birthDate) searchParams.set('q.birthLikeDate', searchOpts.birthDate);
+          if (dYear) searchParams.set('q.deathLikeDate', dYear);
+          else if (searchOpts.deathDate) searchParams.set('q.deathLikeDate', searchOpts.deathDate);
         }
-        searchParams.set('count', '10');
+        searchParams.set('count', '25');
 
         var searchRes = await fetch(API_BASE + '/platform/tree/search?' + searchParams.toString(), {
           headers: {
@@ -2183,9 +2185,28 @@
       };
 
       var hasVitals = Boolean(searchOpts.birthDate || searchOpts.birthPlace || searchOpts.deathDate || searchOpts.deathPlace);
-      var serverResults = hasVitals ? await runTreeSearch(true) : [];
-      if (serverResults.length === 0) {
-        serverResults = await runTreeSearch(false);
+      var nameParts = trimmed.split(/\s+/).filter(Boolean);
+      var firstGiven = nameParts.length > 2 ? nameParts[0] : '';
+
+      var serverResults = [];
+      var seenSrv = new Set();
+      var addSrv = function (arr) {
+        (arr || []).forEach(function (r) {
+          if (!seenSrv.has(r.id)) {
+            seenSrv.add(r.id);
+            serverResults.push(r);
+          }
+        });
+      };
+
+      if (hasVitals) {
+        addSrv(await runTreeSearch('', true));
+        if (firstGiven && serverResults.length < 10) {
+          addSrv(await runTreeSearch(firstGiven, true));
+        }
+      }
+      if (serverResults.length < 5) {
+        addSrv(await runTreeSearch('', false));
       }
 
       if (serverResults.length > 0 || localMatches.length > 0) {
@@ -2202,17 +2223,28 @@
         if (hasVitals) {
           var bYr = (String(searchOpts.birthDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
           var dYr = (String(searchOpts.deathDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
-          var bPl = String(searchOpts.birthPlace || '').toLowerCase();
+          var bPl = String(searchOpts.birthPlace || '').toLowerCase()
+            .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
+          var dPl = String(searchOpts.deathPlace || '').toLowerCase()
+            .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
           ranked.sort(function (a, b) {
             var scoreVital = function (c) {
               var s = 0;
               var hay = [c.lifespan, c.birthDate, c.birthPlace, c.deathDate, c.deathPlace].join(' ').toLowerCase();
-              if (bYr && hay.includes(bYr)) s += 50;
-              if (dYr && hay.includes(dYr)) s += 50;
-              if (bPl) {
-                var tokens = bPl.split(/[,\s]+/).filter(function (t) { return t.length > 2; });
-                tokens.forEach(function (t) { if (hay.includes(t)) s += 15; });
+              if (bYr) {
+                if (hay.includes(bYr)) s += 60;
+                else if (c.lifespan || c.birthDate) s -= 30;
               }
+              if (dYr) {
+                if (hay.includes(dYr)) s += 60;
+                else if (c.lifespan || c.deathDate) s -= 30;
+              }
+              [bPl, dPl].forEach(function (pl) {
+                if (!pl) return;
+                pl.split(/[,\s]+/).filter(function (t) { return t.length > 2 && t !== 'usa' && t !== 'united' && t !== 'states'; }).forEach(function (t) {
+                  if (hay.includes(t)) s += 15;
+                });
+              });
               return s;
             };
             return scoreVital(b) - scoreVital(a);
@@ -2681,7 +2713,7 @@
           'Authorization': 'Bearer ' + stored.accessToken,
           'Content-Type': 'application/x-gedcomx-v1+json',
           'Accept': 'application/x-gedcomx-v1+json',
-          'X-Reason': plan.reason || 'Updated from Mom\'s PAF / GEDCOM archive via Family History Photos'
+          'X-Reason': plan.reason || 'Updated from PAF / GEDCOM archive via Family History Photos'
         },
         body: JSON.stringify({ persons: [patchPerson] })
       });
@@ -2699,7 +2731,7 @@
                 'Authorization': 'Bearer ' + stored.accessToken,
                 'Content-Type': 'application/x-gedcomx-v1+json',
                 'Accept': 'application/x-gedcomx-v1+json',
-                'X-Reason': plan.reason || 'Updated from Mom\'s PAF / GEDCOM archive via Family History Photos'
+                'X-Reason': plan.reason || 'Updated from PAF / GEDCOM archive via Family History Photos'
               },
               body: JSON.stringify({ persons: [patchPerson] })
             });
@@ -2763,7 +2795,7 @@
           'Authorization': 'Bearer ' + stored.accessToken,
           'Content-Type': 'application/x-gedcomx-v1+json',
           'Accept': 'application/x-gedcomx-v1+json',
-          'X-Reason': 'Attached source citation from Mom\'s PAF / GEDCOM archive'
+          'X-Reason': 'Attached source citation from PAF / GEDCOM archive'
         };
         var attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/source-references', {
           method: 'POST',

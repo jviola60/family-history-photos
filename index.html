@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>Family History Photos — Mom's Family Memory Assistant &amp; 4K Photo Restorer</title>
+  <title>Family History Photos — Family Memory Assistant &amp; 4K Photo Restorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -2475,7 +2475,7 @@
         FH
       </div>
       <h2 style="font-size:20px;font-weight:700;color:#111110;margin:0 0 6px;">Family History Photos</h2>
-      <p style="font-size:13px;color:#575653;margin:0 0 24px;line-height:1.4;">Mom's Family Memory Assistant &amp; 4K Photo Restorer</p>
+      <p style="font-size:13px;color:#575653;margin:0 0 24px;line-height:1.4;">Family Memory Assistant &amp; 4K Photo Restorer</p>
       
       <div style="width:100%;height:8px;background:#ecebe7;border-radius:4px;overflow:hidden;margin-bottom:14px;position:relative;">
         <div id="app-loading-bar" style="width:20%;height:100%;background:#1d5fbf;border-radius:4px;transition:width 0.25s ease;"></div>
@@ -14950,7 +14950,13 @@
         const isVitalEquivalent = (a, b) => {
           const na = normVitalStr(a);
           const nb = normVitalStr(b);
-          return Boolean(na && nb && (na === nb || na.includes(nb) || nb.includes(na)));
+          if (!na || !nb) return false;
+          if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+          // Token-subset check: if all tokens of the shorter vital (e.g. "18 nov 1878 michigan") appear in the longer one ("18 nov 1878 samaria monroe michigan")
+          const ta = na.split(/\s+/).filter(Boolean);
+          const tb = nb.split(/\s+/).filter(Boolean);
+          const [shorter, longer] = ta.length <= tb.length ? [ta, new Set(tb)] : [tb, new Set(ta)];
+          return shorter.length > 0 && shorter.every((t) => longer.has(t));
         };
 
         const extractYear = (s) => (String(s || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
@@ -15129,7 +15135,7 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:16px;font-weight:700;margin:0;">Compare &amp; Update FamilySearch Beta — ${esc(live.displayName)} (${esc(activePid)})</h2>
-                <p class="muted" style="font-size:12px;margin:2px 0 0;">Check the items from Mom’s PAF / GEDCOM record to add or replace on FamilySearch Beta.</p>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Check the items from your PAF / GEDCOM record to add or replace on FamilySearch Beta.</p>
               </div>
               <button type="button" class="btn sm" id="fs-cmp-close">✕</button>
             </div>
@@ -15143,7 +15149,7 @@
             <div style="padding:14px 20px;overflow-y:auto;flex:1;">
               ${vitalConflict ? `
                 <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:12.5px;line-height:1.45;">
-                  <strong>⚠️ Possible Wrong Person:</strong> FamilySearch <strong>${esc(activePid)}</strong> has a different Birth/Death than Mom’s GEDCOM. All checkboxes were unchecked for safety — pick the right person in <strong>Match</strong> above, paste their exact <strong>PID</strong>, or click <strong>+ Not a Match? Create New Person</strong>.
+                  <strong>⚠️ Possible Wrong Person:</strong> FamilySearch <strong>${esc(activePid)}</strong> has a different Birth/Death than the GEDCOM record. All checkboxes were unchecked for safety — pick the right person in <strong>Match</strong> above, paste their exact <strong>PID</strong>, or click <strong>+ Not a Match? Create New Person</strong>.
                 </div>
               ` : ''}
               ${rows.length === 0 ? '<div class="muted" style="padding:16px;">No comparable fields found in this GEDCOM record.</div>' : `
@@ -15153,7 +15159,7 @@
                       <th style="padding:8px 6px;width:32px;">Sync</th>
                       <th style="padding:8px 8px;width:180px;">Field / Tab</th>
                       <th style="padding:8px 8px;">FamilySearch Beta (Current)</th>
-                      <th style="padding:8px 8px;">Mom’s PAF / GEDCOM</th>
+                      <th style="padding:8px 8px;">PAF / GEDCOM</th>
                       <th style="padding:8px 8px;width:130px;">Status</th>
                     </tr>
                   </thead>
@@ -15438,11 +15444,12 @@
               btn.disabled = true;
               btn.textContent = 'Searching FS...';
               try {
+                const pafVitals = fs.extractStructuredPafData ? fs.extractStructuredPafData(person) : person;
                 const found = await fs.searchPersons(person.name, {
-                  birthDate: person.birthDate,
-                  birthPlace: person.birthPlace,
-                  deathDate: person.deathDate,
-                  deathPlace: person.deathPlace
+                  birthDate: person.birthDate || pafVitals.birthDate,
+                  birthPlace: person.birthPlace || pafVitals.birthPlace,
+                  deathDate: person.deathDate || pafVitals.deathDate,
+                  deathPlace: person.deathPlace || pafVitals.deathPlace
                 });
                 if (found && found.length > 0) {
                   const top = found[0];

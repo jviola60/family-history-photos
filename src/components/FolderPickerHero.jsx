@@ -61,7 +61,7 @@ export default function FolderPickerHero({
       <div className="hero-card">
         <div className="hero-heart-badge">
           <Heart size={24} className="heart-icon" />
-          <span>Made for Mom's Precious Memories</span>
+          <span>Made for Precious Family Memories</span>
         </div>
 
         <h2 className="hero-title">Preserve, Organize & Enhance Your Family Photos</h2>
