@@ -2803,7 +2803,7 @@
           body: attachBody
         });
         if (attRes.status === 404 || attRes.status === 405) {
-          attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid) + '/sources', {
+          attRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(pid), {
             method: 'POST',
             headers: attachHeaders,
             body: attachBody
