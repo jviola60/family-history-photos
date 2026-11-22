@@ -3681,7 +3681,11 @@
             color: p.color ? { ...p.color } : undefined,
             edits: p.edits
           };
-          if (p.id) catalog[p.id] = catalog[key];
+          // Only alias by p.id when no p.file exists; otherwise slot IDs like FH-00001 collide across folders
+          if (!p.file && p.id) catalog[p.id] = catalog[key];
+          if (p.file && p.id && catalog[p.id] && catalog[p.id].file && catalog[p.id].file !== p.file) {
+            delete catalog[p.id];
+          }
 
           try {
             localStorage.setItem('fhp_saved_metadata_catalog', JSON.stringify(catalog));
@@ -3830,7 +3834,10 @@
           if (!catalog) return;
 
           itemsList.forEach((p) => {
-            const saved = (p.file && catalog[p.file]) || (p.id && catalog[p.id]);
+            let saved = (p.file && catalog[p.file]) || (!p.file && p.id && catalog[p.id]);
+            if (saved && p.file && saved.file && saved.file !== p.file) {
+              saved = null;
+            }
             if (saved) {
               if (saved.title) p.title = saved.title;
               if (saved.isoDate) p.isoDate = saved.isoDate;
@@ -15385,9 +15392,30 @@
                 <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Selected Photo: ${esc(cp.title || cp.file || cp.id)} <span class="mono muted" style="font-size:11px;">(${esc(cp.id)})</span></div>
                 <div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Tagged: ${esc(taggedNames)}</div>
               </div>
-              <button type="button" class="btn sm" id="btn-ged-open-cur-lab">🖼️ Open in Photo Lab</button>
+              <div style="display:flex;gap:6px;flex-shrink:0;">
+                <button type="button" class="btn sm" id="btn-ged-clear-cur-tags" title="Clear wrong/demo tags from this photo">✕ Clear Tags</button>
+                <button type="button" class="btn sm" id="btn-ged-open-cur-lab">🖼️ Open in Photo Lab</button>
+              </div>
             </div>
           `;
+          const clearBtn = activePhotoBarEl.querySelector('#btn-ged-clear-cur-tags');
+          if (clearBtn) {
+            clearBtn.onclick = async () => {
+              cp.people = [];
+              cp.faces = [];
+              cp.fsId = '';
+              if (cp.file && /^Patricia Josephine Gill$/i.test(cp.title || '')) {
+                cp.title = cp.file.replace(/\.[^.]+$/, '');
+              }
+              saveItemMetadata(cp);
+              if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                await saveArchiveToDb(items, rootFolderName);
+              }
+              render();
+              renderSearch();
+              notify(`Cleared tags on ${cp.file || cp.id}.`);
+            };
+          }
           const labBtn = activePhotoBarEl.querySelector('#btn-ged-open-cur-lab');
           if (labBtn) labBtn.onclick = () => openPhotoInLab(cp);
         };
