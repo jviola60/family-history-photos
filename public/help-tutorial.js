@@ -19,6 +19,8 @@
         '<strong>100% Private in Browser:</strong> Zero cloud uploads needed for cataloging. All indexing and metadata editing happen directly on your computer.'
       ],
       tip: 'You can freely edit, pin, and restore these demo photos. When ready, click "✕ Clear Demo" to start with your real photos.',
+      screenshot: './help-screenshots/step-1-workspace.png',
+      screenshotCaption: 'Main workspace: Left sidebar queues & folders, top search bar, and photo ledger.',
       actionText: '📁 View Demo Photos & Sidebar',
       actionId: 'action-step-1',
       runAction: (app) => {
@@ -39,6 +41,8 @@
         '<strong>Image Metrics:</strong> Automatically displays dimensions, aspect ratio, file size, and preservation status.'
       ],
       tip: 'All notes and metadata you enter are permanently saved in your browser and baked into the JPEG file when you click "Save to File".',
+      screenshot: './help-screenshots/step-2-inspector.jpg',
+      screenshotCaption: 'Archival Inspector on the right: edit titles, dates, stories, and relative tags.',
       actionText: '🔍 Inspect Grandma\'s Photo (FH-001)',
       actionId: 'action-step-2',
       runAction: (app) => {
@@ -59,6 +63,8 @@
         '<strong>Interactive Pin Popups:</strong> Click any camera pin to view the photo thumbnail, location, and jump straight into Photo Lab or the Ledger.'
       ],
       tip: 'Photos with existing GPS tags from smartphones or modern cameras are mapped automatically on import!',
+      screenshot: './help-screenshots/step-3-map.jpg',
+      screenshotCaption: 'Global Map view: geocoded photo pins with interactive popups.',
       actionText: '🗺️ Switch to Global Map View',
       actionId: 'action-step-3',
       runAction: (app) => {
@@ -79,6 +85,8 @@
         '<strong>Automated PID Binding:</strong> Select the matching relative from the dropdown to automatically bind their unique Person ID (e.g. <em>"BM6T-WQ5"</em>) with a verified emerald checkmark.'
       ],
       tip: 'PIDs prevent generational confusion by distinguishing between ancestors who shared the same first and last names across different centuries.',
+      screenshot: './help-screenshots/step-4-familysearch.png',
+      screenshotCaption: 'FamilySearch Beta Tree integration: match relatives & sync PIDs.',
       actionText: '🏷️ Show Relative Tagging Form',
       actionId: 'action-step-4',
       runAction: (app) => {
@@ -102,6 +110,8 @@
         '<strong>✂️ Lossless Smart Crop:</strong> Reframes portraits cleanly without degrading image resolution.'
       ],
       tip: 'Use the Split Curtain slider in Photo Lab to inspect before-and-after results side-by-side in real time.',
+      screenshot: './help-screenshots/step-5-photolab.jpg',
+      screenshotCaption: 'Photo Lab Studio: 4K Face Restore, Auto Colorize, Magic Eraser & Split Curtain.',
       actionText: '✨ Open Photo Lab Studio',
       actionId: 'action-step-5',
       runAction: (app) => {
@@ -121,6 +131,8 @@
         '<strong>3. FamilySearch Memories Sync:</strong> Uploads the photo artifact directly to FamilySearch Beta Memories linked to the tagged relative\'s PID.'
       ],
       tip: 'Because the metadata is baked into the JPEG file, anyone who opens the photo in Windows, Mac, Photoshop, or Google Photos can read the full family history.',
+      screenshot: './help-screenshots/step-6-save.png',
+      screenshotCaption: 'Sync & Export Hub: bake XMP/IPTC metadata and upload directly to FamilySearch.',
       actionText: '💾 View "Save to File" Button',
       actionId: 'action-step-6',
       runAction: (app) => {
@@ -141,6 +153,8 @@
         '<strong>Practice Anytime:</strong> You can click "Reload Demo Photos" anytime if you want to test new features or show friends how the app works.'
       ],
       tip: 'Your family photos never leave your device. The app uses the secure Web File System API for fast, private, 100% offline-ready archiving.',
+      screenshot: './help-screenshots/step-1-workspace.png',
+      screenshotCaption: 'Top bar & sidebar: Clear Demo Photos, Pick Photo(s), or Import from Cloud.',
       actionText: '📂 Show Clear & Choose Folder Buttons',
       actionId: 'action-step-7',
       runAction: (app) => {
@@ -207,14 +221,13 @@
       .tutorial-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(17, 17, 16, 0.75);
-        -webkit-backdrop-filter: blur(5px);
-        backdrop-filter: blur(5px);
+        background: transparent;
+        pointer-events: none;
         z-index: 10000;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
+        align-items: flex-end;
+        justify-content: flex-end;
+        padding: 16px;
         opacity: 0;
         visibility: hidden;
         transition: opacity 200ms ease, visibility 200ms ease;
@@ -224,18 +237,45 @@
         visibility: visible;
       }
       .tutorial-modal {
+        pointer-events: auto;
         background: var(--surface, #ffffff);
         border: 1px solid var(--border, #dfdeda);
         border-radius: 14px;
-        box-shadow: 0 28px 72px rgba(0, 0, 0, 0.45);
-        max-width: 840px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        max-width: 470px;
         width: 100%;
-        max-height: 90vh;
+        max-height: calc(100vh - 76px);
         display: flex;
         flex-direction: column;
         overflow: hidden;
         font-family: inherit;
         color: var(--text, #111110);
+      }
+      .step-screenshot {
+        margin: 12px 0;
+        border: 1px solid var(--border, #dfdeda);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--raised, #f0efec);
+      }
+      .step-screenshot img {
+        display: block;
+        width: 100%;
+        max-height: 210px;
+        object-fit: cover;
+        object-position: top center;
+        cursor: zoom-in;
+      }
+      .step-screenshot.zoomed img {
+        max-height: none;
+        object-fit: contain;
+        cursor: zoom-out;
+      }
+      .step-screenshot figcaption {
+        padding: 6px 10px;
+        font-size: 11px;
+        color: var(--muted, #575653);
+        border-top: 1px solid var(--border, #dfdeda);
       }
       .tutorial-header {
         padding: 18px 24px 14px;
@@ -660,6 +700,13 @@
       <h3 class="step-title">${s.title}</h3>
       <p class="step-desc">${s.desc}</p>
 
+      ${s.screenshot ? `
+        <figure class="step-screenshot" id="step-screenshot-fig" title="Click to zoom screenshot">
+          <img src="${s.screenshot}" alt="${s.title}">
+          <figcaption>${s.screenshotCaption || s.title} (click image to zoom)</figcaption>
+        </figure>
+      ` : ''}
+
       <div class="step-bullets">
         <ul>
           ${s.bullets.map(b => `<li>${b}</li>`).join('')}
@@ -688,6 +735,11 @@
         dockTutorial();
         s.runAction(appBridge);
       };
+    }
+
+    const figEl = document.getElementById('step-screenshot-fig');
+    if (figEl) {
+      figEl.onclick = () => figEl.classList.toggle('zoomed');
     }
 
     // Wire step dots
