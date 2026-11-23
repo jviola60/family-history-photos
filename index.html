@@ -15276,7 +15276,8 @@
           }
           applyBtn.disabled = true;
           applyBtn.textContent = 'Updating FamilySearch Beta...';
-          cmpStatus.textContent = `Applying ${selected.length} update(s) to ${pid}...`;
+          cmpStatus.style.color = '';
+          cmpStatus.textContent = `Applying ${selected.length} update(s) to ${activePid}...`;
           try {
             const plan = {
               factUpdates: selected.filter((r) => r.kind === 'fact').map((r) => ({
@@ -15291,7 +15292,14 @@
               noteText: (selected.find((r) => r.kind === 'note') || {}).noteText || '',
               sourcesToAttach: selected.filter((r) => r.kind === 'source').map((r) => r.source)
             };
-            const res = await fs.applyPersonCompareUpdates(pid, plan);
+            const res = await fs.applyPersonCompareUpdates(activePid, plan);
+            // Uncheck applied non-photo rows so a retry will not re-post already-saved items
+            cmpOverlay.querySelectorAll('.fs-cmp-chk').forEach((chk) => {
+              const row = rows[Number(chk.getAttribute('data-idx'))];
+              if (chk.checked && row && row.kind !== 'photo') {
+                chk.checked = false;
+              }
+            });
             const summary = [];
             if (res.updatedFacts.length) summary.push(`${res.updatedFacts.length} fact(s)`);
             if (res.updatedGender) summary.push('Gender');
@@ -15302,49 +15310,59 @@
             if (photoRow && photoRow.photo) {
               const p = photoRow.photo;
               cmpStatus.textContent = `Uploading photo "${p.title || p.file || p.id}" to FamilySearch Beta Memories...`;
-              let imageBlob = null;
-              if (p._file && (!p.edits || p.edits.length === 0) && !p.rotation && !p.restored4k) {
-                imageBlob = p._file;
-              } else {
-                const srcUrl = afterSrc(p);
-                const imgRes = await fetch(srcUrl);
-                imageBlob = await imgRes.blob();
-              }
-              const upRes = await fs.uploadMemory({
-                photo: p,
-                imageBlob,
-                title: p.title,
-                story: p.story,
-                isoDate: p.isoDate,
-                place: p.place,
-                people: p.people,
-                faces: p.faces,
-                targetPersonId: activePid
-              });
-              if (upRes && upRes.success) {
-                p.fsSynced = true;
-                p.fsMemoryId = upRes.memoryId;
-                if (!p.fsId) p.fsId = activePid;
-                saveItemMetadata(p);
-                if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
-                  await saveArchiveToDb(items, rootFolderName);
+              try {
+                let imageBlob = null;
+                if (p._file && (!p.edits || p.edits.length === 0) && !p.rotation && !p.restored4k) {
+                  imageBlob = p._file;
+                } else {
+                  const srcUrl = afterSrc(p);
+                  const imgRes = await fetch(srcUrl);
+                  imageBlob = await imgRes.blob();
                 }
-                render();
-                summary.push(`Photo Memory (${upRes.memoryId})`);
-              } else {
-                res.warnings.push('Photo upload did not complete');
+                const upRes = await fs.uploadMemory({
+                  photo: p,
+                  imageBlob,
+                  title: p.title,
+                  story: p.story,
+                  isoDate: p.isoDate,
+                  place: p.place,
+                  people: p.people,
+                  faces: p.faces,
+                  targetPersonId: activePid
+                });
+                if (upRes && upRes.success) {
+                  p.fsSynced = true;
+                  p.fsMemoryId = upRes.memoryId;
+                  if (!p.fsId) p.fsId = activePid;
+                  saveItemMetadata(p);
+                  if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                    await saveArchiveToDb(items, rootFolderName);
+                  }
+                  render();
+                  summary.push(`Photo Memory (${upRes.memoryId})`);
+                  cmpOverlay.querySelectorAll('.fs-cmp-chk').forEach((chk) => {
+                    const row = rows[Number(chk.getAttribute('data-idx'))];
+                    if (row && row.kind === 'photo') chk.checked = false;
+                  });
+                } else {
+                  res.warnings.push('Photo upload did not complete');
+                }
+              } catch (photoErr) {
+                res.warnings.push(`Photo upload failed: ${photoErr && photoErr.message ? photoErr.message : photoErr}`);
               }
             }
-            const msg = summary.length
-              ? `✓ Updated ${activePid}: ${summary.join(', ')}.${res.warnings.length ? ' (' + res.warnings.join('; ') + ')' : ''}`
-              : `Finished (${res.warnings.join('; ') || 'no changes applied'}).`;
-            if (res.warnings.length && !summary.length) {
+            const savedPart = summary.length ? `✓ Saved to ${activePid}: ${summary.join(', ')}. ` : '';
+            if (res.warnings.length) {
               cmpStatus.style.color = '#991b1b';
-              cmpStatus.textContent = msg;
+              cmpStatus.textContent = `${savedPart}Issue(s): ${res.warnings.join('; ')}`;
               applyBtn.disabled = false;
-              applyBtn.textContent = 'Apply Checked Updates';
+              applyBtn.textContent = 'Retry Remaining';
+              if (summary.length) notify(`${savedPart}(see warning in dialog)`);
               return;
             }
+            const msg = summary.length
+              ? `✓ Updated ${activePid}: ${summary.join(', ')}.`
+              : 'Finished (no changes applied).';
             notify(msg);
             if (sourceBtn) {
               sourceBtn.textContent = `✓ Synced ${activePid}`;
@@ -15352,6 +15370,7 @@
             }
             closeCmp();
           } catch (err) {
+            cmpStatus.style.color = '#991b1b';
             cmpStatus.textContent = err.message || 'Update failed.';
             applyBtn.disabled = false;
             applyBtn.textContent = 'Apply Checked Updates';

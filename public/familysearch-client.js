@@ -1073,8 +1073,14 @@
       throw new Error('No image data available for upload.');
     }
 
-    var title = options.title || photo.title || 'Family Memory';
-    var story = options.story || photo.story || '';
+    var title = String(options.title || photo.title || 'Family Memory')
+      .replace(/[\x00-\x1F\x7F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140) || 'Family Memory';
+    var story = String(options.story || photo.story || '')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      .trim();
     var isoDate = options.isoDate || photo.isoDate || '';
     var place = options.place || photo.place || '';
     var people = options.people || photo.people || [];
@@ -1120,17 +1126,19 @@
       descLines.push('People: ' + names.join(', '));
     }
     descLines.push('Preserved with Family History Photos');
-    var fullDescription = descLines.join('\n\n');
+    var fullDescription = descLines.join('\n\n')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      .trim()
+      .slice(0, 1500);
 
     // Build filename
     var cleanSlug = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
     var filename = (effectiveIso ? effectiveIso + '_' : '') + (cleanSlug || 'family_memory') + '.jpg';
 
-    // 1. Determine upload endpoint
+    // 1. Determine upload endpoint (keep description out of URL query params to avoid URL length limits)
     var uploadUrl = API_BASE + '/platform/memories/memories';
     var qParams = [];
     if (title) qParams.push('title=' + encodeURIComponent(title));
-    if (fullDescription) qParams.push('description=' + encodeURIComponent(fullDescription));
     if (normalizedDate) {
       qParams.push('date=' + encodeURIComponent(normalizedDate));
       qParams.push('coverageDate=' + encodeURIComponent(normalizedDate));
@@ -1141,6 +1149,13 @@
     }
     if (qParams.length > 0) {
       uploadUrl += '?' + qParams.join('&');
+    }
+
+    // Normalize non-JPEG/PNG or untyped blobs to clean JPEG before uploading
+    if (!imageBlob.type || !/^image\/(jpeg|jpg|png)$/i.test(imageBlob.type)) {
+      try {
+        imageBlob = await createFreshUploadBlob(imageBlob);
+      } catch (_) {}
     }
 
     function buildUploadFormData(blobToSend) {
@@ -1219,6 +1234,20 @@
       } else if (targetPersonId && (uploadRes.status === 404 || uploadRes.status === 400 || uploadRes.status === 405 || uploadRes.status === 415)) {
         // Fallback attempt to person memories endpoint if universal rejected
         onProgress({ step: 'fallback', message: 'Posting to Person Memories endpoint...' });
+        var retryBlob = imageBlob;
+        if (uploadRes.status === 400) {
+          try {
+            retryBlob = await createFreshUploadBlob(imageBlob);
+          } catch (_) {
+            retryBlob = imageBlob;
+          }
+        }
+        var fallbackFd = new FormData();
+        fallbackFd.append('artifact', retryBlob, filename);
+        fallbackFd.append('title', title);
+        if (fullDescription) {
+          fallbackFd.append('description', fullDescription);
+        }
         var personUrl = API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId) + '/memories';
         var personRes = await fetch(personUrl, {
           method: 'POST',
@@ -1226,7 +1255,7 @@
             'Authorization': 'Bearer ' + token.accessToken,
             'Accept': 'application/json'
           },
-          body: buildUploadFormData(imageBlob)
+          body: fallbackFd
         });
         if (!personRes.ok && personRes.status !== 409) {
           var pErr = await personRes.text();
