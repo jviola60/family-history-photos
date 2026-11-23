@@ -15123,11 +15123,12 @@
           rows.push({
             kind: 'photo',
             label: 'Photo Memory (Memories Tab)',
-            fsText: alreadyMem ? `Uploaded (Memory ${linkedPhoto.fsMemoryId})` : '— (not uploaded yet)',
+            fsText: alreadyMem ? `Uploaded (Memory ${linkedPhoto.fsMemoryId}) — check to re-upload` : '— (not uploaded yet)',
             pafText: linkedPhoto.title || linkedPhoto.file || linkedPhoto.id,
             photo: linkedPhoto,
             status: alreadyMem ? 'match' : 'missing',
-            checked: !alreadyMem
+            checked: !alreadyMem,
+            allowReupload: true
           });
         }
 
@@ -15187,7 +15188,7 @@
                   <tbody>
                     ${rows.map((r, i) => `
                       <tr style="border-bottom:1px solid var(--rule);vertical-align:top;">
-                        <td style="padding:9px 6px;"><input type="checkbox" class="fs-cmp-chk" data-idx="${i}" ${r.checked ? 'checked' : ''} ${r.status === 'match' ? 'disabled' : ''}></td>
+                        <td style="padding:9px 6px;"><input type="checkbox" class="fs-cmp-chk" data-idx="${i}" ${r.checked ? 'checked' : ''} ${r.status === 'match' && !r.allowReupload ? 'disabled' : ''}></td>
                         <td style="padding:9px 8px;font-weight:600;">${esc(r.label)}</td>
                         <td style="padding:9px 8px;word-break:break-word;">${esc(r.fsText)}</td>
                         <td style="padding:9px 8px;word-break:break-word;">${esc(r.pafText)}</td>
@@ -15456,6 +15457,8 @@
               cp.people = [];
               cp.faces = [];
               cp.fsId = '';
+              cp.fsMemoryId = '';
+              cp.fsSynced = false;
               if (cp.file && /^Patricia Josephine Gill$/i.test(cp.title || '')) {
                 cp.title = cp.file.replace(/\.[^.]+$/, '');
               }
