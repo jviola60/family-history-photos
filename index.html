@@ -14927,7 +14927,7 @@
         renderTab();
       }
 
-      async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = []) {
+      async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = [], linkedPhoto = null) {
         const fs = window.FamilySearchClient;
         if (!fs || !fs.getPersonForCompare || !fs.extractStructuredPafData || !fs.applyPersonCompareUpdates) {
           return false;
@@ -15117,6 +15117,20 @@
           });
         }
 
+        // 9. Linked Photo Memory (Memories Tab)
+        if (linkedPhoto) {
+          const alreadyMem = Boolean(linkedPhoto.fsMemoryId);
+          rows.push({
+            kind: 'photo',
+            label: 'Photo Memory (Memories Tab)',
+            fsText: alreadyMem ? `Uploaded (Memory ${linkedPhoto.fsMemoryId})` : '— (not uploaded yet)',
+            pafText: linkedPhoto.title || linkedPhoto.file || linkedPhoto.id,
+            photo: linkedPhoto,
+            status: alreadyMem ? 'match' : 'missing',
+            checked: !alreadyMem
+          });
+        }
+
         const badgeHtml = (st) => {
           if (st === 'missing') return '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">Add</span>';
           if (st === 'better') return '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10.5px;font-weight:600;">More Detailed (Replace)</span>';
@@ -15207,7 +15221,7 @@
             const nextPid = candSel.value;
             if (!nextPid || nextPid === activePid) return;
             closeCmp();
-            await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates);
+            await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates, linkedPhoto);
           };
         }
         const loadPidBtn = cmpOverlay.querySelector('#fs-cmp-load-pid');
@@ -15220,7 +15234,7 @@
             loadPidBtn.textContent = 'Loading...';
             try {
               closeCmp();
-              await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates);
+              await openFamilySearchCompareModal(person, nextPid, sourceBtn, candidates, linkedPhoto);
             } catch (err) {
               notify(err.message || 'Could not load that PID.');
             }
@@ -15278,6 +15292,44 @@
             if (res.updatedGender) summary.push('Gender');
             if (res.addedNote) summary.push('Collaborate Note');
             if (res.attachedSources) summary.push(`${res.attachedSources} source(s)`);
+
+            const photoRow = selected.find((r) => r.kind === 'photo');
+            if (photoRow && photoRow.photo) {
+              const p = photoRow.photo;
+              cmpStatus.textContent = `Uploading photo "${p.title || p.file || p.id}" to FamilySearch Beta Memories...`;
+              let imageBlob = null;
+              if (p._file && (!p.edits || p.edits.length === 0) && !p.rotation && !p.restored4k) {
+                imageBlob = p._file;
+              } else {
+                const srcUrl = afterSrc(p);
+                const imgRes = await fetch(srcUrl);
+                imageBlob = await imgRes.blob();
+              }
+              const upRes = await fs.uploadMemory({
+                photo: p,
+                imageBlob,
+                title: p.title,
+                story: p.story,
+                isoDate: p.isoDate,
+                place: p.place,
+                people: p.people,
+                faces: p.faces,
+                targetPersonId: activePid
+              });
+              if (upRes && upRes.success) {
+                p.fsSynced = true;
+                p.fsMemoryId = upRes.memoryId;
+                if (!p.fsId) p.fsId = activePid;
+                saveItemMetadata(p);
+                if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                  await saveArchiveToDb(items, rootFolderName);
+                }
+                render();
+                summary.push(`Photo Memory (${upRes.memoryId})`);
+              } else {
+                res.warnings.push('Photo upload did not complete');
+              }
+            }
             const msg = summary.length
               ? `✓ Updated ${activePid}: ${summary.join(', ')}.${res.warnings.length ? ' (' + res.warnings.join('; ') + ')' : ''}`
               : `Finished (${res.warnings.join('; ') || 'no changes applied'}).`;
@@ -15558,7 +15610,7 @@
                 if (found && found.length > 0) {
                   const top = found[0];
                   btn.textContent = `Loading ${top.id}...`;
-                  const opened = await openFamilySearchCompareModal(person, top.id, btn, found);
+                  const opened = await openFamilySearchCompareModal(person, top.id, btn, found, findLinkedPhotoForPerson(person));
                   if (opened) {
                     btn.disabled = false;
                     btn.textContent = `Compare ${top.id}`;
