@@ -2,13 +2,18 @@ import JSZip from 'jszip';
 
 const CLOUD_SETTINGS_KEY = 'fhp_cloud_settings_v1';
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|avif|heic|tiff?)$/i;
+export const DEFAULT_GOOGLE_CLIENT_ID = '1061905446657-a8qontau11bbj658t7jk3q4r7i6m54fa.apps.googleusercontent.com';
 
 export function getCloudSettings() {
   try {
     const raw = localStorage.getItem(CLOUD_SETTINGS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      ...parsed,
+      googleClientId: (parsed && parsed.googleClientId) || DEFAULT_GOOGLE_CLIENT_ID
+    };
   } catch {
-    return {};
+    return { googleClientId: DEFAULT_GOOGLE_CLIENT_ID };
   }
 }
 

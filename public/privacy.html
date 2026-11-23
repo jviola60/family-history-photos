@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Family History Photos</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1c1917; }
+    h1, h2 { color: #0f172a; }
+    code { background: #f3f4f6; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy — Family History Photos</h1>
+  <p><strong>Effective Date:</strong> November 2026</p>
+  <p>Family History Photos is a client-side web application hosted at <a href="https://jviola60.github.io/family-history-photos/">https://jviola60.github.io/family-history-photos/</a> that helps users organize, restore, and preserve family history photographs.</p>
+
+  <h2>1. Data We Access &amp; How It Is Used</h2>
+  <ul>
+    <li><strong>Google Drive &amp; Google Photos:</strong> When you choose to connect Google Drive or Google Photos, the app requests OAuth 2.0 access tokens directly in your browser to list folders, verify file MD5 checksums, import selected family photos, or upload missing local backup files to your own Google Drive.</li>
+    <li><strong>FamilySearch:</strong> When you sign in to FamilySearch, the app uses OAuth 2.0 tokens directly in your browser to read/update your selected ancestor records and upload photo memories you explicitly choose.</li>
+    <li><strong>Local Processing Only:</strong> Family History Photos has no backend database that stores your personal photos, OAuth tokens, or Google Drive contents. All scanning, checksum comparisons, GEDCOM parsing, and session state stay in your browser (<code>localStorage</code> and <code>IndexedDB</code>).</li>
+  </ul>
+
+  <h2>2. Data Sharing &amp; Storage</h2>
+  <p>We do not sell, rent, or share your Google user data with any third parties or advertisers. Photos and metadata are only transmitted directly between your browser and the services you explicitly authorize (Google Drive, Google Photos, FamilySearch, or optional user-configured AI restoration endpoints).</p>
+
+  <h2>3. Revoking Access</h2>
+  <p>You can revoke the app's access to your Google account at any time from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">Google Account Permissions</a> page, or clear local browser data in your browser settings.</p>
+
+  <h2>4. Contact</h2>
+  <p>For questions or support, please open an issue on the <a href="https://github.com/jviola60/family-history-photos" target="_blank" rel="noopener">Family History Photos GitHub repository</a>.</p>
+</body>
+</html>

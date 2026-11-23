@@ -14645,15 +14645,17 @@
           if (activeTab === 'gdrive') {
             body.innerHTML = `
               <p style="font-size:13px;margin:0 0 10px;">Choose a folder in <strong>Google Drive</strong> and the app will recursively scan it for photos and load them in batches of 50 without filling your hard drive.</p>
-              <div class="field" style="margin-bottom:10px;">
-                <label style="font-size:12px;font-weight:600;">Google OAuth Client ID</label>
-                <input type="text" id="inp-google-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
-                <div class="muted" style="font-size:11px;margin-top:4px;">In Google Cloud Console → Credentials → Web Client ID, add <code>${esc(window.location.origin)}</code> to Authorized JavaScript origins.</div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
                 <button type="button" class="btn primary sm" id="btn-gdrive-connect">${gdriveToken ? '✓ Connected — Refresh Folders' : '🔗 Connect Google Drive'}</button>
                 ${gdriveToken ? `<button type="button" class="btn accent sm" id="btn-gdrive-scan-cur">📂 Scan "${esc(gdriveStack[gdriveStack.length - 1].name)}"</button>` : ''}
               </div>
+              <details style="margin-bottom:10px;font-size:11.5px;">
+                <summary class="muted" style="cursor:pointer;">Advanced: Custom Google OAuth Client ID</summary>
+                <div class="field" style="margin-top:6px;">
+                  <input type="text" id="inp-google-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                  <div class="muted" style="font-size:11px;margin-top:4px;">Pre-configured for <code>${esc(window.location.origin)}</code>. Override only if using your own Google Cloud project.</div>
+                </div>
+              </details>
               <div id="gdrive-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
               <div id="gdrive-folders" style="border:1px solid var(--border);border-radius:8px;max-height:240px;overflow-y:auto;"></div>
             `;
@@ -14741,12 +14743,14 @@
           } else if (activeTab === 'gphotos') {
             body.innerHTML = `
               <p style="font-size:13px;margin:0 0 10px;">Select albums or photos directly from <strong>Google Photos</strong> (via Google’s official Photos Picker), or drop a downloaded Google Photos / Takeout <code>.zip</code> below.</p>
-              <div class="field" style="margin-bottom:10px;">
-                <label style="font-size:12px;font-weight:600;">Google OAuth Client ID</label>
-                <input type="text" id="inp-gphotos-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
-                <div class="muted" style="font-size:11px;margin-top:4px;">Enable the <strong>Google Photos Picker API</strong> in your Google Cloud project.</div>
-              </div>
               <button type="button" class="btn primary" id="btn-gphotos-pick" style="width:100%;margin-bottom:10px;">📷 Open Google Photos Picker</button>
+              <details style="margin-bottom:10px;font-size:11.5px;">
+                <summary class="muted" style="cursor:pointer;">Advanced: Custom Google OAuth Client ID</summary>
+                <div class="field" style="margin-top:6px;">
+                  <input type="text" id="inp-gphotos-cid" placeholder="1234567890-xxxx.apps.googleusercontent.com" value="${esc(cur.googleClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                  <div class="muted" style="font-size:11px;margin-top:4px;">Pre-configured for Google Photos Picker API. Override only if using your own Google Cloud project.</div>
+                </div>
+              </details>
               <div id="gphotos-status" class="muted" style="font-size:12px;margin-bottom:12px;"></div>
               <div style="border-top:1px solid var(--border);padding-top:12px;">
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Or import a Google Photos / Takeout .zip archive:</label>
@@ -15811,9 +15815,12 @@
                 </div>
                 <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
                   <div style="font-weight:600;font-size:13px;margin-bottom:6px;">2. Google Drive Folder (Cloud)</div>
-                  <input type="text" id="ds-google-cid" placeholder="Google OAuth Client ID" value="${esc(saved.googleClientId || '')}" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:11.5px;margin-bottom:8px;">
                   <button type="button" class="btn sm primary" id="ds-connect-drive">${driveToken ? '✓ Connected' : '🔗 Connect Google Drive (Read + Write)'}</button>
                   <div id="ds-drive-selected" class="muted" style="font-size:12px;margin-top:8px;">Not connected yet.</div>
+                  <details style="margin-top:8px;font-size:11px;">
+                    <summary class="muted" style="cursor:pointer;">Advanced: Custom Google OAuth Client ID</summary>
+                    <input type="text" id="ds-google-cid" placeholder="Google OAuth Client ID" value="${esc(saved.googleClientId || '')}" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:11.5px;margin-top:6px;">
+                  </details>
                 </div>
               </div>
 
@@ -16027,7 +16034,7 @@
               if (!force && Date.now() - tokenObtainedAt < 50 * 60 * 1000) return driveToken;
               if (refreshPromise) return refreshPromise;
               const hub = window.CloudImportHub;
-              const cid = (overlay.querySelector('#ds-cid') && overlay.querySelector('#ds-cid').value.trim()) || (hub && hub.getCloudSettings && hub.getCloudSettings().googleClientId) || '';
+              const cid = (overlay.querySelector('#ds-google-cid') && overlay.querySelector('#ds-google-cid').value.trim()) || (hub && hub.getCloudSettings && hub.getCloudSettings().googleClientId) || '';
               if (!hub || !cid) throw new Error('Google OAuth Client ID missing for token refresh.');
               refreshPromise = (async () => {
                 statusEl.textContent = 'Refreshing Google Drive session (1-hour token renewal)...';
