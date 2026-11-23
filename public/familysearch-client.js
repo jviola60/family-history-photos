@@ -2020,14 +2020,9 @@
     }
   }
 
-  var KNOWN_FAMILY = [
-    { id: 'BM6T-WQ5', name: 'Patricia Josephine Gill', lifespan: 'Living', gender: 'Female', aliases: ['patricia', 'mom', 'patricia gill', 'patricia josephine gill'] },
-    { id: 'BM6T-QXX', name: 'Jeffrey Alan Viola', lifespan: '1960-Living', gender: 'Male', aliases: ['jeff', 'jeffrey', 'jeff viola', 'jeffrey alan viola'] },
-    { id: 'BM6T-HYB', name: 'Rayna Lee Baber', lifespan: 'Living', gender: 'Female', aliases: ['rayna', 'rayna baber', 'rayna lee baber'] },
-    { id: 'BM6T-68V', name: 'Brittany Denae Viola', lifespan: 'Living', gender: 'Female', aliases: ['brittany', 'brittany viola'] },
-    { id: 'BM6T-Z98', name: 'Kourtnie Shae Viola', lifespan: 'Living', gender: 'Female', aliases: ['kourtnie', 'barnes', 'kourtnie viola'] },
-    { id: 'BM6T-8QC', name: 'Makinzie Rae Viola', lifespan: 'Living', gender: 'Female', aliases: ['makinzie', 'makinzie viola'] }
-  ];
+  // Do not hardcode personal living PIDs: living PIDs are private per FamilySearch user account,
+  // and deceased PIDs can change when merged. Always resolve PIDs dynamically from the signed-in user's tree.
+  var KNOWN_FAMILY = [];
 
   function rankMatches(candidates, query) {
     if (!candidates || candidates.length === 0) return [];
@@ -2637,14 +2632,15 @@
     }
     var data = await res.json();
     var person = (data && data.persons && data.persons[0]) || {};
+    var resolvedPid = (person && person.id) ? String(person.id).trim().toUpperCase() : pid;
     var sourceDescriptions = Array.isArray(data && data.sourceDescriptions) ? data.sourceDescriptions : [];
 
     var displayName = (person.display && person.display.name) ||
       (person.names && person.names[0] && person.names[0].nameForms && person.names[0].nameForms[0] && person.names[0].nameForms[0].fullText) ||
-      pid;
+      resolvedPid;
 
     return {
-      id: pid,
+      id: resolvedPid,
       displayName: displayName,
       person: person,
       facts: Array.isArray(person.facts) ? person.facts : [],
