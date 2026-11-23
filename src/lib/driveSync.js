@@ -96,6 +96,11 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
   }
   const stripMyDrivePrefix = !driveHasMyDrivePrefix;
 
+  const driveById = new Map();
+  for (const df of driveFiles) {
+    if (df.id) driveById.set(df.id, df);
+  }
+
   const identical = [];
   const missingInCloud = [];
   const checksumMismatch = [];
@@ -128,14 +133,32 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
     }
 
     if (GOOGLE_DOC_EXT_RE.test(lf.name || '')) {
-      // Google Workspace virtual shortcuts (.gdoc, .gsheet, etc.) live in Drive natively and have no binary MD5
+      // Google Workspace virtual shortcuts (.gdoc, .gsheet, .gmap, etc.) live in Drive natively and have no binary MD5
       const stemKey = key.replace(GOOGLE_DOC_EXT_RE, '');
-      const docMatch = df || driveByRelPath.get(stemKey);
+      let docMatch = df || driveByRelPath.get(stemKey);
+      let stubDocId = '';
+      if (!docMatch) {
+        try {
+          const stubTxt = await lf.text();
+          const parsedStub = JSON.parse(stubTxt);
+          stubDocId = parsedStub.doc_id || parsedStub.resource_id || '';
+          if (stubDocId && driveById.has(stubDocId)) {
+            docMatch = driveById.get(stubDocId);
+          }
+        } catch (_) {}
+      }
       if (docMatch) {
         matchedDriveIds.add(docMatch.id);
         identical.push({ localFile: lf, relPath, driveFile: docMatch, localMd5: '' });
       } else {
-        missingInCloud.push({ localFile: lf, relPath });
+        // Virtual Google Workspace shortcut (.gmap/.gdoc/etc.) cannot be uploaded as a binary file
+        unreadable.push({
+          localFile: lf,
+          relPath,
+          reason: stubDocId
+            ? `Google Workspace cloud shortcut (ID: ${stubDocId}) — already lives in Google Cloud, not a local binary file`
+            : 'Google Workspace cloud shortcut (.gmap/.gdoc/etc.) — cannot be uploaded as a binary file'
+        });
       }
       continue;
     }
@@ -305,6 +328,13 @@ export async function uploadFileToDrive(token, rootFolderId, relPath, file, fold
   const fileName = parts.pop() || file.name;
   const parentId = await ensureDriveFolderPath(token, rootFolderId, parts, folderCache, folderPromiseCache);
 
+  let fileBuf;
+  try {
+    fileBuf = await file.arrayBuffer();
+  } catch (readErr) {
+    throw new Error(`Unreadable local/virtual file ${fileName}: ${readErr && readErr.message ? readErr.message : 'cannot read bytes'}`);
+  }
+
   const metadata = {
     name: fileName,
     parents: [parentId]
@@ -314,16 +344,27 @@ export async function uploadFileToDrive(token, rootFolderId, relPath, file, fold
   while (true) {
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', file);
+    form.append('file', new Blob([fileBuf], { type: file.type || 'application/octet-stream' }), fileName);
 
-    const res = await fetch(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,md5Checksum,size',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form
+    let res;
+    try {
+      res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,md5Checksum,size',
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: form
+        }
+      );
+    } catch (netErr) {
+      if (attempt < 3) {
+        const delayMs = Math.min(8000, 700 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400);
+        await new Promise((r) => setTimeout(r, delayMs));
+        attempt++;
+        continue;
       }
-    );
+      throw new Error(`Network error uploading ${fileName}: ${netErr && netErr.message ? netErr.message : 'Failed to fetch'}`);
+    }
     if (res.ok) return res.json();
     if ((res.status === 429 || res.status >= 500) && attempt < 3) {
       const delayMs = Math.min(8000, 700 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400);
