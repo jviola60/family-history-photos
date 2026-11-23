@@ -15963,24 +15963,85 @@
 
           const upBtn = reportEl.querySelector('#ds-upload-missing');
           if (upBtn) {
+            let folderCache = new Map();
+            let folderPromiseCache = new Map();
+            let tokenObtainedAt = Date.now();
+            let refreshPromise = null;
+
+            const refreshDriveTokenIfNeeded = async (force = false) => {
+              if (!force && Date.now() - tokenObtainedAt < 50 * 60 * 1000) return driveToken;
+              if (refreshPromise) return refreshPromise;
+              const hub = window.CloudImportHub;
+              const cid = (overlay.querySelector('#ds-cid') && overlay.querySelector('#ds-cid').value.trim()) || (hub && hub.getCloudSettings && hub.getCloudSettings().googleClientId) || '';
+              if (!hub || !cid) throw new Error('Google OAuth Client ID missing for token refresh.');
+              refreshPromise = (async () => {
+                statusEl.textContent = 'Refreshing Google Drive session (1-hour token renewal)...';
+                const newTok = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive');
+                driveToken = newTok;
+                tokenObtainedAt = Date.now();
+                return newTok;
+              })();
+              try {
+                return await refreshPromise;
+              } finally {
+                refreshPromise = null;
+              }
+            };
+
             upBtn.onclick = async () => {
+              const queue = toUpload.filter((item) => !item._uploaded);
+              if (queue.length === 0) {
+                statusEl.textContent = '✓ All missing/changed files in this list are already uploaded!';
+                return;
+              }
               upBtn.disabled = true;
-              const folderCache = new Map();
+              const CONCURRENCY = 6;
+              let cursor = 0;
               let uploaded = 0;
               let failed = 0;
-              for (const item of toUpload) {
-                statusEl.textContent = `Uploading ${uploaded + 1}/${toUpload.length}: ${item.relPath}...`;
-                try {
-                  await sync.uploadFileToDrive(driveToken, selectedDriveFolder.id, item.relPath, item.localFile, folderCache);
-                  uploaded++;
-                } catch (e) {
-                  console.warn('Upload error:', e);
-                  failed++;
+              let lastErrMsg = '';
+              let authPaused = false;
+              const total = queue.length;
+
+              const worker = async () => {
+                while (!authPaused) {
+                  const idx = cursor++;
+                  if (idx >= total) break;
+                  const item = queue[idx];
+                  try {
+                    await refreshDriveTokenIfNeeded(false);
+                    statusEl.textContent = `Uploading (${CONCURRENCY}x parallel): ${uploaded + failed + 1}/${total} — ${item.relPath}`;
+                    await sync.uploadFileToDrive(driveToken, selectedDriveFolder.id, item.relPath, item.localFile, folderCache, folderPromiseCache);
+                    item._uploaded = true;
+                    uploaded++;
+                  } catch (e) {
+                    if (e && e.status === 401) {
+                      try {
+                        await refreshDriveTokenIfNeeded(true);
+                        await sync.uploadFileToDrive(driveToken, selectedDriveFolder.id, item.relPath, item.localFile, folderCache, folderPromiseCache);
+                        item._uploaded = true;
+                        uploaded++;
+                        continue;
+                      } catch (reAuthErr) {
+                        authPaused = true;
+                        lastErrMsg = reAuthErr.message || 'Google Drive session expired (401). Click Reconnect & Retry.';
+                        failed++;
+                        break;
+                      }
+                    }
+                    console.warn('Upload error:', e);
+                    lastErrMsg = e && e.message ? e.message : String(e);
+                    failed++;
+                  }
                 }
-              }
-              statusEl.textContent = `✓ Uploaded ${uploaded} file(s) to Google Drive${failed ? ` (${failed} failed)` : ''}. Re-run Compare to verify.`;
+              };
+
+              await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()));
+
+              const remaining = toUpload.filter((item) => !item._uploaded).length;
+              statusEl.textContent = `✓ Uploaded ${uploaded} file(s) to Google Drive${remaining ? ` (${remaining} remaining/failed${lastErrMsg ? ': ' + lastErrMsg : ''})` : ''}. Re-run Compare to verify.`;
               upBtn.disabled = false;
-              upBtn.textContent = `✓ Uploaded ${uploaded}`;
+              upBtn.textContent = remaining ? `↻ Retry Remaining (${remaining})` : `✓ Uploaded All`;
             };
           }
 

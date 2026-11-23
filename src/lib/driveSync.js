@@ -215,7 +215,20 @@ export async function compareLocalAndDrive(localFiles, driveFiles, { verifyMd5 =
   };
 }
 
-export async function ensureDriveFolderPath(token, rootFolderId, folderParts, folderCache) {
+async function fetchWithRetry(url, options, retries = 3) {
+  let attempt = 0;
+  while (true) {
+    const res = await fetch(url, options);
+    if (res.ok || (res.status !== 429 && res.status < 500) || attempt >= retries) {
+      return res;
+    }
+    const delayMs = Math.min(8000, 600 * Math.pow(2, attempt)) + Math.floor(Math.random() * 300);
+    await new Promise((r) => setTimeout(r, delayMs));
+    attempt++;
+  }
+}
+
+export async function ensureDriveFolderPath(token, rootFolderId, folderParts, folderCache, folderPromiseCache = new Map()) {
   let parentId = rootFolderId || 'root';
   let pathAcc = '';
 
@@ -226,72 +239,103 @@ export async function ensureDriveFolderPath(token, rootFolderId, folderParts, fo
       parentId = folderCache.get(pathAcc);
       continue;
     }
+    if (folderPromiseCache.has(pathAcc)) {
+      parentId = await folderPromiseCache.get(pathAcc);
+      continue;
+    }
 
-    const escaped = part.replace(/'/g, "\\'");
-    const q = `'${parentId}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-    const findRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=5`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (findRes.ok) {
-      const findData = await findRes.json();
-      if (findData.files && findData.files.length > 0) {
-        parentId = findData.files[0].id;
-        folderCache.set(pathAcc, parentId);
-        continue;
+    const currentParent = parentId;
+    const promise = (async () => {
+      const escaped = part.replace(/'/g, "\\'");
+      const q = `'${currentParent}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      const findRes = await fetchWithRetry(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=5`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (findRes.status === 401) {
+        const e = new Error('Google Drive session expired (401)');
+        e.status = 401;
+        throw e;
       }
-    }
+      if (findRes.ok) {
+        const findData = await findRes.json();
+        if (findData.files && findData.files.length > 0) {
+          const existingId = findData.files[0].id;
+          folderCache.set(pathAcc, existingId);
+          return existingId;
+        }
+      }
 
-    const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name: part,
-        mimeType: 'application/vnd.google-apps.folder',
-        parents: [parentId]
-      })
-    });
-    if (!createRes.ok) {
-      throw new Error(`Could not create Drive folder "${part}" (${createRes.status})`);
+      const createRes = await fetchWithRetry('https://www.googleapis.com/drive/v3/files?fields=id', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: part,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [currentParent]
+        })
+      });
+      if (!createRes.ok) {
+        const e = new Error(`Could not create Drive folder "${part}" (${createRes.status})`);
+        e.status = createRes.status;
+        throw e;
+      }
+      const created = await createRes.json();
+      folderCache.set(pathAcc, created.id);
+      return created.id;
+    })();
+
+    folderPromiseCache.set(pathAcc, promise);
+    try {
+      parentId = await promise;
+    } catch (err) {
+      folderPromiseCache.delete(pathAcc);
+      throw err;
     }
-    const created = await createRes.json();
-    parentId = created.id;
-    folderCache.set(pathAcc, parentId);
   }
 
   return parentId;
 }
 
-export async function uploadFileToDrive(token, rootFolderId, relPath, file, folderCache = new Map()) {
+export async function uploadFileToDrive(token, rootFolderId, relPath, file, folderCache = new Map(), folderPromiseCache = new Map()) {
   const parts = String(relPath || file.name).split('/').filter(Boolean);
   const fileName = parts.pop() || file.name;
-  const parentId = await ensureDriveFolderPath(token, rootFolderId, parts, folderCache);
+  const parentId = await ensureDriveFolderPath(token, rootFolderId, parts, folderCache, folderPromiseCache);
 
   const metadata = {
     name: fileName,
     parents: [parentId]
   };
 
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('file', file);
+  let attempt = 0;
+  while (true) {
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
 
-  const res = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,md5Checksum,size',
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,md5Checksum,size',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form
+      }
+    );
+    if (res.ok) return res.json();
+    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+      const delayMs = Math.min(8000, 700 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400);
+      await new Promise((r) => setTimeout(r, delayMs));
+      attempt++;
+      continue;
     }
-  );
-  if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error(`Upload failed for ${fileName} (${res.status}): ${errText || res.statusText}`);
+    const err = new Error(`Upload failed for ${fileName} (${res.status}): ${errText || res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
-  return res.json();
 }
 
 export async function trashDriveFile(token, fileId) {
