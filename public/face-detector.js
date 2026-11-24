@@ -1035,22 +1035,31 @@
       if (assignedFaces.has(pair.faceIdx) || assignedPeople.has(pair.personKey)) continue;
 
       var targetFace = faces[pair.faceIdx];
-      if (pair.score >= 0.68) {
+      var inPhotoPeople = photoNameSet.has(pair.personKey);
+      var canAutoAssign = (photoNameSet.size === 0 && pair.score >= 0.82) || (inPhotoPeople && pair.score >= 0.72);
+      var safeFsId = pair.person.fsId || '';
+      if (safeFsId && typeof window !== 'undefined' && window.FamilySearchClient && typeof window.FamilySearchClient.isPidValidForPersonName === 'function') {
+        if (!window.FamilySearchClient.isPidValidForPersonName(safeFsId, pair.person.name)) {
+          safeFsId = '';
+        }
+      }
+
+      if (canAutoAssign) {
         // High-confidence face recognition match -> auto-fill & highlight!
         targetFace.name = pair.person.name;
-        if (pair.person.fsId && !targetFace.fsId) {
-          targetFace.fsId = pair.person.fsId;
+        if (safeFsId && !targetFace.fsId) {
+          targetFace.fsId = safeFsId;
         }
         targetFace.recognized = true;
         targetFace.suggestedName = pair.person.name;
-        targetFace.suggestedFsId = pair.person.fsId || '';
+        targetFace.suggestedFsId = safeFsId;
         targetFace.matchConfidence = Math.round(pair.score * 100);
         assignedFaces.add(pair.faceIdx);
         assignedPeople.add(pair.personKey);
-      } else if (pair.score >= 0.48) {
-        // Moderate similarity -> show as 1-click suggestion without forcing wrong auto-tag
+      } else if (pair.score >= 0.50) {
+        // Moderate similarity or unconfirmed relative -> show as 1-click suggestion without forcing wrong auto-tag
         targetFace.suggestedName = pair.person.name;
-        targetFace.suggestedFsId = pair.person.fsId || '';
+        targetFace.suggestedFsId = safeFsId;
         targetFace.matchConfidence = Math.round(pair.score * 100);
         assignedFaces.add(pair.faceIdx);
         assignedPeople.add(pair.personKey);

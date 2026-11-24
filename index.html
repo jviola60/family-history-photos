@@ -6281,22 +6281,33 @@
 
         // 2. Sanitize p.faces
         if (Array.isArray(p.faces)) {
+          const hasPeople = Array.isArray(p.people) && p.people.length > 0;
           p.faces.forEach(f => {
             if (!f || !f.name) return;
+            if (hasPeople) {
+              const rel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === f.name.trim().toLowerCase());
+              if (!rel && f.confirmed !== true) {
+                console.warn(`Clearing unconfirmed auto-guessed face "${f.name}" not in tagged relatives`);
+                f.name = '';
+                f.fsId = '';
+                f.recognized = false;
+                modified = true;
+                return;
+              }
+              if (rel) {
+                const relPid = rel.fsId ? String(rel.fsId).trim().toUpperCase() : '';
+                if ((f.fsId || '') !== relPid) {
+                  f.fsId = relPid;
+                  modified = true;
+                }
+              }
+            }
             if (f.fsId) {
               const cleanPid = String(f.fsId).trim().toUpperCase();
               if (!isPidValidForPersonName(cleanPid, f.name)) {
                 console.warn(`Sanitizing mismatched PID ${cleanPid} from face "${f.name}"`);
                 f.fsId = '';
                 modified = true;
-              }
-              // If relative in p.people has no fsId, ensure face fsId doesn't retain old mismatched PID
-              if (Array.isArray(p.people)) {
-                const rel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === f.name.trim().toLowerCase());
-                if (rel && !rel.fsId && f.fsId) {
-                  f.fsId = '';
-                  modified = true;
-                }
               }
             }
           });
@@ -6817,24 +6828,26 @@
             }
           });
 
+          if (!Array.isArray(p.people)) p.people = [];
+          let existingRel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === chosenName.toLowerCase());
+          const effectivePid = resolvedPid || (existingRel && existingRel.fsId) || '';
+
           targetFace.name = chosenName;
-          targetFace.fsId = resolvedPid || targetFace.fsId || '';
+          targetFace.fsId = effectivePid;
           targetFace.confirmed = true;
           targetFace.recognized = true;
           targetFace.suggestedName = chosenName;
 
-          if (!Array.isArray(p.people)) p.people = [];
-          let existingRel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === chosenName.toLowerCase());
           if (!existingRel) {
             existingRel = {
               name: chosenName,
               rel: personObj.rel || 'Relative',
               branch: personObj.branch || p.branch || '',
-              fsId: resolvedPid || undefined
+              fsId: effectivePid || undefined
             };
             p.people.push(existingRel);
-          } else if (resolvedPid && !existingRel.fsId) {
-            existingRel.fsId = resolvedPid;
+          } else if (effectivePid && !existingRel.fsId) {
+            existingRel.fsId = effectivePid;
           }
 
           if (resolvedPid) {
@@ -7590,7 +7603,7 @@
                           <span>${esc(person.fsId)}</span>
                           <button type="button" class="btn-clear-person-pid" data-idx="${idx}" title="Clear FamilySearch PID for ${esc(person.name)}" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:0 2px;font-size:12px;font-weight:700;line-height:1;">×</button>
                         </span>
-                      ` : ''}
+                      ` : `<button type="button" class="btn sm btn-add-person-fs" data-idx="${idx}" title="Create ${esc(person.name)} on FamilySearch Beta &amp; optionally link to a spouse in this photo" style="font-size:11px;padding:2px 7px;background:var(--accent-soft,rgba(37,99,235,0.12));color:var(--accent,#2563eb);border:1px solid var(--accent,#2563eb);border-radius:999px;font-weight:600;cursor:pointer;">+ Add to FS</button>`}
                     </div>
                     <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">
                       <select class="person-rel-select" data-idx="${idx}" style="font-size:13px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--ground);color:var(--text);font-weight:500;" title="Change relationship to me">
@@ -7642,7 +7655,7 @@
           </div>
 
           <div class="insp-btn-actions">
-            <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves all updates in the app immediately without downloading a new file">
+            <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves edits to this app's local catalog (use Export JPEG to write metadata into a standalone .jpg file)">
               ✓ Update Record
             </button>
             <button class="btn insp-btn-share" type="button" id="btn-share-photo" title="Share photo via Messages, Mail, AirDrop, or copy image/link">
@@ -7663,9 +7676,9 @@
             <button class="btn sm btn-fill primary" type="button" id="btn-insp-compare-sync" title="Compare photo &amp; GEDCOM metadata against FamilySearch Beta and sync both facts and photo">
               ⚖️ Compare &amp; Sync to FamilySearch
             </button>
-            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : ''}" type="button" id="btn-insp-fs">
+            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : ''}" type="button" id="btn-insp-fs" title="${p.fsSynced ? 'Open this uploaded photo on FamilySearch Beta Memories, or re-upload an updated copy' : 'Upload only this photo and its face tags to FamilySearch Beta Memories'}">
               ${p.fsSynced
-                ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
+                ? `✓ View FS Memory${p.fsMemoryId ? ` #${esc(p.fsMemoryId)}` : ''} ↗`
                 : (p.fsId ? (p.fsId.includes(',') ? `Upload Photo Only (${p.fsId.split(',').length} Relatives)` : `Upload Photo Only (${esc(p.fsId)})`) : (fsUser ? 'Upload Photo Only' : 'Sign in & Upload Photo'))}
             </button>
             <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
@@ -8310,6 +8323,17 @@
               };
             }
 
+            // Add unlinked person to FamilySearch button
+            box.querySelectorAll('.btn-add-person-fs').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = parseInt(btn.getAttribute('data-idx'), 10);
+                const pr = p.people[idx];
+                if (!pr) return;
+                openCreateFsPersonModal(p, pr);
+              });
+            });
+
             // Clear PID button on individual person pill
             box.querySelectorAll('.btn-clear-person-pid').forEach((btn) => {
               btn.addEventListener('click', (e) => {
@@ -8339,11 +8363,15 @@
                 if (p.people[idx]) {
                   const removed = p.people.splice(idx, 1)[0];
                   if (p.faces) {
-                    const matchFace = p.faces.find(f => f.name && f.name.trim().toLowerCase() === (removed.name || '').trim().toLowerCase());
-                    if (matchFace) {
-                      delete matchFace.name;
-                      matchFace.fsId = '';
-                    }
+                    const removedLower = (removed.name || '').trim().toLowerCase();
+                    p.faces.forEach(matchFace => {
+                      if (matchFace && matchFace.name && matchFace.name.trim().toLowerCase() === removedLower) {
+                        delete matchFace.name;
+                        matchFace.fsId = '';
+                        matchFace.confirmed = false;
+                        matchFace.recognized = false;
+                      }
+                    });
                   }
                   p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
                   sanitizePhotoPersonPids(p);
@@ -8387,6 +8415,7 @@
               const branch = (branchInput && branchInput.value.trim()) ? branchInput.value.trim() : (p.branch || '');
               if (branch) recordUserBranch(branch);
               const gedMatch = findGedcomPersonForName(name);
+              const existingEntry = p.people.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
               const newEntry = {
                 name,
                 rel,
@@ -8399,13 +8428,27 @@
                 deathPlace: gedMatch ? gedMatch.deathPlace : undefined,
                 notes: gedMatch ? gedMatch.notes : undefined
               };
-              p.people.push(newEntry);
+              if (existingEntry) {
+                existingEntry.rel = rel;
+                if (newEntry.branch) existingEntry.branch = newEntry.branch;
+                ['gedId', 'sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'notes'].forEach((k) => {
+                  if (!existingEntry[k] && newEntry[k]) existingEntry[k] = newEntry[k];
+                });
+              } else {
+                p.people.push(newEntry);
+              }
+              const targetEntry = existingEntry || newEntry;
               if (p.faces && p.faces.length === 1 && p.people.length === 1) {
                 p.faces[0].name = name;
               }
               p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
               saveItemMetadata(p);
-              notify(`Tagged ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Searching FamilySearch Tree...`);
+              if (targetEntry.fsId) {
+                notify(`Updated ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}.`);
+                render();
+                return;
+              }
+              notify(`${existingEntry ? 'Updated' : 'Tagged'} ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Searching FamilySearch Tree...`);
               render();
 
               // Vital-aware FamilySearch lookup: only auto-bind on a single unambiguous match
@@ -15508,6 +15551,239 @@
         renderTab();
       }
 
+      async function openCreateFsPersonModal(p, personObj) {
+        if (!p || !personObj) return;
+        const fs = window.FamilySearchClient;
+        if (!fs || !fs.createPerson) {
+          notify('FamilySearch client is not loaded yet.');
+          return;
+        }
+        const token = fs.getStoredToken ? fs.getStoredToken() : null;
+        if (!token || !token.accessToken) {
+          if (confirm('Please sign in to FamilySearch Beta first to add a new relative.\n\nClick OK to sign in now.')) {
+            if (fs.startLogin) fs.startLogin();
+          }
+          return;
+        }
+
+        const relStr = String(personObj.rel || '').trim();
+        const relLower = relStr.toLowerCase();
+        let defaultSex = 'U';
+        if (personObj.sex) {
+          if (/^m/i.test(personObj.sex)) defaultSex = 'M';
+          else if (/^f/i.test(personObj.sex)) defaultSex = 'F';
+        } else if (/\b(son-in-law|husband|father|dad|son|brother|uncle|grandfather|great-grandfather|nephew|grandson|brother-in-law|father-in-law)\b/i.test(relStr)) {
+          defaultSex = 'M';
+        } else if (/\b(daughter-in-law|wife|mother|mom|daughter|sister|aunt|grandmother|great-grandmother|niece|granddaughter|sister-in-law|mother-in-law)\b/i.test(relStr)) {
+          defaultSex = 'F';
+        }
+        const defaultLiving = !(personObj.deathDate && String(personObj.deathDate).trim());
+
+        const seenCandPids = new Set();
+        const spouseCandidates = (p.people || []).filter((pr) => {
+          if (!pr || pr === personObj || !pr.fsId) return false;
+          if ((pr.name || '').trim().toLowerCase() === (personObj.name || '').trim().toLowerCase()) return false;
+          const clean = String(pr.fsId).trim().toUpperCase();
+          if (!clean || seenCandPids.has(clean)) return false;
+          seenCandPids.add(clean);
+          return true;
+        });
+
+        let defaultSpousePid = '';
+        if (/son-in-law/.test(relLower)) {
+          const dMatch = spouseCandidates.find((c) => /\bdaughter\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
+          if (dMatch) defaultSpousePid = String(dMatch.fsId).trim().toUpperCase();
+        } else if (/daughter-in-law/.test(relLower)) {
+          const sMatch = spouseCandidates.find((c) => /\bson\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
+          if (sMatch) defaultSpousePid = String(sMatch.fsId).trim().toUpperCase();
+        } else if (/\b(wife|husband|spouse)\b/.test(relLower)) {
+          const spMatch = spouseCandidates.find((c) => /\b(self|husband|wife|spouse)\b/i.test(c.rel || '')) || (spouseCandidates.length === 1 ? spouseCandidates[0] : null);
+          if (spMatch) defaultSpousePid = String(spMatch.fsId).trim().toUpperCase();
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.58);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:16px;font-weight:700;margin:0;">Add Relative to FamilySearch Beta</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Create a new living or deceased profile and optionally link them as a spouse.</p>
+              </div>
+              <button type="button" class="btn sm" id="create-fs-close">✕</button>
+            </div>
+            <div style="padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:11px;">
+              <div>
+                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Full Name</label>
+                <input id="create-fs-name" type="text" value="${esc(personObj.name || '')}" style="width:100%;font-size:13.5px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--ground);color:var(--text);">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Gender</label>
+                  <select id="create-fs-sex" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--ground);color:var(--text);">
+                    <option value="M" ${defaultSex === 'M' ? 'selected' : ''}>Male</option>
+                    <option value="F" ${defaultSex === 'F' ? 'selected' : ''}>Female</option>
+                    <option value="U" ${defaultSex === 'U' ? 'selected' : ''}>Unknown</option>
+                  </select>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--raised);font-size:13px;font-weight:600;cursor:pointer;">
+                  <input id="create-fs-living" type="checkbox" ${defaultLiving ? 'checked' : ''}>
+                  <span>Living person</span>
+                </label>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Birth Date (optional)</label>
+                  <input id="create-fs-bdate" type="text" value="${esc(personObj.birthDate || '')}" placeholder="e.g. 15 Jun 1994" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--ground);color:var(--text);">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Birth Place (optional)</label>
+                  <input id="create-fs-bplace" type="text" value="${esc(personObj.birthPlace || '')}" placeholder="e.g. Ohio, United States" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--ground);color:var(--text);">
+                </div>
+              </div>
+              <div style="padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);display:flex;flex-direction:column;gap:8px;">
+                <div style="font-size:12px;font-weight:700;">Link as Spouse (Married to)</div>
+                <select id="create-fs-spouse-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                  <option value="">— Do not link to a spouse yet —</option>
+                  ${spouseCandidates.map((c) => {
+                    const cPid = String(c.fsId).trim().toUpperCase();
+                    return `<option value="${esc(cPid)}" ${cPid === defaultSpousePid ? 'selected' : ''}>${esc(c.name)} (${esc(c.rel || 'Relative')}) · ${esc(cPid)}</option>`;
+                  }).join('')}
+                </select>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                  <div>
+                    <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Or Enter Spouse PID</label>
+                    <input id="create-fs-spouse-pid" type="text" placeholder="e.g. BM6T-8QC" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);text-transform:uppercase;">
+                  </div>
+                  <div>
+                    <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Date (optional)</label>
+                    <input id="create-fs-mdate" type="text" placeholder="e.g. May 2024" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                  </div>
+                </div>
+                <div>
+                  <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Place (optional)</label>
+                  <input id="create-fs-mplace" type="text" placeholder="e.g. Cleveland, Ohio" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                </div>
+              </div>
+              <div id="create-fs-status" style="font-size:12.5px;min-height:18px;color:var(--muted);"></div>
+            </div>
+            <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+              <button type="button" class="btn sm" id="create-fs-cancel">Cancel</button>
+              <button type="button" class="btn sm primary" id="create-fs-submit">Create on FamilySearch Beta</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => overlay.remove();
+        overlay.querySelector('#create-fs-close').onclick = closeModal;
+        overlay.querySelector('#create-fs-cancel').onclick = closeModal;
+        overlay.addEventListener('click', (ev) => {
+          if (ev.target === overlay) closeModal();
+        });
+
+        const submitBtn = overlay.querySelector('#create-fs-submit');
+        const statusEl = overlay.querySelector('#create-fs-status');
+        submitBtn.onclick = async () => {
+          const fullName = overlay.querySelector('#create-fs-name').value.trim();
+          if (!fullName) {
+            statusEl.style.color = '#991b1b';
+            statusEl.textContent = 'Please enter a full name.';
+            return;
+          }
+          const sex = overlay.querySelector('#create-fs-sex').value;
+          const living = overlay.querySelector('#create-fs-living').checked;
+          const birthDate = overlay.querySelector('#create-fs-bdate').value.trim();
+          const birthPlace = overlay.querySelector('#create-fs-bplace').value.trim();
+          const spouseSelectVal = overlay.querySelector('#create-fs-spouse-select').value.trim();
+          const spouseManualVal = overlay.querySelector('#create-fs-spouse-pid').value.trim();
+          const spousePid = (spouseManualVal || spouseSelectVal || '').toUpperCase();
+          const marriageDate = overlay.querySelector('#create-fs-mdate').value.trim();
+          const marriagePlace = overlay.querySelector('#create-fs-mplace').value.trim();
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Creating...';
+          statusEl.style.color = 'var(--muted)';
+          statusEl.textContent = `Creating ${fullName} on FamilySearch Beta...`;
+
+          try {
+            const created = await fs.createPerson({
+              name: fullName,
+              sex,
+              living,
+              birthDate,
+              birthPlace,
+              notes: personObj.notes || ''
+            });
+            const newPid = String((created && created.id) || '').trim().toUpperCase();
+            if (!newPid) {
+              throw new Error('FamilySearch created the person but did not return a PID.');
+            }
+
+            let coupleLinked = false;
+            let coupleWarning = '';
+            if (spousePid) {
+              if (fs.createCoupleRelationship) {
+                try {
+                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking marriage to ${spousePid}...`;
+                  await fs.createCoupleRelationship(newPid, spousePid, marriageDate, marriagePlace);
+                  coupleLinked = true;
+                } catch (relErr) {
+                  coupleWarning = relErr && relErr.message ? relErr.message : String(relErr);
+                }
+              } else {
+                coupleWarning = 'createCoupleRelationship unavailable';
+              }
+            }
+
+            const prevNameLower = (personObj.name || '').trim().toLowerCase();
+            personObj.name = fullName;
+            if (sex && sex !== 'U') personObj.sex = sex;
+            if (birthDate) personObj.birthDate = birthDate;
+            if (birthPlace) personObj.birthPlace = birthPlace;
+            personObj.fsId = newPid;
+
+            if (Array.isArray(p.faces)) {
+              p.faces.forEach((f) => {
+                const fLower = (f.name || '').trim().toLowerCase();
+                if (fLower && (fLower === prevNameLower || fLower === fullName.toLowerCase())) {
+                  f.name = fullName;
+                  f.fsId = newPid;
+                }
+              });
+            }
+
+            sanitizePhotoPersonPids(p);
+            saveItemMetadata(p);
+            if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+              await saveArchiveToDb(items, rootFolderName);
+            }
+
+            closeModal();
+            render();
+
+            let msg = `✓ Created ${fullName} on FamilySearch Beta (${newPid})`;
+            if (coupleLinked) {
+              msg += ` and linked as married to ${spousePid}`;
+            } else if (coupleWarning) {
+              msg += `, but marriage link failed: ${coupleWarning}`;
+            }
+            if (p.fsSynced && p.fsMemoryId) {
+              msg += `. Click "✓ View FS Memory #${p.fsMemoryId} ↗" → "Update / Re-upload" to attach this photo to ${newPid}.`;
+            } else {
+              msg += '.';
+            }
+            notify(msg);
+          } catch (err) {
+            statusEl.style.color = '#991b1b';
+            statusEl.textContent = err && err.message ? err.message : 'Could not create person on FamilySearch Beta.';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create on FamilySearch Beta';
+          }
+        };
+      }
+
       async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = [], linkedPhoto = null, bannerMsg = '') {
         const fs = window.FamilySearchClient;
         if (!fs || !fs.getPersonForCompare || !fs.extractStructuredPafData || !fs.applyPersonCompareUpdates) {
@@ -15914,6 +16190,7 @@
                   place: p.place,
                   people: p.people,
                   faces: p.faces,
+                  memoryId: p.fsMemoryId || null,
                   targetPersonId: activePid
                 });
                 if (upRes && upRes.success) {

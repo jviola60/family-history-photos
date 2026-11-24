@@ -1098,20 +1098,25 @@
     var pLower = String(personName).trim().toLowerCase();
     if (!pLower || /^face\s*#?\d+/i.test(pLower) || /^unidentified/i.test(pLower)) return false;
 
-    // Check against KNOWN_FAMILY
+    // Check against KNOWN_FAMILY and dynamically loaded signed-in user family cache
+    var familyPools = [];
     if (typeof KNOWN_FAMILY !== 'undefined' && Array.isArray(KNOWN_FAMILY)) {
-      var kf = KNOWN_FAMILY.find(function (k) { return k.id && k.id.toUpperCase() === cleanPid; });
-      if (kf) {
-        var kName = (kf.name || '').toLowerCase();
-        var kGiven = kName.split(/\s+/)[0] || '';
-        var pGiven = pLower.split(/\s+/)[0] || '';
-        var kAliases = (kf.aliases || []).map(function (a) { return a.toLowerCase(); });
-        var match = (kName === pLower) ||
-          (kAliases.indexOf(pLower) !== -1) ||
-          (kAliases.indexOf(pGiven) !== -1) ||
-          (kGiven && pGiven && (kGiven === pGiven || kGiven.startsWith(pGiven) || pGiven.startsWith(kGiven)));
-        if (!match) return false; // Known PID strictly belongs to someone else!
-      }
+      familyPools = familyPools.concat(KNOWN_FAMILY);
+    }
+    if (_userFamilyCache && Array.isArray(_userFamilyCache.people)) {
+      familyPools = familyPools.concat(_userFamilyCache.people);
+    }
+    var kf = familyPools.find(function (k) { return k && k.id && String(k.id).trim().toUpperCase() === cleanPid; });
+    if (kf) {
+      var kName = (kf.name || '').toLowerCase();
+      var kGiven = kName.split(/\s+/)[0] || '';
+      var pGiven = pLower.split(/\s+/)[0] || '';
+      var kAliases = Array.isArray(kf.aliases) ? kf.aliases.map(function (a) { return String(a).toLowerCase(); }) : [];
+      var match = (kName === pLower) ||
+        (kAliases.indexOf(pLower) !== -1) ||
+        (kAliases.indexOf(pGiven) !== -1) ||
+        (kGiven && pGiven && (kGiven === pGiven || kGiven.startsWith(pGiven) || pGiven.startsWith(kGiven)));
+      if (!match) return false; // Known or family PID strictly belongs to someone else!
     }
     return true;
   }
@@ -1591,17 +1596,23 @@
       }
     }
 
-    // 2. Auto-scan faces if not yet scanned
+    try { await loadSignedInUserFamily(token); } catch (_) {}
+
+    // 2. Auto-scan faces ONLY for unambiguous single-person portraits if not yet scanned
     var faces = options.faces || (photo && photo.faces) || [];
-    if ((!faces || faces.length === 0) && typeof window !== 'undefined' && window.FaceDetectorEngine) {
+    if ((!faces || faces.length === 0) && people && people.length === 1 && typeof window !== 'undefined' && window.FaceDetectorEngine) {
       try {
-        onProgress({ step: 'faces', message: 'Detecting & recognizing faces on photo for FamilySearch tags...' });
-        faces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
-        if (faces && faces.length > 0 && typeof window.FaceDetectorEngine.recognizeFaces === 'function') {
-          await window.FaceDetectorEngine.recognizeFaces(imageBlob || (photo && photo.file), faces, people);
-        }
-        if (photo && faces && faces.length > 0) {
-          photo.faces = faces;
+        onProgress({ step: 'faces', message: 'Detecting face position on portrait for FamilySearch tags...' });
+        var detectedFaces = await window.FaceDetectorEngine.detectFaces(imageBlob || (photo && photo.file));
+        if (detectedFaces && detectedFaces.length === 1) {
+          var singleRelName = typeof people[0] === 'string' ? people[0] : (people[0].name || '');
+          var singleRelFsId = (typeof people[0] === 'object' && people[0].fsId) ? people[0].fsId : '';
+          detectedFaces[0].name = singleRelName;
+          detectedFaces[0].fsId = singleRelFsId;
+          faces = detectedFaces;
+          if (photo) {
+            photo.faces = faces;
+          }
         }
       } catch (scanErr) {
         console.warn('Auto face scan notice:', scanErr);
@@ -1635,6 +1646,7 @@
     var seenTargetNames = new Set();
 
     // A. Add all faces that have names or box coordinates (matching fsId strictly by person name, NEVER array index!)
+    var hasPeopleList = Array.isArray(people) && people.length > 0;
     if (faces && faces.length > 0) {
       faces.forEach(function (f, fIdx) {
         var fName = (f.name || '').trim();
@@ -1646,17 +1658,23 @@
             var pRelName = typeof pRel === 'string' ? pRel : (pRel && pRel.name ? pRel.name : '');
             return isNameMatch(pRelName, fName);
           });
-          var matchedPersonFsId = (matchedPersonObj && typeof matchedPersonObj === 'object' && matchedPersonObj.fsId)
-            ? matchedPersonObj.fsId
-            : null;
+          if (hasPeopleList && !matchedPersonObj && f.confirmed !== true) {
+            return;
+          }
+          var canonicalName = (matchedPersonObj && typeof matchedPersonObj === 'object' && matchedPersonObj.name)
+            ? matchedPersonObj.name.trim()
+            : (typeof matchedPersonObj === 'string' ? matchedPersonObj.trim() : fName);
+          var matchedPersonFsId = matchedPersonObj
+            ? ((typeof matchedPersonObj === 'object' && matchedPersonObj.fsId) ? matchedPersonObj.fsId : null)
+            : (f.fsId || null);
 
           tagTargets.push({
-            name: fName,
-            fsId: f.fsId || matchedPersonFsId || null,
+            name: canonicalName,
+            fsId: matchedPersonFsId,
             box: f.box || (f.left !== undefined ? f : null),
             faceIdx: fIdx
           });
-          seenTargetNames.add(fName.toLowerCase());
+          seenTargetNames.add(canonicalName.toLowerCase());
         }
       });
     }
@@ -1857,10 +1875,31 @@
             matchedExisting = existingPersonas[0];
           }
 
+          var existingName = (matchedExisting && matchedExisting.names && matchedExisting.names[0] && (
+            (matchedExisting.names[0].nameForms && matchedExisting.names[0].nameForms[0] && matchedExisting.names[0].nameForms[0].fullText) ||
+            (matchedExisting.names[0].forms && matchedExisting.names[0].forms[0] && matchedExisting.names[0].forms[0].fullText)
+          )) || '';
           var personaId = matchedExisting ? matchedExisting.id : null;
           var opSuccess = false;
 
-          if (matchedExisting) {
+          if (matchedExisting && existingName && existingName.trim().toLowerCase() !== personName.trim().toLowerCase()) {
+            // FamilySearch ignores in-place persona renames without name.id; delete stale persona and recreate cleanly
+            if (!media && Array.isArray(matchedExisting.media) && matchedExisting.media.length > 0) {
+              media = matchedExisting.media;
+            }
+            try {
+              await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/personas/' + encodeURIComponent(matchedExisting.id), {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken
+                }
+              });
+            } catch (delOldPersonaErr) {
+              console.warn('Could not delete misnamed persona before recreate:', delOldPersonaErr);
+            }
+            claimedPersonaIds.add(matchedExisting.id);
+            personaId = null;
+          } else if (matchedExisting) {
             // UPDATE existing persona with bounding box coordinates
             var updatePerson = {
               id: matchedExisting.id,
@@ -2627,7 +2666,7 @@
     if (deathFact) facts.push(deathFact);
 
     var personObj = {
-      living: !personData.deathDate,
+      living: personData.living !== undefined ? Boolean(personData.living) : !personData.deathDate,
       names: [buildGedcomXName(personData)],
       facts: facts
     };
@@ -2662,9 +2701,69 @@
       var m = loc.match(/\/persons\/([A-Z0-9-]+)/i);
       if (m) entityId = m[1];
     }
+    _userFamilyCache = null;
     return {
       id: entityId,
       url: loc || (WEB_BASE + '/tree/person/details/' + entityId)
+    };
+  }
+
+  async function createCoupleRelationship(person1Pid, person2Pid, marriageDate, marriagePlace) {
+    var stored = getStoredToken();
+    if (!stored || !stored.accessToken) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var p1 = String(person1Pid || '').trim().toUpperCase();
+    var p2 = String(person2Pid || '').trim().toUpperCase();
+    if (!p1 || !p2) {
+      throw new Error('Both spouse FamilySearch PIDs are required.');
+    }
+    if (p1 === p2) {
+      throw new Error('Spouse PIDs must belong to two different people.');
+    }
+
+    var relObj = {
+      type: 'http://gedcomx.org/Couple',
+      person1: {
+        resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(p1),
+        resourceId: p1
+      },
+      person2: {
+        resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(p2),
+        resourceId: p2
+      }
+    };
+    var marriageFact = buildGedcomXFact('http://gedcomx.org/Marriage', marriageDate, marriagePlace);
+    if (marriageFact) {
+      relObj.facts = [marriageFact];
+    }
+
+    var res = await fetch(API_BASE + '/platform/tree/relationships', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + stored.accessToken,
+        'Content-Type': 'application/x-gedcomx-v1+json',
+        'Accept': 'application/x-gedcomx-v1+json',
+        'X-Reason': 'Added marriage relationship from Family History Photos'
+      },
+      body: JSON.stringify({ relationships: [relObj] })
+    });
+
+    if (!res.ok) {
+      var errTxt = await res.text().catch(function () { return ''; });
+      throw new Error('FamilySearch couple link failed (' + res.status + '): ' + (errTxt || res.statusText));
+    }
+
+    var relId = res.headers.get('X-ENTITY-ID') || '';
+    var loc = res.headers.get('Location') || '';
+    if (!relId && loc) {
+      var m = loc.match(/\/relationships\/([^/?#]+)/i);
+      if (m) relId = m[1];
+    }
+    _userFamilyCache = null;
+    return {
+      success: true,
+      id: relId
     };
   }
 
@@ -2988,13 +3087,36 @@
       (person.names && person.names[0] && person.names[0].nameForms && person.names[0].nameForms[0] && person.names[0].nameForms[0].fullText) ||
       resolvedPid;
 
+    var liveNotes = Array.isArray(person.notes) ? person.notes.slice() : [];
+    try {
+      var notesRes = await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(resolvedPid) + '/notes', {
+        headers: {
+          'Authorization': 'Bearer ' + stored.accessToken,
+          'Accept': 'application/x-gedcomx-v1+json'
+        }
+      });
+      if (notesRes.ok) {
+        var notesData = await notesRes.json();
+        var fetchedNotes = (notesData && notesData.persons && notesData.persons[0] && Array.isArray(notesData.persons[0].notes))
+          ? notesData.persons[0].notes
+          : (Array.isArray(notesData && notesData.notes) ? notesData.notes : []);
+        fetchedNotes.forEach(function (n) {
+          var already = liveNotes.some(function (existing) {
+            return (n.id && existing.id && n.id === existing.id) ||
+              (String(n.subject || '') === String(existing.subject || '') && String(n.text || '') === String(existing.text || ''));
+          });
+          if (!already) liveNotes.push(n);
+        });
+      }
+    } catch (_e) {}
+
     return {
       id: resolvedPid,
       displayName: displayName,
       person: person,
       facts: Array.isArray(person.facts) ? person.facts : [],
       gender: person.gender || null,
-      notes: Array.isArray(person.notes) ? person.notes : [],
+      notes: liveNotes,
       sources: Array.isArray(person.sources) ? person.sources : [],
       sourceDescriptions: sourceDescriptions
     };
@@ -3194,6 +3316,7 @@
     searchPersons: searchPersons,
     loadSignedInUserFamily: loadSignedInUserFamily,
     createPerson: createPerson,
+    createCoupleRelationship: createCoupleRelationship,
     populatePersonMissingFields: populatePersonMissingFields,
     extractStructuredPafData: extractStructuredPafData,
     getPersonForCompare: getPersonForCompare,

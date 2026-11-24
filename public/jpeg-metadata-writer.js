@@ -71,7 +71,7 @@
     if (meta.faces && meta.faces.length > 0) {
       var regionItems = meta.faces.map(function (f, idx) {
         var b = f.box || { x: 0.5, y: 0.5, width: 0.2, height: 0.2 };
-        var fName = escapeXml(f.name || (peopleNames[idx] || ''));
+        var fName = escapeXml(f.name || (meta.faces.length === 1 && peopleNames.length === 1 ? peopleNames[0] : ''));
         var cx = (b.x + (b.width || 0.2) / 2).toFixed(4);
         var cy = (b.y + (b.height || 0.2) / 2).toFixed(4);
         var w = (b.width || 0.2).toFixed(4);
