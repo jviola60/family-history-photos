@@ -4282,7 +4282,7 @@
                         <div class="fs-match-item" data-person-name="${esc(group.personName)}" data-pid="${esc(topMatch.id)}" style="cursor:pointer;padding:4px 7px;border-radius:5px;display:flex;justify-content:space-between;align-items:center;background:${isTopSelected ? 'rgba(37,99,235,0.14)' : 'var(--surface)'};border:1.5px solid ${isTopSelected ? 'var(--accent)' : 'var(--border)'};" title="Click to link ${esc(group.personName)} to ${esc(topMatch.id)}">
                           <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                             <strong style="font-size:12px;color:var(--text);">${esc(topMatch.name)}</strong>
-                            ${topMatch.lifespan ? `<span class="muted" style="font-size:11px;"> · ${esc(topMatch.lifespan)}</span>` : ''}
+                            ${topMatch.lifespan || topMatch.birthPlace ? `<span class="muted" style="font-size:11px;"> · ${esc([topMatch.lifespan, topMatch.birthPlace].filter(Boolean).join(' · '))}</span>` : ''}
                           </div>
                           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
                             <span class="pill mono ${isTopSelected ? 'pos' : 'neu'}" style="font-size:10px;font-weight:700;">${esc(topMatch.id)}</span>
@@ -4301,7 +4301,7 @@
                                   <div class="fs-match-item" data-person-name="${esc(group.personName)}" data-pid="${esc(m.id)}" style="cursor:pointer;padding:3px 6px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;background:${isSel ? 'rgba(37,99,235,0.1)' : 'var(--raised)'};border:1px solid ${isSel ? 'var(--accent)' : 'var(--border)'};" title="Link ${esc(group.personName)} to ${esc(m.id)}">
                                     <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">
                                       <span>${esc(m.name)}</span>
-                                      ${m.lifespan ? `<span class="muted"> · ${esc(m.lifespan)}</span>` : ''}
+                                      ${m.lifespan || m.birthPlace ? `<span class="muted"> · ${esc([m.lifespan, m.birthPlace].filter(Boolean).join(' · '))}</span>` : ''}
                                     </div>
                                     <span class="pill mono ${isSel ? 'pos' : 'neu'}" style="font-size:9px;">${esc(m.id)}</span>
                                   </div>
@@ -7539,6 +7539,7 @@
               <input id="f-fs" class="mono" type="text" placeholder="MM9R-4K2" value="${esc(p.fsId)}">
             </div>
           </div>
+          <div id="fs-pid-notice-host"></div>
           <div id="fs-matches-host"></div>
 
 <!-- LOCATION & GLOBAL MAP PIN -->
@@ -7565,12 +7566,16 @@
 
           <!-- RELATIVES & FAMILY RELATIONSHIPS -->
           <div class="field">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
               <label style="margin:0;font-weight:600;font-size:13px;">Relatives in print (${p.people.length})</label>
-              ${p.faces && p.faces.length > 0
-                ? `<span class="pill info" style="font-size:11.5px;">${p.faces.length} face${p.faces.length > 1 ? 's' : ''} detected</span>`
-                : (p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11.5px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : '')}
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="link-btn" id="btn-insp-pull-gedcom" style="font-size:11.5px;color:var(--accent);text-decoration:underline;cursor:pointer;font-weight:600;" title="Search loaded PAF/GEDCOM tree to populate relative details, dates, places &amp; story">🌳 Pull from PAF / GEDCOM</button>
+                ${p.faces && p.faces.length > 0
+                  ? `<span class="pill info" style="font-size:11.5px;">${p.faces.length} face${p.faces.length > 1 ? 's' : ''} detected</span>`
+                  : (p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11.5px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : '')}
+              </div>
             </div>
+            <div id="insp-gedcom-picker" style="display:none;margin-bottom:8px;"></div>
             </div>
 
             <div class="tagged-people-list" id="tagged-people-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px;">
@@ -7578,9 +7583,14 @@
               ${p.people.map((person, idx) => `
                 <div class="person-tag-row">
                   <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <div style="display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                       <span style="font-weight:700;font-size:15.5px;color:var(--text);">${esc(person.name)}</span>
-                      ${person.fsId ? `<span class="pill mono pos" style="font-size:12px;padding:2px 7px;font-weight:600;" title="FamilySearch Tree PID: ${esc(person.fsId)}">${esc(person.fsId)}</span>` : ''}
+                      ${person.fsId ? `
+                        <span class="pill mono pos" style="font-size:12px;padding:2px 6px;font-weight:600;display:inline-flex;align-items:center;gap:4px;" title="FamilySearch Tree PID: ${esc(person.fsId)}">
+                          <span>${esc(person.fsId)}</span>
+                          <button type="button" class="btn-clear-person-pid" data-idx="${idx}" title="Clear FamilySearch PID for ${esc(person.name)}" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:0 2px;font-size:12px;font-weight:700;line-height:1;">×</button>
+                        </span>
+                      ` : ''}
                     </div>
                     <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">
                       <select class="person-rel-select" data-idx="${idx}" style="font-size:13px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--ground);color:var(--text);font-weight:500;" title="Change relationship to me">
@@ -7650,10 +7660,13 @@
           </div>
 
           <div class="insp-sync-actions">
-            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : 'primary'}" type="button" id="btn-insp-fs">
+            <button class="btn sm btn-fill primary" type="button" id="btn-insp-compare-sync" title="Compare photo &amp; GEDCOM metadata against FamilySearch Beta and sync both facts and photo">
+              ⚖️ Compare &amp; Sync to FamilySearch
+            </button>
+            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : ''}" type="button" id="btn-insp-fs">
               ${p.fsSynced
                 ? `✓ Synced (${p.fsMemoryId ? `Mem #${esc(p.fsMemoryId)}` : esc(p.fsId || 'FS')})`
-                : (p.fsId ? (p.fsId.includes(',') ? `Upload to FamilySearch (${p.fsId.split(',').length} Relatives)` : `Upload to FamilySearch (${esc(p.fsId)})`) : (fsUser ? 'Upload to FamilySearch' : 'Sign in & upload to FS'))}
+                : (p.fsId ? (p.fsId.includes(',') ? `Upload Photo Only (${p.fsId.split(',').length} Relatives)` : `Upload Photo Only (${esc(p.fsId)})`) : (fsUser ? 'Upload Photo Only' : 'Sign in & Upload Photo'))}
             </button>
             <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
               Copy citation
@@ -8144,6 +8157,181 @@
               });
             });
 
+            const stripRelHonorifics = (raw) => String(raw || '')
+              .replace(/^\s*(?:great[-\s]*)?(?:aunt|uncle|grandma|grandpa|grandmother|grandfather|nana|papa|cousin|mr|mrs|ms|miss|dr)\.?\s+/i, '')
+              .trim();
+
+            const findGedcomPersonForName = (rawName, gedIdHint = '') => {
+              const gd = window._activeGedcomData;
+              if (!gd) return null;
+              if (gedIdHint && gd.peopleById && gd.peopleById.has(gedIdHint)) {
+                return gd.peopleById.get(gedIdHint);
+              }
+              const cleaned = stripRelHonorifics(rawName);
+              if (!cleaned) return null;
+              if (window.GedcomImporter && typeof window.GedcomImporter.findGedcomPeopleByName === 'function') {
+                const hits = window.GedcomImporter.findGedcomPeopleByName(gd, cleaned);
+                if (hits && hits.length > 0) {
+                  const exact = hits.find((h) => (h.name || '').toLowerCase() === cleaned.toLowerCase());
+                  return exact || hits[0];
+                }
+              }
+              if (Array.isArray(gd.peopleList)) {
+                const low = cleaned.toLowerCase();
+                return gd.peopleList.find((g) => g.name && g.name.toLowerCase() === low)
+                  || gd.peopleList.find((g) => g.name && g.name.toLowerCase().includes(low))
+                  || null;
+              }
+              return null;
+            };
+
+            const applyGedcomPersonToPhoto = async (gp) => {
+              if (!gp || !gp.name) return;
+              if (!Array.isArray(p.people)) p.people = [];
+              const gLow = gp.name.trim().toLowerCase();
+              let entry = p.people.find((pr) => (pr.gedId && pr.gedId === gp.id) || (pr.name || '').trim().toLowerCase() === gLow);
+              if (!entry) {
+                entry = {
+                  name: gp.name.trim(),
+                  rel: 'Relative',
+                  branch: gp.surname || p.branch || ''
+                };
+                p.people.push(entry);
+              }
+              entry.gedId = gp.id;
+              if (gp.sex) entry.sex = gp.sex;
+              if (gp.birthDate) entry.birthDate = gp.birthDate;
+              if (gp.birthPlace) entry.birthPlace = gp.birthPlace;
+              if (gp.deathDate) entry.deathDate = gp.deathDate;
+              if (gp.deathPlace) entry.deathPlace = gp.deathPlace;
+              if (gp.notes) entry.notes = gp.notes;
+              if (gp.surname && !p.branch) p.branch = gp.surname;
+
+              if (!p.place && (gp.deathPlace || gp.birthPlace)) {
+                p.place = gp.deathPlace || gp.birthPlace;
+              }
+              if (!p.isoDate && (gp.deathDate || gp.birthDate) && window.GedcomImporter && window.GedcomImporter.gedDateToIso) {
+                const iso = window.GedcomImporter.gedDateToIso(gp.deathDate || gp.birthDate);
+                if (iso) {
+                  p.isoDate = iso;
+                  const yr = Number(iso.slice(0, 4));
+                  if (yr >= 1700 && yr <= 2099) p.decade = `${String(yr).slice(0, 3)}0s`;
+                }
+              }
+
+              const lifeBits = [
+                gp.birthDate || gp.birthPlace ? `b. ${[gp.birthDate, gp.birthPlace].filter(Boolean).join(', ')}` : '',
+                gp.deathDate || gp.deathPlace ? `d. ${[gp.deathDate, gp.deathPlace].filter(Boolean).join(', ')}` : ''
+              ].filter(Boolean).join(' · ');
+              const sumLine = `${gp.name.trim()}${lifeBits ? ` (${lifeBits})` : ''}${gp.notes ? ` — ${gp.notes}` : ''}`;
+              if (!p.story || !p.story.trim()) {
+                p.story = sumLine;
+              } else if (!p.story.includes(gp.name.trim()) && gp.notes && !p.story.includes(gp.notes.slice(0, 40))) {
+                p.story = `${p.story.trim()}\n\n${sumLine}`;
+              }
+
+              if (p.faces && p.faces.length === 1 && p.people.length === 1 && !p.faces[0].name) {
+                p.faces[0].name = gp.name.trim();
+              }
+              p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
+              sanitizePhotoPersonPids(p);
+              saveItemMetadata(p);
+              if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                await saveArchiveToDb(items, rootFolderName);
+              }
+              notify(`✓ Pulled PAF/GEDCOM metadata for ${gp.name.trim()} onto ${p.id}.`);
+              render();
+            };
+
+            const pullGedcomBtn = box.querySelector('#btn-insp-pull-gedcom');
+            const gedPickerEl = box.querySelector('#insp-gedcom-picker');
+            if (pullGedcomBtn) {
+              pullGedcomBtn.onclick = () => {
+                const gd = window._activeGedcomData;
+                if (!gd) {
+                  openGedcomPafModal();
+                  return;
+                }
+                if (!gedPickerEl) return;
+                const open = gedPickerEl.style.display === 'block';
+                if (open) {
+                  gedPickerEl.style.display = 'none';
+                  return;
+                }
+                const seedName = stripRelHonorifics((p.people && p.people[0] && p.people[0].name) || p.title || '');
+                gedPickerEl.style.display = 'block';
+                gedPickerEl.innerHTML = `
+                  <div style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
+                    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                      <input type="search" id="inp-insp-ged-q" value="${esc(seedName)}" placeholder="Search GEDCOM people..." style="flex:1;padding:5px 8px;font-size:12px;border:1px solid var(--control);border-radius:5px;background:var(--surface);">
+                      <button type="button" class="link-btn" id="btn-insp-ged-close" style="font-size:12px;">✕</button>
+                    </div>
+                    <div id="insp-ged-list" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                  </div>
+                `;
+                const qInp = gedPickerEl.querySelector('#inp-insp-ged-q');
+                const listEl = gedPickerEl.querySelector('#insp-ged-list');
+                gedPickerEl.querySelector('#btn-insp-ged-close').onclick = () => { gedPickerEl.style.display = 'none'; };
+
+                const renderGedList = () => {
+                  const q = (qInp.value || '').trim().toLowerCase();
+                  const hits = [];
+                  for (let gi = 0; gi < gd.peopleList.length && hits.length < 12; gi++) {
+                    const gp = gd.peopleList[gi];
+                    if (gp && gp.name && (!q || gp.name.toLowerCase().includes(q))) {
+                      hits.push(gp);
+                    }
+                  }
+                  if (hits.length === 0) {
+                    listEl.innerHTML = '<div class="muted" style="font-size:11.5px;padding:6px;">No matching people in loaded GEDCOM.</div>';
+                    return;
+                  }
+                  listEl.innerHTML = hits.map((gp, hIdx) => {
+                    const life = [
+                      gp.birthDate || gp.birthPlace ? `b. ${[gp.birthDate, gp.birthPlace].filter(Boolean).join(' ')}` : '',
+                      gp.deathDate || gp.deathPlace ? `d. ${[gp.deathDate, gp.deathPlace].filter(Boolean).join(' ')}` : ''
+                    ].filter(Boolean).join(' · ');
+                    return `
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 7px;background:var(--surface);border:1px solid var(--border);border-radius:5px;">
+                        <div style="min-width:0;">
+                          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(gp.name)}</div>
+                          ${life ? `<div class="muted" style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(life)}</div>` : ''}
+                        </div>
+                        <button type="button" class="btn sm accent insp-ged-pull" data-hidx="${hIdx}" style="padding:3px 7px;font-size:11px;flex-shrink:0;">Pull Metadata</button>
+                      </div>
+                    `;
+                  }).join('');
+                  listEl.querySelectorAll('.insp-ged-pull').forEach((pBtn) => {
+                    pBtn.onclick = () => applyGedcomPersonToPhoto(hits[Number(pBtn.getAttribute('data-hidx'))]);
+                  });
+                };
+                qInp.oninput = renderGedList;
+                renderGedList();
+              };
+            }
+
+            // Clear PID button on individual person pill
+            box.querySelectorAll('.btn-clear-person-pid').forEach((btn) => {
+              btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = parseInt(btn.getAttribute('data-idx'), 10);
+                const pr = p.people[idx];
+                if (!pr) return;
+                delete pr.fsId;
+                if (p.faces) {
+                  p.faces.forEach((f) => {
+                    if (f.name && f.name.trim().toLowerCase() === (pr.name || '').trim().toLowerCase()) {
+                      f.fsId = '';
+                    }
+                  });
+                }
+                sanitizePhotoPersonPids(p);
+                saveItemMetadata(p);
+                notify(`Cleared FamilySearch PID for ${pr.name}.`);
+                render();
+              });
+            });
+
             // Delete person listener
             box.querySelectorAll('.btn-del-person').forEach((btn) => {
               btn.addEventListener('click', (e) => {
@@ -8151,10 +8339,14 @@
                 if (p.people[idx]) {
                   const removed = p.people.splice(idx, 1)[0];
                   if (p.faces) {
-                    const matchFace = p.faces.find(f => f.name === removed.name);
-                    if (matchFace) delete matchFace.name;
+                    const matchFace = p.faces.find(f => f.name && f.name.trim().toLowerCase() === (removed.name || '').trim().toLowerCase());
+                    if (matchFace) {
+                      delete matchFace.name;
+                      matchFace.fsId = '';
+                    }
                   }
-                  p.unnamedFaces = (p.unnamedFaces || 0) + 1;
+                  p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
+                  sanitizePhotoPersonPids(p);
                   saveItemMetadata(p);
                   notify(`Removed tag for ${removed.name}.`);
                   render();
@@ -8194,33 +8386,51 @@
               const rel = (relInput && relInput.value.trim()) ? relInput.value.trim() : 'Relative';
               const branch = (branchInput && branchInput.value.trim()) ? branchInput.value.trim() : (p.branch || '');
               if (branch) recordUserBranch(branch);
-              p.people.push({ name, rel, branch });
+              const gedMatch = findGedcomPersonForName(name);
+              const newEntry = {
+                name,
+                rel,
+                branch: branch || (gedMatch && gedMatch.surname) || '',
+                gedId: gedMatch ? gedMatch.id : undefined,
+                sex: gedMatch ? gedMatch.sex : undefined,
+                birthDate: gedMatch ? gedMatch.birthDate : undefined,
+                birthPlace: gedMatch ? gedMatch.birthPlace : undefined,
+                deathDate: gedMatch ? gedMatch.deathDate : undefined,
+                deathPlace: gedMatch ? gedMatch.deathPlace : undefined,
+                notes: gedMatch ? gedMatch.notes : undefined
+              };
+              p.people.push(newEntry);
               if (p.faces && p.faces.length === 1 && p.people.length === 1) {
                 p.faces[0].name = name;
               }
               p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
               saveItemMetadata(p);
-              notify(`Tagged ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Querying FamilySearch Tree...`);
+              notify(`Tagged ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Searching FamilySearch Tree...`);
               render();
 
-              // Auto-sync PID from FamilySearch
+              // Vital-aware FamilySearch lookup: only auto-bind on a single unambiguous match
               if (window.FamilySearchClient) {
                 try {
-                  const matches = await window.FamilySearchClient.searchPersons(name);
-                  if (matches && matches.length > 0) {
+                  const cleanQueryName = stripRelHonorifics(name) || name;
+                  const searchOpts = gedMatch ? {
+                    birthDate: gedMatch.birthDate,
+                    birthPlace: gedMatch.birthPlace,
+                    deathDate: gedMatch.deathDate,
+                    deathPlace: gedMatch.deathPlace
+                  } : undefined;
+                  const matches = await window.FamilySearchClient.searchPersons(cleanQueryName, searchOpts);
+                  if (matches && matches.length === 1 && isPidValidForPersonName(matches[0].id, name)) {
                     const topMatch = matches[0];
-                    if (isPidValidForPersonName(topMatch.id, name)) {
-                      const pObj = p.people.find(x => x.name.toLowerCase() === name.toLowerCase());
-                      if (pObj) pObj.fsId = topMatch.id;
-                      if (!p.fsId) {
-                        p.fsId = topMatch.id;
-                      }
-                      sanitizePhotoPersonPids(p);
-                      saveItemMetadata(p);
-                      notify(`Found FamilySearch PID: ${topMatch.id} for ${name} (${topMatch.lifespan || 'Living'}).`);
-                      render();
-                      showFsPidSuggestions(p, [{ personName: name, matches }]);
-                    }
+                    const pObj = p.people.find(x => x.name.toLowerCase() === name.toLowerCase());
+                    if (pObj) pObj.fsId = topMatch.id;
+                    if (!p.fsId) p.fsId = topMatch.id;
+                    sanitizePhotoPersonPids(p);
+                    saveItemMetadata(p);
+                    notify(`Found single FamilySearch match: ${topMatch.id} for ${name}.`);
+                    render();
+                  } else if (matches && matches.length > 0) {
+                    notify(`Found ${matches.length} FamilySearch candidates for ${name} — select the exact match below.`);
+                    showFsPidSuggestions(p, [{ personName: name, matches }]);
                   }
                 } catch (e) {
                   console.warn('FamilySearch PID lookup failed:', e);
@@ -8231,16 +8441,21 @@
             const lookupBtn = box.querySelector('#btn-fs-lookup');
             if (lookupBtn) {
               lookupBtn.onclick = async () => {
+                const fsClient = window.FamilySearchClient;
+                const typedPid = (box.querySelector('#f-fs')?.value || '').trim().toUpperCase();
+                const pidNoticeHost = box.querySelector('#fs-pid-notice-host');
+                if (pidNoticeHost) pidNoticeHost.innerHTML = '';
+
                 const namesToSearch = [];
                 const seenNames = new Set();
                 function addName(n) {
                   if (!n) return;
-                  const trimmed = n.trim();
-                  if (!trimmed || /^face\s*#?\d+/i.test(trimmed) || /^unidentified/i.test(trimmed)) return;
-                  const lower = trimmed.toLowerCase();
+                  const cleaned = stripRelHonorifics(n.trim());
+                  if (!cleaned || /^face\s*#?\d+/i.test(cleaned) || /^unidentified/i.test(cleaned)) return;
+                  const lower = cleaned.toLowerCase();
                   if (!seenNames.has(lower)) {
                     seenNames.add(lower);
-                    namesToSearch.push(trimmed);
+                    namesToSearch.push({ displayName: n.trim(), searchName: cleaned });
                   }
                 }
                 (p.people || []).forEach(x => addName(x.name));
@@ -8249,39 +8464,78 @@
                   addName(p.title);
                 }
 
-                if (namesToSearch.length === 0) {
-                  notify('Please tag relatives or enter a title first to search FamilySearch.');
+                if (!typedPid && namesToSearch.length === 0) {
+                  notify('Please tag relatives, enter a title, or paste a FamilySearch PID first.');
                   return;
                 }
+                if (!fsClient) return;
 
                 lookupBtn.disabled = true;
                 lookupBtn.innerHTML = '<span>Searching...</span>';
-                notify(`Searching FamilySearch Tree for ${namesToSearch.length} relative${namesToSearch.length > 1 ? 's' : ''}...`);
 
-                if (window.FamilySearchClient) {
-                  try {
-                    const resultsByPerson = [];
-                    for (const personName of namesToSearch) {
-                      const matches = await window.FamilySearchClient.searchPersons(personName);
-                      resultsByPerson.push({
-                        personName: personName,
-                        matches: matches || []
-                      });
+                try {
+                  // 1. If a valid FamilySearch PID was typed into #f-fs, check it directly first
+                  if (/^[A-Z0-9]{4}-[A-Z0-9]{3,4}$/.test(typedPid)) {
+                    const pidMatches = await fsClient.searchPersons(typedPid);
+                    if (pidMatches && pidMatches.length > 0 && pidMatches[0].id && pidMatches[0].id.toUpperCase() === typedPid) {
+                      lookupBtn.disabled = false;
+                      lookupBtn.innerHTML = '🔍 Search Tree';
+                      const personLabel = (namesToSearch[0] && namesToSearch[0].displayName) || pidMatches[0].name || typedPid;
+                      showFsPidSuggestions(p, [{ personName: personLabel, matches: pidMatches }]);
+                      notify(`✓ Found ${typedPid} (${pidMatches[0].name}) on FamilySearch Beta!`);
+                      return;
                     }
-                    lookupBtn.disabled = false;
-                    lookupBtn.innerHTML = '🔍 Search Tree';
-                    const totalMatches = resultsByPerson.reduce((acc, cur) => acc + (cur.matches ? cur.matches.length : 0), 0);
-                    if (totalMatches > 0) {
-                      showFsPidSuggestions(p, resultsByPerson);
-                      notify(`✓ Found FamilySearch Tree matches for ${resultsByPerson.filter(r => r.matches && r.matches.length > 0).length} of ${namesToSearch.length} people!`);
-                    } else {
-                      notify(`No FamilySearch Tree matches found for "${namesToSearch.join(', ')}". You can type/paste PIDs.`);
+                    if (pidNoticeHost) {
+                      pidNoticeHost.innerHTML = `
+                        <div style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:11.5px;line-height:1.4;">
+                          <strong>PID ${esc(typedPid)} was not found in FamilySearch Beta.</strong> This app connects to the <code>beta.familysearch.org</code> sandbox (a separate test tree from <code>familysearch.org</code>, so live PIDs often differ or haven’t been copied over).
+                          <div style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;">
+                            <a href="https://www.familysearch.org/tree/person/details/${encodeURIComponent(typedPid)}" target="_blank" rel="noopener" style="color:#1d4ed8;text-decoration:underline;">Check on www.familysearch.org ↗</a>
+                            <a href="https://beta.familysearch.org/tree/person/details/${encodeURIComponent(typedPid)}" target="_blank" rel="noopener" style="color:#1d4ed8;text-decoration:underline;">Check on beta.familysearch.org ↗</a>
+                          </div>
+                        </div>
+                      `;
                     }
-                  } catch (err) {
-                    lookupBtn.disabled = false;
-                    lookupBtn.innerHTML = '🔍 Search Tree';
-                    notify(`FamilySearch search notice: ${err.message}`);
                   }
+
+                  if (namesToSearch.length === 0) {
+                    lookupBtn.disabled = false;
+                    lookupBtn.innerHTML = '🔍 Search Tree';
+                    notify(`PID ${typedPid} was not found on FamilySearch Beta.`);
+                    return;
+                  }
+
+                  notify(`Searching FamilySearch Beta for ${namesToSearch.length} relative${namesToSearch.length > 1 ? 's' : ''}...`);
+                  const resultsByPerson = [];
+                  for (const entry of namesToSearch) {
+                    const gedMatch = findGedcomPersonForName(entry.searchName);
+                    const pRel = (p.people || []).find(x => (x.name || '').trim().toLowerCase() === entry.displayName.toLowerCase());
+                    const bDate = (pRel && pRel.birthDate) || (gedMatch && gedMatch.birthDate) || '';
+                    const bPlace = (pRel && pRel.birthPlace) || (gedMatch && gedMatch.birthPlace) || '';
+                    const dDate = (pRel && pRel.deathDate) || (gedMatch && gedMatch.deathDate) || '';
+                    const dPlace = (pRel && pRel.deathPlace) || (gedMatch && gedMatch.deathPlace) || '';
+                    const searchOpts = (bDate || bPlace || dDate || dPlace)
+                      ? { birthDate: bDate, birthPlace: bPlace, deathDate: dDate, deathPlace: dPlace }
+                      : undefined;
+                    const matches = await fsClient.searchPersons(entry.searchName, searchOpts);
+                    resultsByPerson.push({
+                      personName: entry.displayName,
+                      matches: matches || []
+                    });
+                  }
+                  lookupBtn.disabled = false;
+                  lookupBtn.innerHTML = '🔍 Search Tree';
+                  const totalMatches = resultsByPerson.reduce((acc, cur) => acc + (cur.matches ? cur.matches.length : 0), 0);
+                  if (totalMatches > 0) {
+                    showFsPidSuggestions(p, resultsByPerson);
+                    notify(`✓ Found FamilySearch Beta matches for ${resultsByPerson.filter(r => r.matches && r.matches.length > 0).length} of ${namesToSearch.length} people!`);
+                  } else {
+                    notify(`No FamilySearch Beta matches found for "${namesToSearch.map(n => n.searchName).join(', ')}". You can paste a Beta PID directly.`);
+                  }
+                } catch (err) {
+                  lookupBtn.disabled = false;
+                  lookupBtn.innerHTML = '🔍 Search Tree';
+                  notify(`FamilySearch search notice: ${err.message}`);
                 }
               };
             }
@@ -8293,7 +8547,7 @@
                 saveItemMetadata(p);
                 const btnFs = box.querySelector('#btn-insp-fs');
                 if (btnFs && !p.fsSynced) {
-                  btnFs.textContent = p.fsId ? `Upload to FamilySearch (${p.fsId})` : 'Upload to FamilySearch';
+                  btnFs.textContent = p.fsId ? `Upload Photo Only (${p.fsId})` : 'Upload Photo Only';
                 }
               };
             }
@@ -8396,6 +8650,16 @@
                   }
                 } else {
                   notify(`Saved record for ${p.id} (persisted in browser storage).`);
+                }
+              };
+            }
+
+            const compareSyncBtn = box.querySelector('#btn-insp-compare-sync');
+            if (compareSyncBtn) {
+              compareSyncBtn.onclick = async () => {
+                commitInspectorInputs(p, false);
+                if (typeof openCompareForPhoto === 'function') {
+                  await openCompareForPhoto(p, compareSyncBtn);
                 }
               };
             }
@@ -15701,6 +15965,113 @@
           }
         };
         return true;
+      }
+
+      async function openCompareForPhoto(p, triggerBtn) {
+        if (!p) return;
+        const fs = window.FamilySearchClient;
+        if (!fs || !fs.getStoredToken()) {
+          fsUser = null;
+          render();
+          notify('FamilySearch session expired — opening FamilySearch Beta sign-in...');
+          if (fs && typeof fs.startLogin === 'function') fs.startLogin();
+          return;
+        }
+        const stripHon = (raw) => String(raw || '')
+          .replace(/^\s*(?:great[-\s]*)?(?:aunt|uncle|grandma|grandpa|grandmother|grandfather|nana|papa|cousin|mr|mrs|ms|miss|dr)\.?\s+/i, '')
+          .trim();
+
+        const firstPerson = Array.isArray(p.people) && p.people.length > 0 ? p.people[0] : null;
+        const rawName = (firstPerson && firstPerson.name) || stripHon(p.title || '');
+        const cleanName = stripHon(rawName);
+        if (!cleanName) {
+          notify('Please tag a relative or enter a person name in the title first.');
+          return;
+        }
+
+        const gd = window._activeGedcomData;
+        let gedPerson = null;
+        if (gd) {
+          if (firstPerson && firstPerson.gedId && gd.peopleById && gd.peopleById.has(firstPerson.gedId)) {
+            gedPerson = gd.peopleById.get(firstPerson.gedId);
+          } else if (window.GedcomImporter && typeof window.GedcomImporter.findGedcomPeopleByName === 'function') {
+            const gHits = window.GedcomImporter.findGedcomPeopleByName(gd, cleanName);
+            if (gHits && gHits.length > 0) gedPerson = gHits[0];
+          }
+        }
+
+        const combinedNotes = [
+          gedPerson && gedPerson.notes ? String(gedPerson.notes).trim() : '',
+          p.story ? String(p.story).trim() : ''
+        ].filter(Boolean);
+        const dedupedNote = (combinedNotes.length === 2 && (combinedNotes[1].includes(combinedNotes[0].slice(0, 40)) || combinedNotes[0].includes(combinedNotes[1].slice(0, 40))))
+          ? (combinedNotes[0].length >= combinedNotes[1].length ? combinedNotes[0] : combinedNotes[1])
+          : combinedNotes.join('\n\n');
+
+        const personPayload = {
+          id: (firstPerson && firstPerson.gedId) || (gedPerson && gedPerson.id) || p.id,
+          name: cleanName,
+          surname: (gedPerson && gedPerson.surname) || (firstPerson && firstPerson.branch) || p.branch || '',
+          sex: (firstPerson && firstPerson.sex) || (gedPerson && gedPerson.sex) || '',
+          birthDate: (firstPerson && firstPerson.birthDate) || (gedPerson && gedPerson.birthDate) || '',
+          birthPlace: (firstPerson && firstPerson.birthPlace) || (gedPerson && gedPerson.birthPlace) || '',
+          deathDate: (firstPerson && firstPerson.deathDate) || (gedPerson && gedPerson.deathDate) || '',
+          deathPlace: (firstPerson && firstPerson.deathPlace) || (gedPerson && gedPerson.deathPlace) || '',
+          notes: dedupedNote
+        };
+
+        const origLabel = triggerBtn ? triggerBtn.textContent : '';
+        if (triggerBtn) {
+          triggerBtn.disabled = true;
+          triggerBtn.textContent = 'Comparing FS...';
+        }
+        try {
+          const candidates = [];
+          const seenIds = new Set();
+          const pushCand = (c) => {
+            if (c && c.id && !seenIds.has(c.id.toUpperCase())) {
+              seenIds.add(c.id.toUpperCase());
+              candidates.push(c);
+            }
+          };
+
+          const rawPidList = String((firstPerson && firstPerson.fsId) || p.fsId || '').split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(s => /^[A-Z0-9]{4}-[A-Z0-9]{3,4}$/.test(s));
+          for (const pid of rawPidList) {
+            try {
+              const pidRes = await fs.searchPersons(pid);
+              (pidRes || []).forEach(pushCand);
+            } catch (_) {}
+          }
+
+          const pafVitals = fs.extractStructuredPafData ? fs.extractStructuredPafData(personPayload) : personPayload;
+          const nameRes = await fs.searchPersons(cleanName, {
+            birthDate: personPayload.birthDate || pafVitals.birthDate,
+            birthPlace: personPayload.birthPlace || pafVitals.birthPlace,
+            deathDate: personPayload.deathDate || pafVitals.deathDate,
+            deathPlace: personPayload.deathPlace || pafVitals.deathPlace
+          });
+          (nameRes || []).forEach(pushCand);
+
+          let chosenPid = candidates.length > 0 ? candidates[0].id : '';
+          if (!chosenPid) {
+            if (window.confirm(`No match found on FamilySearch Beta for "${cleanName}". Create "${cleanName}" as a new person on FamilySearch Beta now?`)) {
+              const created = await fs.createPerson(personPayload);
+              chosenPid = created.id;
+              pushCand({ id: created.id, name: cleanName });
+            } else {
+              return;
+            }
+          }
+
+          await openFamilySearchCompareModal(personPayload, chosenPid, triggerBtn, candidates, p);
+        } catch (err) {
+          notify(err.message || 'Could not open FamilySearch Compare.');
+        } finally {
+          if (triggerBtn) {
+            triggerBtn.disabled = false;
+            triggerBtn.textContent = origLabel || '⚖️ Compare & Sync to FamilySearch';
+          }
+        }
       }
 
       /* =====================================================================

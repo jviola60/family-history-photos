@@ -2628,6 +2628,30 @@
     var birthPlace = p.birthPlace || '';
     var deathDate = p.deathDate || '';
     var deathPlace = p.deathPlace || '';
+
+    // Support summary vitals embedded by Family History Photos in story / baked XMP metadata:
+    // e.g. "Mary Grace Costello (b. 24 Sep 1919, Monroe, Monroe, Michigan, USA · d. 26 Nov 2010, Monroe, Monroe, Michigan, USA)"
+    var summaryMatch = rawNote.match(/\(\s*b\.\s*([^·)]+?)(?:\s*·\s*d\.\s*([^)]+))?\)/i);
+    var splitDateAndPlace = function (raw) {
+      var parts = String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      if (parts.length === 0) return { date: '', place: '' };
+      if (/\b(1[6789]\d{2}|20\d{2})\b/.test(parts[0])) {
+        return { date: parts[0], place: parts.slice(1).join(', ') };
+      }
+      return { date: '', place: parts.join(', ') };
+    };
+    if (summaryMatch) {
+      if (summaryMatch[1]) {
+        var bParsed = splitDateAndPlace(summaryMatch[1]);
+        if (!birthDate && bParsed.date) birthDate = bParsed.date;
+        if (bParsed.place && (!birthPlace || bParsed.place.length > birthPlace.length)) birthPlace = bParsed.place;
+      }
+      if (summaryMatch[2]) {
+        var dParsed = splitDateAndPlace(summaryMatch[2]);
+        if (!deathDate && dParsed.date) deathDate = dParsed.date;
+        if (dParsed.place && (!deathPlace || dParsed.place.length > deathPlace.length)) deathPlace = dParsed.place;
+      }
+    }
     var occupations = [];
     var residences = [];
     var military = [];

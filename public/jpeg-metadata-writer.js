@@ -34,11 +34,36 @@
     var safeLocation = escapeXml(meta.place || meta.location || '');
     var safeBranch = escapeXml(meta.branch || meta.familyBranch || '');
 
-    var peopleNames = (meta.people || []).map(function (p) {
+    var peopleArr = Array.isArray(meta.people) ? meta.people : [];
+    var peopleNames = peopleArr.map(function (p) {
       return typeof p === 'string' ? p : p.name;
     }).filter(Boolean);
+    var fsPids = peopleArr
+      .map(function (p) { return (p && typeof p === 'object' && p.fsId) ? String(p.fsId).trim().toUpperCase() : ''; })
+      .concat(meta.fsId ? String(meta.fsId).split(',').map(function (s) { return s.trim().toUpperCase(); }) : [])
+      .filter(Boolean)
+      .map(function (pid) { return 'FS:' + pid; });
+    var gedcomPeopleArr = peopleArr
+      .filter(function (p) { return p && typeof p === 'object' && p.name; })
+      .map(function (p) {
+        return {
+          name: p.name || '',
+          rel: p.rel || '',
+          branch: p.branch || '',
+          fsId: p.fsId || '',
+          gedId: p.gedId || '',
+          sex: p.sex || '',
+          birthDate: p.birthDate || '',
+          birthPlace: p.birthPlace || '',
+          deathDate: p.deathDate || '',
+          deathPlace: p.deathPlace || ''
+        };
+      });
+    var gedcomPeopleXml = gedcomPeopleArr.length > 0
+      ? '   <fhp:gedcomPeople>' + escapeXml(JSON.stringify(gedcomPeopleArr)) + '</fhp:gedcomPeople>\n'
+      : '';
 
-    var subjects = Array.from(new Set([].concat(peopleNames, [meta.decade, safeBranch]).filter(Boolean)));
+    var subjects = Array.from(new Set([].concat(peopleNames, [meta.decade, safeBranch], fsPids).filter(Boolean)));
     var subjectXml = subjects.map(function (s) { return '<rdf:li>' + escapeXml(s) + '</rdf:li>'; }).join('\n     ');
     var peopleXml = peopleNames.map(function (p) { return '<rdf:li>' + escapeXml(p) + '</rdf:li>'; }).join('\n     ');
 
@@ -89,7 +114,8 @@
       '    xmlns:mwg-rs="http://www.metadataworkinggroup.com/schemas/regions/"\n' +
       '    xmlns:stDim="http://ns.adobe.com/xap/1.0/sType/Dimensions#"\n' +
       '    xmlns:stArea="http://ns.adobe.com/xmp/sType/Area#"\n' +
-      '    xmlns:xmp="http://ns.adobe.com/xap/1.0/">\n' +
+      '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"\n' +
+      '    xmlns:fhp="https://familyhistoryphotos.org/ns/1.0/">\n' +
       '   <dc:title>\n' +
       '    <rdf:Alt>\n' +
       '     <rdf:li xml:lang="x-default">' + safeTitle + '</rdf:li>\n' +
@@ -106,6 +132,7 @@
       (safeDate ? '   <photoshop:DateCreated>' + safeDate + '</photoshop:DateCreated>\n' : '') +
       (safeLocation ? '   <Iptc4xmpCore:Location>' + safeLocation + '</Iptc4xmpCore:Location>\n' : '') +
       (safeBranch ? '   <photoshop:Credit>' + safeBranch + '</photoshop:Credit>\n' : '') +
+      gedcomPeopleXml +
       '  </rdf:Description>\n' +
       ' </rdf:RDF>\n' +
       '</x:xmpmeta>\n' +
@@ -122,6 +149,17 @@
     var nsBytes = te.encode('http://ns.adobe.com/xap/1.0/\0');
 
     var payloadLen = 2 + nsBytes.length + xmpBytes.length;
+    if (payloadLen > 65535 && meta && meta.story) {
+      var storyCaps = [35000, 15000, 4000, 1200];
+      for (var cIdx = 0; cIdx < storyCaps.length && payloadLen > 65535; cIdx++) {
+        var clonedMeta = Object.assign({}, meta, {
+          story: String(meta.story).slice(0, storyCaps[cIdx]) + '\n...[trimmed for 64KB JPEG XMP segment]'
+        });
+        xmpPacketStr = generateXmpPacket(clonedMeta);
+        xmpBytes = te.encode(xmpPacketStr);
+        payloadLen = 2 + nsBytes.length + xmpBytes.length;
+      }
+    }
     if (payloadLen > 65535) {
       throw new Error('XMP metadata exceeds 64KB');
     }
