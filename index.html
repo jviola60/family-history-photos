@@ -5470,56 +5470,103 @@
             const totalIndexedCount = activePhotos.length + driveIndexedCount + localIndexedCount;
             const totalMatchCandidates = (gedcomIndexMatches.strongMatches ? gedcomIndexMatches.strongMatches.length : 0)
               + (gedcomIndexMatches.possibleMatches ? gedcomIndexMatches.possibleMatches.length : 0);
+            const hasExternalIndex = driveIndexedCount > 0 || localIndexedCount > 0;
+            const step1Done = Boolean(gd);
+            const step2Done = hasExternalIndex;
+
+            const stepCardStyle = (state) => {
+              if (state === 'active') return 'border:2px solid #2563eb;background:#eff6ff;box-shadow:0 4px 12px rgba(37,99,235,0.12);';
+              if (state === 'done') return 'border:1.5px solid #86efac;background:#f0fdf4;';
+              return 'border:1.5px solid #cbd5e1;background:#f8fafc;opacity:0.9;';
+            };
 
             host.innerHTML = `
-              <div style="display:flex;flex-direction:column;gap:12px;">
-                <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
-                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-                    <div style="flex:1;min-width:250px;">
-                      <div style="font-size:15.5px;font-weight:700;color:#0f172a;">
-                        ${gd ? `🌳 Family Tree People (${esc(gd.fileName || 'PAF / GEDCOM')} · ALL ${gd.peopleList.length.toLocaleString()} imported · ${hasPafClueAllList.length.toLocaleString()} have PAF photo clues · ${withPhotosList.length.toLocaleString()} linked now)` : '🌳 Relatives Identified in Your Photos'}
+              <div style="display:flex;flex-direction:column;gap:14px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:12px;">
+                  <!-- STEP 1: FAMILY TREE -->
+                  <div style="${stepCardStyle(step1Done ? 'done' : 'active')}border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                        <span style="font-size:15px;font-weight:800;color:${step1Done ? '#14532d' : '#1e3a8a'};">
+                          ${step1Done ? '✓ 1. Family Tree Ready' : '1. Load Family Tree'}
+                        </span>
                       </div>
-                      <div style="font-size:13.5px;color:#1e3a8a;margin-top:3px;">
-                        Index your Google Drive or computer folders to match filenames &amp; close names, search all indexed photos for any relative, or run <strong>Facial Recognition</strong>.
+                      <div style="font-size:13.5px;color:#334155;margin-top:5px;line-height:1.45;">
+                        ${step1Done
+                          ? `<strong>${gd.peopleList.length.toLocaleString()} relatives</strong> loaded from <strong>${esc(gd.fileName || 'family tree')}</strong> (${withPhotosList.length.toLocaleString()} linked to photos so far).`
+                          : 'Load your exported PAF / GEDCOM (<code>.ged</code>) file so all of your relatives appear below.'}
                       </div>
                     </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                      <button type="button" class="btn sm" id="btn-people-switch-ledger">📋 View Photo Ledger (${activePhotos.length})</button>
-                      <button type="button" class="btn sm" id="btn-people-open-gedcom">${gd ? '🌳 Change / Reload .ged' : '🌳 Load .ged in Step 1'}</button>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                      ${step1Done
+                        ? `<button type="button" class="link-btn" id="btn-people-open-gedcom" style="font-size:13px;color:#1d4ed8;text-decoration:underline;font-weight:600;">Change family tree file</button>`
+                        : `<button type="button" class="btn primary" id="btn-people-open-gedcom" style="width:100%;">🌳 Load Family Tree (.ged)</button>`}
                     </div>
                   </div>
 
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:10px;border-top:1px solid #bfdbfe;">
-                    <span style="font-size:12.5px;font-weight:700;color:#1e3a8a;margin-right:2px;">Step 2 Matching Tools:</span>
-                    <button type="button" class="btn sm primary" id="btn-pv-relink-batch" ${gd ? '' : 'disabled'} title="Match all currently loaded photos against filenames and names in ${gd ? esc(gd.fileName) : 'your .ged tree'}">🔗 Re-Link Loaded Photos (${activePhotos.length})</button>
-                    <button type="button" class="btn sm accent" id="btn-pv-scan-local" ${gd ? '' : 'disabled'} title="Index a local folder and find exact &amp; possible matches against your PAF/GEDCOM tree">📁 Scan Local Folder (Match &amp; Index)</button>
-                    <button type="button" class="btn sm" id="btn-pv-scan-drive" ${gd ? '' : 'disabled'} title="Fast-index Google Drive (17k-116k+ photos) and match filenames &amp; names to your PAF/GEDCOM tree">☁️ Scan Google Drive (Match &amp; Index)</button>
-                    <button type="button" class="btn sm" id="btn-pv-browse-index" title="Search all loaded, Google Drive, and local folder photos by filename to link to any relative">🔍 Search Photo Library (${totalIndexedCount.toLocaleString()})</button>
-                    <button type="button" class="btn sm success" id="btn-pv-face-rec" ${activePhotos.length ? '' : 'disabled'} title="Learn from photos you already tagged and suggest matches for unnamed faces across your batch">🧠 Recognize Faces Across Photos</button>
-                  </div>
-
-                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:8px;background:#ffffff;border:1px solid #bfdbfe;font-size:13px;color:#1e293b;">
-                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-                      <span><strong>Searchable Photo Index:</strong></span>
-                      <span>🖼️ Loaded: <strong>${activePhotos.length.toLocaleString()}</strong></span>
-                      <span>☁️ Google Drive: <strong>${driveIndexedCount.toLocaleString()}</strong>${driveIndexedCount === 0 ? ' <span class="muted">(click Scan Google Drive)</span>' : ''}</span>
-                      <span>📁 Local Folder: <strong>${localIndexedCount.toLocaleString()}</strong></span>
+                  <!-- STEP 2: SCAN GOOGLE DRIVE OR COMPUTER -->
+                  <div style="${stepCardStyle(!step1Done ? 'idle' : (step2Done ? 'done' : 'active'))}border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+                    <div>
+                      <div style="font-size:15px;font-weight:800;color:${step2Done ? '#14532d' : (step1Done ? '#1e3a8a' : '#475569')};">
+                        ${step2Done ? '✓ 2. Photos Ready to Search' : '2. Scan Your Photos'}
+                      </div>
+                      <div style="font-size:13.5px;color:#334155;margin-top:5px;line-height:1.45;">
+                        ${step2Done
+                          ? `${driveIndexedCount > 0 ? `<strong>${driveIndexedCount.toLocaleString()} Google Drive photos</strong>` : ''}${driveIndexedCount > 0 && localIndexedCount > 0 ? ' · ' : ''}${localIndexedCount > 0 ? `<strong>${localIndexedCount.toLocaleString()} computer photos</strong>` : ''} indexed &amp; searchable (zero disk space used).`
+                          : `Your working album has <strong>${activePhotos.length}</strong> photo${activePhotos.length === 1 ? '' : 's'} right now. Scan Google Drive (including shared family folders) to search all your photos without filling your computer.`}
+                      </div>
                     </div>
-                    ${totalMatchCandidates > 0 ? `<button type="button" class="btn sm success" id="btn-pv-review-matches">💡 Review ${totalMatchCandidates.toLocaleString()} Name Match${totalMatchCandidates === 1 ? '' : 'es'} →</button>` : ''}
+                    <div style="display:flex;flex-direction:column;gap:7px;">
+                      ${!step2Done
+                        ? `<button type="button" class="btn primary" id="btn-pv-scan-drive-fast" ${gd ? '' : 'disabled'} style="width:100%;font-size:14.5px;">☁️ Scan My Google Drive</button>`
+                        : `<div style="display:flex;gap:12px;flex-wrap:wrap;"><button type="button" class="link-btn" id="btn-pv-scan-drive-fast" style="font-size:13px;color:#1d4ed8;text-decoration:underline;font-weight:600;">Rescan Google Drive</button><button type="button" class="link-btn" id="btn-pv-scan-drive" style="font-size:13px;color:#334155;text-decoration:underline;">Pick one Drive folder</button><button type="button" class="link-btn" id="btn-pv-scan-local" style="font-size:13px;color:#334155;text-decoration:underline;">Scan computer folder</button></div>`}
+                      ${!step2Done
+                        ? `<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;"><button type="button" class="link-btn" id="btn-pv-scan-drive" ${gd ? '' : 'disabled'} style="font-size:12.5px;color:#1e3a8a;text-decoration:underline;">Pick one Drive folder</button><button type="button" class="link-btn" id="btn-pv-scan-local" ${gd ? '' : 'disabled'} style="font-size:12.5px;color:#1e3a8a;text-decoration:underline;">Or scan a computer folder</button></div>`
+                        : ''}
+                    </div>
                   </div>
 
-                  <div id="pv-smart-status" ${peopleSmartStatusHtml ? '' : 'hidden'} style="padding:9px 12px;border-radius:8px;background:#ffffff;border:1.5px solid #93c5fd;font-size:13.5px;color:#0f172a;line-height:1.45;">
-                    ${peopleSmartStatusHtml || ''}
+                  <!-- STEP 3: REVIEW & CONNECT -->
+                  <div style="${stepCardStyle(step1Done && step2Done ? 'active' : 'idle')}border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+                    <div>
+                      <div style="font-size:15px;font-weight:800;color:${step1Done && step2Done ? '#1e3a8a' : '#475569'};">
+                        3. Match &amp; Connect
+                      </div>
+                      <div style="font-size:13.5px;color:#334155;margin-top:5px;line-height:1.45;">
+                        ${totalMatchCandidates > 0
+                          ? `We found <strong>${totalMatchCandidates.toLocaleString()} photo name match${totalMatchCandidates === 1 ? '' : 'es'}</strong> ready to connect to your family tree!`
+                          : (step2Done
+                            ? `Search all <strong>${totalIndexedCount.toLocaleString()}</strong> indexed photos by name, or click <strong>Find Photos</strong> beside any relative below.`
+                            : `After Step 2 scans your Drive or folder, matching photos and name search will appear right here.`)}
+                      </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:7px;">
+                      ${totalMatchCandidates > 0
+                        ? `<button type="button" class="btn success" id="btn-pv-review-matches" style="width:100%;font-size:14.5px;">✓ Review ${totalMatchCandidates.toLocaleString()} Suggested Match${totalMatchCandidates === 1 ? '' : 'es'}</button>`
+                        : (step2Done
+                          ? `<button type="button" class="btn primary" id="btn-pv-browse-index" style="width:100%;">🔍 Search All ${totalIndexedCount.toLocaleString()} Photos</button>`
+                          : `<button type="button" class="btn" id="btn-pv-browse-index" ${totalIndexedCount ? '' : 'disabled'} style="width:100%;">🔍 Search ${totalIndexedCount} Album Photo${totalIndexedCount === 1 ? '' : 's'}</button>`)}
+                      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                        ${totalMatchCandidates > 0 ? `<button type="button" class="link-btn" id="btn-pv-browse-index" style="font-size:12.5px;color:#1e3a8a;text-decoration:underline;">Search all ${totalIndexedCount.toLocaleString()} photos</button>` : ''}
+                        <button type="button" class="link-btn" id="btn-pv-face-rec" ${activePhotos.length ? '' : 'disabled'} style="font-size:12.5px;color:#1e3a8a;text-decoration:underline;">Match by face (${activePhotos.length} in album)</button>
+                        <button type="button" class="link-btn" id="btn-people-switch-ledger" style="font-size:12.5px;color:#334155;text-decoration:underline;">Open album list (${activePhotos.length})</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="all">All People (${peopleSource.length.toLocaleString()})</button>
-                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="with_photos">With Linked Photos (${withPhotosList.length.toLocaleString()})</button>
-                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="has_paf_clue">Has PAF Photo Clue (${hasPafClueAllList.length.toLocaleString()})</button>
-                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="has_possible">💡 Possible Matches (${hasPossibleMatchesList.length.toLocaleString()})</button>
-                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="needs_photo">Needs a Photo (${needsPhotoList.length.toLocaleString()})</button>
-                  <input type="search" id="inp-people-search" value="${esc(peopleViewSearchQuery)}" placeholder="Find any relative by name, ID, place, or PAF filename..." style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--control);border-radius:8px;font-size:14.5px;background:var(--surface);">
+                <div id="pv-smart-status" ${peopleSmartStatusHtml ? '' : 'hidden'} style="padding:10px 14px;border-radius:10px;background:#eff6ff;border:1.5px solid #93c5fd;font-size:13.5px;color:#0f172a;line-height:1.45;">
+                  ${peopleSmartStatusHtml || ''}
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <input type="search" id="inp-people-search" value="${esc(peopleViewSearchQuery)}" placeholder="🔍 Type a relative's name (e.g. Josephine, Rayna, Jeffrey)..." style="width:100%;padding:11px 14px;border:2px solid var(--control);border-radius:10px;font-size:15.5px;background:var(--surface);">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn sm ged-filter-pill" data-pv-filter="all">All Relatives (${peopleSource.length.toLocaleString()})</button>
+                    <button type="button" class="btn sm ged-filter-pill" data-pv-filter="with_photos">Have Photos (${withPhotosList.length.toLocaleString()})</button>
+                    ${hasPossibleMatchesList.length > 0 ? `<button type="button" class="btn sm ged-filter-pill" data-pv-filter="has_possible">✨ Suggested Matches (${hasPossibleMatchesList.length.toLocaleString()})</button>` : ''}
+                    <button type="button" class="btn sm ged-filter-pill" data-pv-filter="needs_photo">Need a Photo (${needsPhotoList.length.toLocaleString()})</button>
+                  </div>
                 </div>
 
                 <div id="people-tree-list" style="display:flex;flex-direction:column;gap:10px;"></div>
@@ -5538,24 +5585,17 @@
               }
             };
 
-            host.querySelector('#btn-people-switch-ledger').onclick = () => {
-              layout = 'ledger';
-              render();
-            };
-            host.querySelector('#btn-people-open-gedcom').onclick = () => {
-              if (typeof openGedcomPafModal === 'function') openGedcomPafModal();
-            };
-            const relinkBatchBtn = host.querySelector('#btn-pv-relink-batch');
-            if (relinkBatchBtn) {
-              relinkBatchBtn.onclick = async () => {
-                relinkBatchBtn.disabled = true;
-                try {
-                  if (typeof relinkCurrentBatchToGedcom === 'function') {
-                    await relinkCurrentBatchToGedcom(setSmartStatus);
-                  }
-                } finally {
-                  relinkBatchBtn.disabled = !window._activeGedcomData;
-                }
+            const switchLedgerBtn = host.querySelector('#btn-people-switch-ledger');
+            if (switchLedgerBtn) {
+              switchLedgerBtn.onclick = () => {
+                layout = 'ledger';
+                render();
+              };
+            }
+            const openGedBtn = host.querySelector('#btn-people-open-gedcom');
+            if (openGedBtn) {
+              openGedBtn.onclick = () => {
+                if (typeof openGedcomPafModal === 'function') openGedcomPafModal();
               };
             }
             const scanLocalBtn = host.querySelector('#btn-pv-scan-local');
@@ -5563,6 +5603,19 @@
               scanLocalBtn.onclick = () => {
                 if (typeof scanLocalFolderForGedcomMatches === 'function') {
                   scanLocalFolderForGedcomMatches(setSmartStatus);
+                }
+              };
+            }
+            const scanDriveFastBtn = host.querySelector('#btn-pv-scan-drive-fast');
+            if (scanDriveFastBtn) {
+              scanDriveFastBtn.onclick = async () => {
+                scanDriveFastBtn.disabled = true;
+                try {
+                  if (typeof runFastGoogleDriveIndexAndMatch === 'function') {
+                    await runFastGoogleDriveIndexAndMatch(setSmartStatus);
+                  }
+                } finally {
+                  scanDriveFastBtn.disabled = !window._activeGedcomData;
                 }
               };
             }
@@ -5608,29 +5661,29 @@
 
             const renderPeopleCards = () => {
               const q = peopleViewSearchQuery.trim().toLowerCase();
-              const effectiveFilter = peopleViewFilter === 'auto' ? 'all' : peopleViewFilter;
+              let effectiveFilter = peopleViewFilter === 'auto' ? 'all' : peopleViewFilter;
+              if (effectiveFilter === 'has_possible' && hasPossibleMatchesList.length === 0) {
+                effectiveFilter = 'all';
+              }
 
               filterBtns.forEach((b) => {
                 const f = b.getAttribute('data-pv-filter');
                 b.setAttribute('aria-pressed', effectiveFilter === f ? 'true' : 'false');
-                if (f === 'all') b.textContent = `All People (${peopleSource.length.toLocaleString()})`;
-                else if (f === 'with_photos') b.textContent = `With Linked Photos (${withPhotosList.length.toLocaleString()})`;
-                else if (f === 'has_paf_clue') b.textContent = `Has PAF Photo Clue (${hasPafClueAllList.length.toLocaleString()})`;
-                else if (f === 'has_possible') b.textContent = `💡 Possible Matches (${hasPossibleMatchesList.length.toLocaleString()})`;
-                else b.textContent = `Needs a Photo (${needsPhotoList.length.toLocaleString()})`;
+                if (f === 'all') b.textContent = `All Relatives (${peopleSource.length.toLocaleString()})`;
+                else if (f === 'with_photos') b.textContent = `Have Photos (${withPhotosList.length.toLocaleString()})`;
+                else if (f === 'has_possible') b.textContent = `✨ Suggested Matches (${hasPossibleMatchesList.length.toLocaleString()})`;
+                else b.textContent = `Need a Photo (${needsPhotoList.length.toLocaleString()})`;
               });
 
               const basePool = effectiveFilter === 'with_photos'
                 ? withPhotosList
-                : (effectiveFilter === 'has_paf_clue'
-                  ? [...hasPafClueAllList.filter((x) => x.linkedPhotos.length > 0), ...hasPafClueUnlinkedList]
-                  : (effectiveFilter === 'has_possible'
-                    ? hasPossibleMatchesList
-                    : (effectiveFilter === 'needs_photo' ? needsPhotoList : orderedAllList)));
+                : (effectiveFilter === 'has_possible'
+                  ? hasPossibleMatchesList
+                  : (effectiveFilter === 'needs_photo' ? needsPhotoList : orderedAllList));
 
               const matchedPool = q
                 ? basePool.filter((item) => {
-                    const hay = `${item.person.name || ''} ${item.person.id || ''} ${item.person.birthPlace || ''} ${(item.person.photoFileNames || []).join(' ')}`.toLowerCase();
+                    const hay = `${item.person.name || ''} ${item.person.id || ''} ${item.person.birthPlace || ''} ${(item.person.marriedSurnames || []).join(' ')} ${(item.person.photoFileNames || []).join(' ')}`.toLowerCase();
                     return hay.includes(q);
                   })
                 : basePool;
@@ -5640,21 +5693,19 @@
               if (visible.length === 0) {
                 listEl.innerHTML = `
                   <div class="panel" style="padding:28px 20px;text-align:center;">
-                    <div style="font-size:15.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">
+                    <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px;">
                       ${peopleSource.length === 0
-                        ? 'No relatives loaded here yet'
+                        ? 'No relatives loaded yet'
                         : (effectiveFilter === 'with_photos'
-                          ? 'No relatives have linked photos in the current batch yet'
-                          : (effectiveFilter === 'has_possible'
-                            ? 'No possible filename matches indexed yet — scan Google Drive or a Local Folder above!'
-                            : (effectiveFilter === 'has_paf_clue' ? 'No people with PAF photo clues match your search' : 'No matching relatives found')))}
+                          ? 'No relatives have linked photos in your album yet'
+                          : 'No matching relatives found')}
                     </div>
-                    <p class="muted" style="font-size:14px;margin:0 0 14px;">
+                    <p class="muted" style="font-size:14.5px;margin:0 0 14px;">
                       ${peopleSource.length === 0
-                        ? 'Load your PAF / GEDCOM (.ged) family tree in Step 1, or select a photo in Ledger and tag a family member.'
-                        : 'Try "Scan Local Folder" or "Scan Google Drive" above, or switch to "All People" and click "Find & Link Photo" on any relative.'}
+                        ? 'Click "Load Family Tree (.ged)" in Step 1 above to begin.'
+                        : 'Try clearing your search or switching to "All Relatives" to find photos for anyone.'}
                     </p>
-                    ${effectiveFilter !== 'all' && peopleSource.length > 0 ? `<button type="button" class="btn primary" id="btn-pv-show-all">Show All ${peopleSource.length.toLocaleString()} People</button>` : ''}
+                    ${effectiveFilter !== 'all' && peopleSource.length > 0 ? `<button type="button" class="btn primary" id="btn-pv-show-all">Show All ${peopleSource.length.toLocaleString()} Relatives</button>` : ''}
                   </div>
                 `;
                 const showAllBtn = listEl.querySelector('#btn-pv-show-all');
@@ -5673,43 +5724,38 @@
                 const norm = normalizeSyncPersonName(person.name);
                 const syncRec = (gid && ledgerSnap.byGedId[gid]) || (norm && ledgerSnap.byName[norm]) || null;
                 const lifeLine = [
-                  (person.birthDate || person.birthPlace) ? `b. ${[person.birthDate, person.birthPlace].filter(Boolean).join(' · ')}` : '',
-                  (person.deathDate || person.deathPlace) ? `d. ${[person.deathDate, person.deathPlace].filter(Boolean).join(' · ')}` : ''
-                ].filter(Boolean).join(' — ');
-                const pafFileHint = Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0 && linkedPhotos.length === 0
-                  ? `<div style="font-size:12.5px;color:#1e40af;background:#eff6ff;padding:5px 9px;border-radius:6px;margin-top:6px;border:1px solid #bfdbfe;">📎 Original PAF photo clue${person.photoFileNames.length > 1 ? 's' : ''}: <strong>${esc(person.photoFileNames.slice(0, 4).join(', '))}</strong></div>`
-                  : '';
+                  (person.birthDate || person.birthPlace) ? `Born ${[person.birthDate, person.birthPlace].filter(Boolean).join(' · ')}` : '',
+                  (person.deathDate || person.deathPlace) ? `Died ${[person.deathDate, person.deathPlace].filter(Boolean).join(' · ')}` : ''
+                ].filter(Boolean).join(' · ');
+                const firstName = String(person.name || 'Relative').trim().split(/\s+/)[0] || 'Relative';
                 const suggCnt = Array.isArray(unlinkedSuggestions) ? unlinkedSuggestions.length : 0;
 
                 return `
-                  <div style="border:1.5px solid ${linkedPhotos.length ? '#86efac' : '#cbd5e1'};background:${linkedPhotos.length ? '#f0fdf4' : '#ffffff'};border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
-                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                  <div style="border:1.5px solid ${linkedPhotos.length ? '#86efac' : '#cbd5e1'};background:${linkedPhotos.length ? '#f0fdf4' : '#ffffff'};border-radius:12px;padding:15px 18px;display:flex;flex-direction:column;gap:10px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
                       <div style="min-width:220px;flex:1;">
-                        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
-                          <span style="font-size:16.5px;font-weight:700;color:#0f172a;">${esc(person.name || 'Unnamed')}</span>
-                          ${person.id ? `<span class="mono muted" style="font-size:12px;">(${esc(person.id)})</span>` : ''}
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <span style="font-size:18px;font-weight:700;color:#0f172a;">${esc(person.name || 'Unnamed')}</span>
+                          ${person.id ? `<span class="mono muted" style="font-size:12px;opacity:0.75;">(${esc(person.id)})</span>` : ''}
                           ${linkedPhotos.length > 0
-                            ? `<span class="pill pos" style="font-size:11.5px;">✓ ${linkedPhotos.length} Photo${linkedPhotos.length === 1 ? '' : 's'} Linked</span>`
-                            : (Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0
-                              ? '<span class="pill info" style="font-size:11.5px;">📎 PAF Photo Clue</span>'
-                              : '<span class="pill warn" style="font-size:11.5px;">No Photo Yet</span>')}
-                          ${suggCnt > 0 ? `<button type="button" class="pill info pv-open-suggestions" data-pidx="${idx}" style="border:1px solid #60a5fa;cursor:pointer;font-size:11.5px;font-weight:700;">💡 ${suggCnt} Possible Match${suggCnt === 1 ? '' : 'es'}</button>` : ''}
+                            ? `<span class="pill pos" style="font-size:12px;">✓ ${linkedPhotos.length} Photo${linkedPhotos.length === 1 ? '' : 's'} Connected</span>`
+                            : ''}
                           ${syncRec
                             ? `<span class="pill info" style="font-size:11.5px;">✓ Synced${syncRec.fsPid ? ` · ${esc(syncRec.fsPid)}` : ''}</span>`
                             : ''}
                         </div>
-                        ${lifeLine ? `<div style="font-size:13px;color:#334155;margin-top:3px;">${esc(lifeLine)}</div>` : ''}
-                        ${person.notes ? `<div class="muted" style="font-size:12.5px;margin-top:3px;line-height:1.4;">📝 ${esc(person.notes.slice(0, 180))}${person.notes.length > 180 ? '…' : ''}</div>` : ''}
-                        ${pafFileHint}
+                        ${lifeLine ? `<div style="font-size:13.5px;color:#334155;margin-top:4px;">${esc(lifeLine)}</div>` : ''}
+                        ${person.notes ? `<div class="muted" style="font-size:13px;margin-top:4px;line-height:1.4;">${esc(person.notes.slice(0, 150))}${person.notes.length > 150 ? '…' : ''}</div>` : ''}
                       </div>
-                      <div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;">
-                        <button type="button" class="btn sm primary pv-find-link" data-pidx="${idx}" title="Search all loaded, Google Drive, and local folder photos for ${esc(person.name)}">🔍 Find &amp; Link Photo</button>
-                        <button type="button" class="btn sm pv-add-photo" data-pidx="${idx}" title="Pick a single image file from your computer and link it directly to ${esc(person.name)}">📁 Upload File from PC</button>
+                      <div style="flex-shrink:0;">
+                        ${suggCnt > 0
+                          ? `<button type="button" class="btn success pv-open-suggestions" data-pidx="${idx}" style="font-size:14px;">✨ Review ${suggCnt} Match${suggCnt === 1 ? '' : 'es'} for ${esc(firstName)}</button>`
+                          : `<button type="button" class="btn primary pv-find-link" data-pidx="${idx}" style="font-size:14px;">🖼️ Find Photos for ${esc(firstName)}</button>`}
                       </div>
                     </div>
 
                     ${linkedPhotos.length > 0 ? `
-                      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px;border-top:1px solid rgba(22,163,74,0.2);">
+                      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:6px;border-top:1px solid rgba(22,163,74,0.2);">
                         ${linkedPhotos.map((ph) => {
                           const isSel = ph.id === selectedId;
                           return `
@@ -5734,10 +5780,10 @@
                     <span style="font-size:14px;font-weight:600;color:#334155;">
                       Showing <strong>${visible.length.toLocaleString()}</strong> of <strong>${matchedPool.length.toLocaleString()}</strong> matching relatives
                     </span>
-                    <button type="button" class="btn primary" id="btn-pv-load-more">Show 60 More People →</button>
+                    <button type="button" class="btn primary" id="btn-pv-load-more">Show 60 More Relatives →</button>
                   </div>
                 `
-                : (matchedPool.length > 0 ? `<div class="muted" style="font-size:13px;text-align:center;padding:6px 0;">Showing all ${matchedPool.length.toLocaleString()} matching people.</div>` : '');
+                : (matchedPool.length > 0 ? `<div class="muted" style="font-size:13px;text-align:center;padding:6px 0;">Showing all ${matchedPool.length.toLocaleString()} matching relatives.</div>` : '');
 
               listEl.innerHTML = cardsHtml + moreHtml;
 
@@ -5756,22 +5802,6 @@
                   renderInspector();
                   renderPeopleCards();
                   if (isMobile()) openMobileInspector();
-                };
-              });
-              listEl.querySelectorAll('.pv-add-photo').forEach((btn) => {
-                btn.onclick = () => {
-                  const row = visible[Number(btn.getAttribute('data-pidx'))];
-                  if (!row) return;
-                  const inp = document.createElement('input');
-                  inp.type = 'file';
-                  inp.multiple = true;
-                  inp.accept = 'image/*';
-                  inp.onchange = async () => {
-                    if (inp.files && inp.files.length) {
-                      await addLocalFilesAndLinkToPerson(inp.files, row.person);
-                    }
-                  };
-                  inp.click();
                 };
               });
               listEl.querySelectorAll('.pv-find-link').forEach((btn) => {
@@ -15387,19 +15417,27 @@
         document.getElementById('mode-lab').setAttribute('aria-pressed', isLab ? 'true' : 'false');
         document.getElementById('mode-sync').setAttribute('aria-pressed', isSync ? 'true' : 'false');
 
+        const isPeopleLayout = isCatalog && layout === 'people';
         const viewSwitchEl = document.getElementById('catalog-view-switch');
         if (viewSwitchEl) viewSwitchEl.style.display = 'inline-flex';
         const toggleChartsBtn = document.getElementById('btn-toggle-charts');
         if (toggleChartsBtn) {
-          toggleChartsBtn.style.display = 'inline-flex';
+          toggleChartsBtn.style.display = isPeopleLayout ? 'none' : 'inline-flex';
           toggleChartsBtn.setAttribute('aria-pressed', (isCatalog && showCharts) ? 'true' : 'false');
         }
+        const coachBannerEl = document.getElementById('stage-coach-banner');
+        if (coachBannerEl) coachBannerEl.hidden = isPeopleLayout;
+        const catalogKpiEl = document.querySelector('#section-catalog .kpi-strip');
+        if (catalogKpiEl) catalogKpiEl.hidden = isPeopleLayout;
+        const chartsDrawerEl = document.getElementById('charts-drawer');
+        if (chartsDrawerEl && isPeopleLayout) chartsDrawerEl.hidden = true;
+
         document.querySelectorAll('[data-layout]').forEach((b) => {
           b.setAttribute('aria-pressed', (isCatalog && b.getAttribute('data-layout') === layout) ? 'true' : 'false');
         });
 
         const p = currentPhoto();
-        renderStageCoachBanner(p);
+        if (!isPeopleLayout) renderStageCoachBanner(p);
 
         if (isGather) {
           document.getElementById('page-heading').textContent = 'Step 1: Gather Your Sources';
@@ -15410,8 +15448,8 @@
             document.getElementById('page-heading').textContent = "Family Photo Ledger";
             document.getElementById('page-sub').textContent = "Step 2: Review photos, run facial recognition across prints, or tag relatives and edit details on the right.";
           } else if (layout === 'people') {
-            document.getElementById('page-heading').textContent = "People & Family Tree Re-Linker";
-            document.getElementById('page-sub').textContent = "Step 2: Browse all people in your PAF / GEDCOM tree, scan local folders or Google Drive for PAF photo matches, run facial recognition, or attach photos directly.";
+            document.getElementById('page-heading').textContent = "Connect Photos to Your Family Tree";
+            document.getElementById('page-sub').textContent = "Follow the 3 simple steps below to find and attach photos from Google Drive or your computer to each relative.";
           } else if (layout === 'map') {
             document.getElementById('page-heading').textContent = "Family History Photo Map";
             document.getElementById('page-sub').textContent = "Geographic map of where family photos were taken. Click any map pin to inspect photos, view relatives, or open Photo Lab.";
@@ -19757,6 +19795,132 @@
         input.click();
       }
 
+      async function runFastGoogleDriveIndexAndMatch(onStatus = null) {
+        const gd = window._activeGedcomData;
+        const gp = window.GedcomImporter;
+        const hub = window.CloudImportHub;
+        if (!gd || !gp) {
+          notify('Load your Family Tree (.ged) file first.');
+          if (typeof openGedcomPafModal === 'function') openGedcomPafModal();
+          return;
+        }
+        if (!hub || typeof hub.scanGoogleDriveAllImages !== 'function') {
+          notify('Cloud module is still loading — please try again in a second.');
+          return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;padding:22px;box-shadow:0 24px 60px rgba(0,0,0,0.32);display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <h2 style="font-size:18px;font-weight:700;margin:0;">☁️ Scanning Your Google Drive</h2>
+              <button type="button" class="btn-close-prominent sm" id="fgd-close">✕ Cancel</button>
+            </div>
+            <p class="muted" style="font-size:14px;margin:0;line-height:1.45;">
+              Reading photo names from your Google Drive and family shared folders (nothing is downloaded to your hard drive).
+            </p>
+            <div id="fgd-status" style="font-size:14.5px;font-weight:600;color:#1e3a8a;">Connecting to Google Drive...</div>
+            <div style="height:10px;background:#dbeafe;border-radius:999px;overflow:hidden;">
+              <div id="fgd-bar" style="height:100%;width:12%;background:#1d4ed8;transition:width 0.15s ease;"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;">
+              <button type="button" class="btn sm danger" id="fgd-stop">⏹ Stop &amp; Use What We Found</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        let closed = false;
+        let stopRequested = false;
+        const closeModal = () => {
+          closed = true;
+          stopRequested = true;
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#fgd-close').onclick = closeModal;
+        const statusEl = overlay.querySelector('#fgd-status');
+        const barEl = overlay.querySelector('#fgd-bar');
+        const stopBtn = overlay.querySelector('#fgd-stop');
+        stopBtn.onclick = () => {
+          stopRequested = true;
+          stopBtn.disabled = true;
+          stopBtn.textContent = 'Finishing up...';
+        };
+
+        try {
+          let token = await ensureGoogleDriveToken(false);
+          let driveFiles = [];
+          try {
+            driveFiles = await hub.scanGoogleDriveAllImages(token, {
+              shouldStop: () => closed || stopRequested,
+              onProgress: (p) => {
+                if (closed) return;
+                if (p.phase === 'folders') {
+                  statusEl.textContent = `Finding folders (${p.foldersFound.toLocaleString()} folders)...`;
+                  barEl.style.width = '22%';
+                } else {
+                  const pct = Math.min(76, 25 + Math.min(51, Math.floor(p.pagesFetched * 1.5)));
+                  barEl.style.width = `${pct}%`;
+                  statusEl.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos so far...`;
+                }
+              }
+            });
+          } catch (scanErr) {
+            if (String(scanErr.message || '').includes('session expired')) {
+              token = await ensureGoogleDriveToken(true);
+              driveFiles = await hub.scanGoogleDriveAllImages(token, {
+                shouldStop: () => closed || stopRequested,
+                onProgress: (p) => {
+                  if (!closed) statusEl.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos so far...`;
+                }
+              });
+            } else {
+              throw scanErr;
+            }
+          }
+          if (closed && !stopRequested) return;
+          if (!driveFiles || driveFiles.length === 0) {
+            closeModal();
+            if (onStatus) onStatus('No photos were found in Google Drive.');
+            notify('No photos found in Google Drive.');
+            return;
+          }
+
+          statusEl.textContent = `Saving searchable list of ${driveFiles.length.toLocaleString()} photos...`;
+          barEl.style.width = '82%';
+          photoLibraryIndex.gdrive = driveFiles;
+          photoLibraryIndex.gdriveScannedAt = Date.now();
+          photoLibraryIndex.gdriveFolderName = stopRequested ? 'My Drive (Partial)' : 'My Drive';
+          photoLibraryIndex.indexVersion++;
+          await saveGdriveIndexToDb(driveFiles, photoLibraryIndex.gdriveFolderName);
+
+          statusEl.textContent = `Looking for relative names across ${driveFiles.length.toLocaleString()} photos...`;
+          const matchRes = await gp.batchMatchPhotosToGedcom(gd, driveFiles, (p) => {
+            if (!closed) {
+              barEl.style.width = `${Math.min(98, Math.round(82 + (p.scanned / Math.max(1, p.total)) * 16))}%`;
+              statusEl.textContent = `Checked ${p.scanned.toLocaleString()} / ${p.total.toLocaleString()} photos (${p.strongCount + p.possibleCount} matches found)...`;
+            }
+          });
+          await refreshGedcomIndexMatches();
+          const strongCnt = matchRes.strongMatches.length;
+          const possCnt = matchRes.possibleMatches.length;
+          const doneMsg = `✓ Found <strong>${driveFiles.length.toLocaleString()}</strong> Google Drive photos! ${strongCnt + possCnt > 0 ? `<strong>${(strongCnt + possCnt).toLocaleString()}</strong> matched a relative by name — click <strong>Review Suggested Matches</strong> or search any relative below.` : 'Type any relative’s name below to search all of them.'}`;
+          if (onStatus) onStatus(doneMsg);
+          notify(`Ready! ${driveFiles.length.toLocaleString()} Google Drive photos are now searchable.`);
+          closeModal();
+          render();
+          if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
+            openGedcomMatchReviewModal(matchRes, 'Google Drive');
+          }
+        } catch (err) {
+          closeModal();
+          if (onStatus) onStatus(`Could not scan Google Drive: ${esc(err.message)}`);
+          notify(`Could not scan Google Drive: ${err.message}`);
+        }
+      }
+
       async function scanGoogleDriveForGedcomMatches(onStatus = null) {
         const gd = window._activeGedcomData;
         const gp = window.GedcomImporter;
@@ -21057,12 +21221,12 @@
             </div>
 
             <div style="display:flex;gap:6px;padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);flex-wrap:wrap;" id="flp-tabs">
-              <button type="button" class="btn sm" data-flp-tab="suggested">✨ Suggested (${suggestions.length})</button>
-              <button type="button" class="btn sm" data-flp-tab="loaded">🖼️ Loaded (${activePhotos.length})</button>
+              <button type="button" class="btn sm" data-flp-tab="suggested">✨ Best Matches (${suggestions.length})</button>
+              <button type="button" class="btn sm" data-flp-tab="loaded">🖼️ In Album (${activePhotos.length})</button>
               <button type="button" class="btn sm" data-flp-tab="gdrive">☁️ Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()})</button>
-              <button type="button" class="btn sm" data-flp-tab="local">📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-flp-tab="local">📁 Computer Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
               <button type="button" class="btn sm" data-flp-tab="face">🧠 Find by Face</button>
-              <button type="button" class="btn sm" id="flp-pick-pc" style="margin-left:auto;">➕ Pick File from PC...</button>
+              <button type="button" class="btn sm" id="flp-pick-pc" style="margin-left:auto;">➕ Choose File from Computer</button>
             </div>
 
             <div style="padding:10px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;flex-direction:column;gap:8px;">
@@ -21132,10 +21296,10 @@
           overlay.querySelectorAll('[data-flp-tab]').forEach((b) => {
             const tab = b.getAttribute('data-flp-tab');
             b.className = `btn sm ${activeTab === tab ? 'primary' : ''}`;
-            if (tab === 'suggested') b.textContent = `✨ Suggested for ${firstName} (${suggestions.length})`;
-            else if (tab === 'loaded') b.textContent = `🖼️ Loaded (${activePhotos.length})`;
+            if (tab === 'suggested') b.textContent = `✨ Best Matches for ${firstName} (${suggestions.length})`;
+            else if (tab === 'loaded') b.textContent = `🖼️ In Album (${activePhotos.length})`;
             else if (tab === 'gdrive') b.textContent = `☁️ Google Drive (${(photoLibraryIndex.gdrive.length || liveDriveResults.length).toLocaleString()})`;
-            else if (tab === 'local') b.textContent = `📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})`;
+            else if (tab === 'local') b.textContent = `📁 Computer Folder (${photoLibraryIndex.local.length.toLocaleString()})`;
             else if (tab === 'face') b.textContent = `🧠 Find by Face`;
           });
           if (hideTaggedWrap) hideTaggedWrap.style.display = activeTab === 'loaded' ? 'flex' : 'none';
@@ -21192,14 +21356,14 @@
                   Index your Google Drive once (handles 17,000–116,000+ photos fast without downloading them), or quick-search Google Drive right now for <strong>${esc(surname || gp.name)}</strong>.
                 </p>
                 <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-                  <button type="button" class="btn primary" id="flp-empty-scan-drive">⚡ Index Entire Google Drive</button>
+                  <button type="button" class="btn primary" id="flp-empty-scan-drive">☁️ Scan My Google Drive</button>
                   <button type="button" class="btn accent" id="flp-empty-search-drive">🔍 Quick-Search Drive for "${esc(surname || firstName)}"</button>
                 </div>
               </div>
             `;
             gridEl.querySelector('#flp-empty-scan-drive').onclick = () => {
               closeModal();
-              scanGoogleDriveForGedcomMatches();
+              runFastGoogleDriveIndexAndMatch();
             };
             gridEl.querySelector('#flp-empty-search-drive').onclick = () => {
               searchEl.value = surname || firstName;
