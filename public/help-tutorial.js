@@ -8,8 +8,8 @@
   'use strict';
 
   const ROADMAP = [
-    { num: 1, label: 'Gather Photos' },
-    { num: 2, label: 'Identify & Tag' },
+    { num: 1, label: 'Gather Sources' },
+    { num: 2, label: 'Identify & Re-Link' },
     { num: 3, label: 'Restore' },
     { num: 4, label: 'Save & Share' }
   ];
@@ -18,19 +18,19 @@
     {
       step: 1,
       stageNum: 1,
-      badge: 'Lesson 1 of 6 • Step 1: Gather',
-      title: 'Step 1: Bring In Your Photos & PAF Family Tree',
-      shortTitle: '1. Gather Photos & Tree',
-      desc: 'Start in <strong>1. Gather Photos</strong> to bring pictures onto the screen. You can load a few favorite pictures, a whole computer folder, Google Drive albums, or your exported PAF / GEDCOM (<code>.ged</code>) family tree file.',
+      badge: 'Lesson 1 of 6 • Step 1: Gather Sources',
+      title: 'Step 1: Load Your Photo Sources & PAF Family Tree',
+      shortTitle: '1. Gather Sources',
+      desc: 'Start in <strong>1. Gather Sources</strong> purely to bring your materials into the app. Load a few favorite pictures, a whole computer folder, Cloud albums, and your exported PAF / GEDCOM (<code>.ged</code>) family tree file.',
       bullets: [
-        '<strong>Pick Photo(s) or Scan Folder:</strong> Opens pictures from your computer or camera right away without copying them to any cloud server.',
-        '<strong>Load PAF / GEDCOM (.ged):</strong> Reads all names, birth/death dates, notes, and matches old PAF photo filenames to pictures you already loaded.',
-        '<strong>Stays Saved Automatically:</strong> Once you load your <code>.ged</code> file, the app remembers it — you will not have to reload it next time you visit.'
+        '<strong>Pick Photo(s) or Scan Folder:</strong> Opens pictures from your computer or camera without copying them to any cloud server.',
+        '<strong>Load PAF / GEDCOM (.ged):</strong> Imports <strong>all people</strong> (even 7,000+ or 100,000+ relatives), dates, notes, and original PAF photo filenames, and keeps your tree saved automatically across visits.',
+        '<strong>Then Move to Step 2:</strong> Matching, folder re-linking, and facial recognition happen next inside Step 2.'
       ],
-      tip: 'Your photos stay privately on your own computer during Step 1. Nothing is sent to FamilySearch until you choose to upload in Step 4.',
+      tip: 'Step 1 only loads your sources privately on your computer. Once your .ged tree and photos are loaded, click "Continue to Step 2: Identify, Re-Link & Tag".',
       screenshot: './help-screenshots/step-1-gather.png',
-      screenshotCaption: 'Step 1 Gather screen: choose photos, a folder, your PAF/GEDCOM tree, or Cloud storage.',
-      actionText: '📁 Go to Step 1: Gather Photos',
+      screenshotCaption: 'Step 1 Gather Sources screen: load photos, a folder, your PAF/GEDCOM (.ged) tree, or Cloud albums.',
+      actionText: '📁 Go to Step 1: Gather Sources',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('gather');
         highlightElement('#section-gather');
@@ -39,18 +39,18 @@
     {
       step: 2,
       stageNum: 2,
-      badge: 'Lesson 2 of 6 • Step 2: Identify Photos',
-      title: 'Step 2 (Photos): Name Faces, Dates & Stories',
-      shortTitle: '2A. Name Faces & Stories',
-      desc: 'In <strong>2. Identify &amp; Tag</strong>, click any photo row in the table (or switch to <strong>Contact sheet</strong> for big picture tiles) to view and edit its details on the right side.',
+      badge: 'Lesson 2 of 6 • Step 2: Identify & Face Match',
+      title: 'Step 2 (Photos): Facial Recognition, Name Faces & Stories',
+      shortTitle: '2A. Face Match & Ledger',
+      desc: 'In <strong>2. Identify, Re-Link &amp; Tag</strong>, click any photo row in the table (or switch to <strong>Contact sheet</strong>) to tag faces, check dates and places, or click <strong>🧠 Match Faces Across Photos</strong> to recognize unnamed relatives automatically.',
       bullets: [
-        '<strong>Blow Up &amp; Tag Faces:</strong> Zooms in large on group photos, draws face boxes, and remembers faces so it helps recognize relatives in later photos.',
-        '<strong>Pull from PAF / GEDCOM:</strong> Links a tagged person straight to their <code>🌳 PAF</code> record, copying birth/death dates, places, and notes.',
-        '<strong>Save Locally First:</strong> Enter the date, address, and story from the back of the print, then click the blue <strong>✓ Save Changes to Catalog</strong> button.'
+        '<strong>Blow Up &amp; Tag Faces:</strong> Zooms in large on group photos and learns each relative\'s face as soon as you tag them.',
+        '<strong>🧠 Match Faces Across Photos:</strong> Compares unnamed faces across your whole loaded batch against relatives you already tagged, shows side-by-side face crops, and asks you to <strong>Confirm &amp; Link to PAF</strong> with one click.',
+        '<strong>Pull from PAF / GEDCOM &amp; Save:</strong> Linking a relative copies their birth/death details from your <code>.ged</code> tree cleanly.'
       ],
-      tip: 'Need to switch views? Notice the 4 buttons near the top right: Ledger, Contact sheet, People / Tree, and Global Map.',
+      tip: 'Always confirm suggested face matches side-by-side so lookalike siblings or cousins are never mixed up!',
       screenshot: './help-screenshots/step-2-identify.png',
-      screenshotCaption: 'Step 2 Photo Ledger: click any photo row on the left to tag people and edit details on the right.',
+      screenshotCaption: 'Step 2 Photo Ledger: run Facial Recognition across photos or click any photo to tag relatives on the right.',
       actionText: '🏷️ Go to Step 2: Photo Ledger',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('catalog');
@@ -61,18 +61,18 @@
     {
       step: 3,
       stageNum: 2,
-      badge: 'Lesson 3 of 6 • Step 2: People / Tree',
-      title: 'Step 2 (People / Tree): Add or Link Photos to Any Relative',
-      shortTitle: '2B. Add Photos to PAF People',
-      desc: 'Want to start from a person in your family tree and attach photos directly to them? Click the <strong>People / Tree</strong> button inside Step 2.',
+      badge: 'Lesson 3 of 6 • Step 2: People / Tree & Re-Link',
+      title: 'Step 2 (People / Tree): Re-Link Folders & Browse Every Relative',
+      shortTitle: '2B. Re-Link & PAF People',
+      desc: 'Click <strong>People / Tree</strong> in Step 2 to see <strong>all imported relatives</strong> from your PAF / GEDCOM file, scan local folders or Google Drive for matching PAF filenames, or attach photos directly to anyone.',
       bullets: [
-        '<strong>See Matched Relatives First:</strong> Automatically shows people from your PAF / GEDCOM file who already have matched photos — click any thumbnail to edit or tag it on the right.',
-        '<strong>➕ Add Photo from Computer:</strong> Pick new photo file(s) from your computer for any relative. Those photos are added to your collection and automatically linked to their PAF/GEDCOM record!',
-        '<strong>🔗 Link Existing Photo:</strong> Already loaded a folder or Google Drive batch? Click this to attach any loaded photo directly to that person.'
+        '<strong>Browse All People (With Pagination):</strong> Switch easily between <strong>All People</strong>, <strong>With Linked Photos</strong>, <strong>Has PAF Photo Clue</strong>, and <strong>Needs a Photo</strong>, or search any relative by name and click <strong>Show 60 More People</strong>.',
+        '<strong>📁 Scan Local Folder / ☁️ Scan Google Drive:</strong> Scans folders on your computer or Google Drive against every filename and name in your <code>.ged</code> tree, importing and linking only matching PAF photos automatically.',
+        '<strong>➕ Add Photo from Computer / 🔗 Link Existing Photo:</strong> Attach new computer photos or already-loaded scans straight to any relative\'s PAF record.'
       ],
-      tip: 'Use the "With Photos", "Needs a Photo", and "All People" buttons at the top of People / Tree — or search any ancestor by name.',
+      tip: 'Loaded 7,000+ relatives in Step 1? Every single one is listed here in Step 2 -> People / Tree with linked relatives pinned at the top!',
       screenshot: './help-screenshots/step-2-people.png',
-      screenshotCaption: 'Step 2 People / Tree view: attach computer photos or existing batch photos straight to any relative.',
+      screenshotCaption: 'Step 2 People / Tree: scan local/Drive folders for PAF matches, run face recognition, or browse all imported people.',
       actionText: '🌳 Open Step 2: People / Tree View',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('catalog');
@@ -148,12 +148,20 @@
 
   const FAQS = [
     {
+      q: 'Why did Step 1 show 7,000+ people imported — where do I see everyone and scan my photo folders?',
+      a: 'Step 1 is strictly for loading your <code>.ged</code> file and photo sources. Once loaded, click <strong>Continue to Step 2: Identify, Re-Link &amp; Tag</strong> (or open <strong>People / Tree</strong> in Step 2). All imported relatives appear there with filter tabs (<strong>All People</strong>, <strong>With Linked Photos</strong>, <strong>Has PAF Photo Clue</strong>, <strong>Needs a Photo</strong>), a <strong>Show 60 More People</strong> button, and tools to <strong>📁 Scan Local Folder for PAF Matches</strong> or <strong>☁️ Scan Google Drive for PAF Matches</strong>.'
+    },
+    {
+      q: 'How does Facial Recognition help match relatives across photos and link to PAF?',
+      a: 'Whenever you tag a face in a photo (using <strong>Blow Up &amp; Tag Faces</strong> or single-person portrait tags), the app learns that relative locally in your browser. Click <strong>🧠 Match Faces Across Photos</strong> in Step 2 to compare unnamed faces across your album, inspect side-by-side face crops, and click <strong>✓ Confirm &amp; Link to PAF</strong> to save the tag and connect them to your PAF/GEDCOM tree.'
+    },
+    {
       q: 'How do I add new photos straight to someone in my PAF / GEDCOM tree?',
-      a: 'Go to <strong>Step 2: Identify &amp; Tag</strong> and click the <strong>People / Tree</strong> view tab (top right of the table). Search or scroll to the relative you want, then click <strong>➕ Add Photo from Computer</strong> (to pick picture files from your PC) or <strong>🔗 Link Existing Photo</strong> (to pick a photo already open in this app). It links that photo directly to their PAF record!'
+      a: 'Go to <strong>Step 2: Identify, Re-Link &amp; Tag</strong> and click the <strong>People / Tree</strong> view tab (top right of the table). Search or scroll to the relative you want, then click <strong>➕ Add Photo from Computer</strong> (to pick picture files from your PC) or <strong>🔗 Link Existing Photo</strong> (to pick a photo already open in this app). It links that photo directly to their PAF record!'
     },
     {
       q: 'If I tag someone on a photo first, does it connect to my PAF / GEDCOM tree?',
-      a: 'Yes! When a <code>.ged</code> file is loaded, typing a relative\'s name in the right panel under <strong>Tag an Individual</strong> shows matching PAF tree suggestions you can click to link immediately, and tagging a face in <strong>Blow Up &amp; Tag Faces</strong> also auto-links matching PAF records. Linked people display a green <code>🌳 PAF</code> badge.'
+      a: 'Yes! When a <code>.ged</code> file is loaded, typing a relative\'s name in the right panel under <strong>Tag an Individual</strong> shows matching PAF tree suggestions you can click to link immediately, and tagging a face in <strong>Blow Up &amp; Tag Faces</strong> or confirming a match in <strong>🧠 Match Faces Across Photos</strong> also auto-links matching PAF records. Linked people display a green <code>🌳 PAF</code> badge.'
     },
     {
       q: 'Will I lose my PAF file or FamilySearch progress when I close the browser?',
