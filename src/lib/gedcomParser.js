@@ -58,10 +58,10 @@ export function gedDateToIso(dateStr) {
   return yr ? `${yr}-01-01` : '';
 }
 
-export async function parseGedcomFile(file, onProgress = null) {
-  if (onProgress) onProgress({ stage: 'Reading GEDCOM file...', pct: 5 });
-  const text = await file.text();
-  const lines = text.split(/\r?\n/);
+export async function parseGedcomText(text, fileName = 'family-tree.ged', onProgress = null) {
+  if (onProgress) onProgress({ stage: 'Reading GEDCOM data...', pct: 5 });
+  const raw = String(text || '');
+  const lines = raw.split(/\r?\n/);
   const totalLines = lines.length;
 
   const peopleById = new Map();
@@ -339,7 +339,7 @@ export async function parseGedcomFile(file, onProgress = null) {
   if (onProgress) onProgress({ stage: 'Complete', pct: 100 });
 
   return {
-    fileName: file.name,
+    fileName: fileName || 'family-tree.ged',
     peopleById,
     peopleList,
     peopleByFullNorm,
@@ -350,6 +350,16 @@ export async function parseGedcomFile(file, onProgress = null) {
     fileIndexByName,
     fileIndexByStem,
     fileIndexByNorm
+  };
+}
+
+export async function parseGedcomFile(file, onProgress = null) {
+  if (onProgress) onProgress({ stage: 'Reading GEDCOM file...', pct: 5 });
+  const text = await file.text();
+  const parsed = await parseGedcomText(text, file.name, onProgress);
+  return {
+    ...parsed,
+    rawText: text
   };
 }
 

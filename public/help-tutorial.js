@@ -122,23 +122,22 @@
     {
       step: 6,
       badge: 'Step 6 of 7 • Archival Preservation',
-      title: 'One-Click "Save to File" Preserves Everything',
-      shortTitle: 'Unified Save to File',
-      desc: 'Never worry about keeping database backups or losing your work. The single <strong>💾 Save to File</strong> button accomplishes three essential preservation tasks at once:',
+      title: 'Step 2 Saves Locally · Step 4 Saves, Exports & Syncs',
+      shortTitle: 'Save, Export & Sync',
+      desc: 'In Step 2 (Identify & Tag), click <strong>✓ Save Changes to Catalog</strong> to save everything locally. When ready to upload or download files, move to <strong>Step 4: Save &amp; Share</strong>:',
       bullets: [
-        '<strong>1. Local Catalog Persistence:</strong> Saves the record permanently in your browser\'s local storage so all metadata, pins, and tags reload automatically.',
-        '<strong>2. JPEG Header Metadata Baking:</strong> Embeds XMP (Dublin Core), IPTC, and EXIF tags directly inside the downloaded JPEG image file. Person names, PIDs, GPS coordinates, dates, and historical stories now travel inside the photo forever.',
-        '<strong>3. FamilySearch Memories Sync:</strong> Uploads the photo artifact directly to FamilySearch Beta Memories linked to the tagged relative\'s PID.'
+        '<strong>1. Persistent PAF / GEDCOM Sync Queue:</strong> Your loaded <code>.ged</code> family tree and synced relatives stay saved automatically so you can pick up right where you left off.',
+        '<strong>2. JPEG Header Metadata Baking:</strong> Export standalone JPEGs with XMP, IPTC, and EXIF names, PIDs, GPS coordinates, dates, and historical stories baked inside.',
+        '<strong>3. FamilySearch Memories &amp; Drive Backup Verify:</strong> Upload photos linked to tagged relatives on FamilySearch Beta or verify local folders against Google Drive.'
       ],
-      tip: 'Because the metadata is baked into the JPEG file, anyone who opens the photo in Windows, Mac, Photoshop, or Google Photos can read the full family history.',
+      tip: 'Because metadata is baked into exported JPEGs, anyone who opens the photo in Windows, Mac, or FamilySearch can read the full family history.',
       screenshot: './help-screenshots/step-6-save.png',
-      screenshotCaption: 'Sync & Export Hub: bake XMP/IPTC metadata and upload directly to FamilySearch.',
-      actionText: '💾 View "Save to File" Button',
+      screenshotCaption: 'Step 4 Save & Share: resume PAF/GEDCOM syncing, upload photos, bake EXIF/IPTC metadata, and verify backups.',
+      actionText: '💾 View Step 4: Save & Share',
       actionId: 'action-step-6',
       runAction: (app) => {
-        if (app && app.setMode) app.setMode('catalog');
-        if (app && app.selectPhoto) app.selectPhoto('FH-001');
-        highlightElement('#btn-insp-save-file');
+        if (app && app.setMode) app.setMode('sync');
+        highlightElement('#section-sync');
       }
     },
     {
@@ -175,8 +174,8 @@
       a: 'Click "Sign in: FamilySearch" in the top bar to connect via OAuth2 to <code>beta.familysearch.org</code>. When you add or edit a relative\'s name on a photo, the app live-queries your tree and auto-fills their Person ID (PID, such as <code>BM6T-WQ5</code>). If multiple relatives share that name, a dropdown lets you pick the right ancestor. You can also paste or type a PID manually at any time.'
     },
     {
-      q: 'Where is my information saved? Will I lose it on refresh?',
-      a: 'No! All changes are automatically persisted in your browser\'s local storage (<code>fhp_saved_metadata_catalog</code>). Furthermore, clicking the unified <strong>💾 Save to File</strong> button bakes all people, PIDs, dates, GPS coordinates, and historical notes directly into the JPEG file\'s XMP and EXIF headers, so the information stays permanently with the image file itself.'
+      q: 'Where is my information saved? Will I lose my PAF tree or sync progress on refresh?',
+      a: 'No! All photo changes, your loaded PAF / GEDCOM (<code>.ged</code>) tree, and the list of relatives you have already synced to FamilySearch Beta are saved automatically in browser storage (<code>IndexedDB</code> + <code>localStorage</code>) so you can pick up right where you left off. In Step 4 (Save &amp; Share), exporting a JPEG also bakes all names, PIDs, GPS coordinates, dates, and stories inside the image file itself.'
     },
     {
       q: 'How do the 6 AI Photo Lab restoration tools work?',

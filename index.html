@@ -2102,6 +2102,54 @@
       gap: 12px;
     }
 
+    .sync-card-wide {
+      grid-column: 1 / -1;
+      border-width: 1.5px;
+      border-color: #93c5fd;
+    }
+
+    .ged-resume-bar {
+      background: #eff6ff;
+      border: 1.5px solid #93c5fd;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .ged-progress-track {
+      height: 8px;
+      width: 100%;
+      max-width: 340px;
+      background: #dbeafe;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .ged-progress-fill {
+      height: 100%;
+      background: #16a34a;
+      border-radius: 999px;
+      transition: width 0.2s ease;
+    }
+
+    .ged-sync-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .ged-filter-pill[aria-pressed="true"] {
+      background: #1d4ed8;
+      color: #ffffff;
+      border-color: #1e40af;
+    }
+
     .sync-head {
       display: flex;
       align-items: flex-start;
@@ -2685,23 +2733,21 @@
       </div>
 
       <div class="folder-picker-box">
+        <div class="group-label" style="margin:0 0 2px;padding:0 2px;">Step 1: Quick Gather</div>
         <button class="btn primary folder-pick-btn btn-pick-1-5" type="button" id="btn-pick-1-5" title="Pick individual photo(s) from your computer or phone">
           <span data-icon="grid"></span><span>Pick Photo(s) (1–5)...</span>
         </button>
         <button class="btn folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
-        <button class="btn folder-pick-btn" type="button" id="btn-open-gedcom-hub" title="Import a .ged (PAF export) to re-link broken photo paths & sync people to FamilySearch Beta">
-          <span data-icon="tree"></span><span>PAF / GEDCOM (.ged)...</span>
+        <button class="btn folder-pick-btn" type="button" id="btn-open-gedcom-hub" title="Load a PAF / GEDCOM (.ged) family tree &amp; re-link broken photo filenames">
+          <span data-icon="tree"></span><span>PAF / GEDCOM (.ged)...</span><span id="sidebar-ged-badge" class="nav-count" style="margin-left:auto;background:#dcfce7;color:#166534;display:none;">✓</span>
         </button>
         <details id="sidebar-utilities" style="margin-top:4px;">
-          <summary style="font-size:11.5px;color:var(--muted);cursor:pointer;padding:4px 2px;font-weight:600;user-select:none;">⚙️ Cloud &amp; Drive Utilities</summary>
+          <summary style="font-size:11.5px;color:var(--muted);cursor:pointer;padding:4px 2px;font-weight:600;user-select:none;">☁️ Cloud Import &amp; Demo Controls</summary>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
             <button class="btn folder-pick-btn" type="button" id="btn-open-cloud-hub" title="Connect Google Drive, Google Photos, OneDrive, or iCloud / ZIP without using hard drive space">
               <span data-icon="spark"></span><span>Import from Cloud...</span>
-            </button>
-            <button class="btn folder-pick-btn desktop-only" type="button" id="btn-open-drive-sync" title="Compare a local folder against Google Drive using MD5 checksums, upload missing files, or trash cloud-only files">
-              <span data-icon="copy"></span><span>Drive Verify &amp; Sync...</span>
             </button>
             <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
               ✕ Clear Demo Photos
@@ -3804,6 +3850,11 @@
       let selectedId = 'FH-002';   // Start on a vintage 640x480 scan ready for repairs
       let fsUser = null;           // null when signed out, { name, pid } when signed in via FamilySearch OAuth2
       let pendingFsUploadPhoto = null;
+      const GEDCOM_SYNC_LEDGER_KEY = 'fhp_gedcom_sync_ledger';
+      let gedSyncFilter = 'unsynced'; // 'unsynced' | 'synced' | 'all'
+      let gedSyncRelinkedOnly = null; // null = auto-default to re-linked photos when present
+      let gedSyncSearchQuery = '';
+      let gedcomRestoreStarted = false;
 
       /* Photo Lab interactive states */
       let activeTool = 'restore';  // 'restore' | 'color' | 'tone' | 'crop' | 'erase' | 'redeye'
@@ -3900,6 +3951,7 @@
             fsId: p.fsId,
             fsSynced: p.fsSynced,
             fsMemoryId: p.fsMemoryId,
+            fsSyncedAt: p.fsSyncedAt,
             rotation: p.rotation,
             straighten: p.straighten,
             flipH: p.flipH,
@@ -4092,6 +4144,7 @@
               if (saved.fsId) p.fsId = saved.fsId;
               if (typeof saved.fsSynced === 'boolean') p.fsSynced = saved.fsSynced;
               if (saved.fsMemoryId) p.fsMemoryId = saved.fsMemoryId;
+              if (typeof saved.fsSyncedAt === 'number') p.fsSyncedAt = saved.fsSyncedAt;
               if (typeof saved.rotation === 'number') p.rotation = saved.rotation;
               if (typeof saved.straighten === 'number') p.straighten = saved.straighten;
               if (typeof saved.flipH === 'boolean') p.flipH = saved.flipH;
@@ -4427,12 +4480,17 @@
           if (!db) return;
           const tx = db.transaction([DB_STORE, DB_META], 'readwrite');
           tx.objectStore(DB_STORE).clear();
+          const metaStore = tx.objectStore(DB_META);
           if (options && options.keepDemoCleared) {
-            tx.objectStore(DB_META).put({ key: 'demoCleared', value: true });
-            tx.objectStore(DB_META).put({ key: 'isCustom', value: true });
-            tx.objectStore(DB_META).delete('folder');
+            metaStore.put({ key: 'demoCleared', value: true });
+            metaStore.put({ key: 'isCustom', value: true });
+            metaStore.delete('folder');
           } else {
-            tx.objectStore(DB_META).clear();
+            // Preserve persisted GEDCOM tree, sync ledger, and metadata catalog across photo batch resets
+            metaStore.delete('folder');
+            metaStore.delete('isCustom');
+            metaStore.delete('demoCleared');
+            metaStore.delete('lastSaved');
           }
         } catch (e) {
           console.warn('Could not clear IndexedDB archive:', e);
@@ -5133,6 +5191,16 @@
         document.getElementById('sidebar-folder-name').textContent = rootFolderName;
         document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
         document.getElementById('btn-reset-sample').hidden = !isCustomFolder;
+        const gedBadge = document.getElementById('sidebar-ged-badge');
+        if (gedBadge) {
+          if (window._activeGedcomData) {
+            gedBadge.style.display = 'inline-block';
+            gedBadge.textContent = '✓';
+            gedBadge.title = `PAF / GEDCOM loaded: ${window._activeGedcomData.fileName || 'Tree'}`;
+          } else {
+            gedBadge.style.display = 'none';
+          }
+        }
 
         const toggleDemoBtn = document.getElementById('btn-toggle-demo');
         const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
@@ -7888,8 +7956,8 @@
             <button class="btn sm" type="button" id="insp-scan-faces" title="Scan photo for all faces, blow up photo, and run Face Recognition">
               <span data-icon="users"></span><span>${p.faces && p.faces.length > 0 ? `Faces (${p.faces.length})` : 'Scan Faces'}</span>
             </button>
-            <button class="btn sm primary" type="button" id="insp-open-lab">
-              <span data-icon="sliders"></span><span>Open in Photo Lab</span>
+            <button class="btn sm" type="button" id="insp-open-lab" title="Go to Step 3: Photo Lab to repair, colorize, or sharpen this photo">
+              <span data-icon="sliders"></span><span>Step 3: Photo Lab →</span>
             </button>
           </div>
 
@@ -7977,6 +8045,7 @@
               <label style="margin:0;font-weight:600;font-size:13px;">Relatives in print (${p.people.length})</label>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="link-btn" id="btn-insp-pull-gedcom" style="font-size:11.5px;color:var(--accent);text-decoration:underline;cursor:pointer;font-weight:600;" title="Search loaded PAF/GEDCOM tree to populate relative details, dates, places &amp; story">🌳 Pull from PAF / GEDCOM</button>
+                ${p.people.length > 0 ? `<button type="button" class="link-btn" id="btn-insp-clear-tags" style="font-size:11.5px;color:#b91c1c;text-decoration:underline;cursor:pointer;font-weight:600;" title="Clear wrong or placeholder relative tags from this photo">✕ Clear Tags</button>` : ''}
                 ${p.faces && p.faces.length > 0
                   ? `<span class="pill info" style="font-size:11.5px;">${p.faces.length} face${p.faces.length > 1 ? 's' : ''} detected</span>`
                   : (p.unnamedFaces > 0 ? `<span class="pill warn" style="font-size:11.5px;">${p.unnamedFaces} unnamed face${p.unnamedFaces > 1 ? 's' : ''}</span>` : '')}
@@ -8051,15 +8120,15 @@
             <textarea id="f-story" placeholder="Write who is here, what happened, or transcribe pencil notes from the back...">${esc(p.story)}</textarea>
           </div>
 
+          ${p.fsSynced ? `
+            <div style="margin-top:8px;">
+              <span class="pill pos" style="font-size:12px;padding:4px 9px;">✓ Synced to FamilySearch Beta${p.fsMemoryId ? ` (Memory #${esc(p.fsMemoryId)})` : ''}</span>
+            </div>
+          ` : ''}
+
           <div class="insp-btn-actions">
-            <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves edits to this app's local catalog (use Export JPEG to write metadata into a standalone .jpg file)">
-              ✓ Update Record
-            </button>
-            <button class="btn insp-btn-share" type="button" id="btn-share-photo" title="Share photo via Messages, Mail, AirDrop, or copy image/link">
-              <span data-icon="share"></span><span>Share</span>
-            </button>
-            <button class="btn insp-btn-export" type="button" id="btn-download-file" title="Export and download a standalone JPEG copy with embedded EXIF &amp; IPTC tags to your computer">
-              <span data-icon="download"></span><span>Export JPEG</span>
+            <button class="btn primary insp-btn-update" type="button" id="btn-update-record" title="Saves edits to this app's local catalog">
+              ✓ Save Changes to Catalog
             </button>
             ${p.inReview
               ? `<button class="btn primary" type="button" id="btn-restore-review" title="Restore this photo back to active album">✓ Restore to Album</button>`
@@ -8069,19 +8138,38 @@
             </button>
           </div>
 
-          <div class="insp-sync-actions">
-            <button class="btn sm btn-fill primary" type="button" id="btn-insp-compare-sync" title="Compare photo &amp; GEDCOM metadata against FamilySearch Beta and sync both facts and photo">
-              ⚖️ Compare &amp; Sync to FamilySearch
-            </button>
-            <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : ''}" type="button" id="btn-insp-fs" title="${p.fsSynced ? 'Open this uploaded photo on FamilySearch Beta Memories, or re-upload an updated copy' : 'Upload only this photo and its face tags to FamilySearch Beta Memories'}">
-              ${p.fsSynced
-                ? `✓ View FS Memory${p.fsMemoryId ? ` #${esc(p.fsMemoryId)}` : ''} ↗`
-                : (p.fsId ? (p.fsId.includes(',') ? `Upload Photo Only (${p.fsId.split(',').length} Relatives)` : `Upload Photo Only (${esc(p.fsId)})`) : (fsUser ? 'Upload Photo Only' : 'Sign in & Upload Photo'))}
-            </button>
-            <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
-              Copy citation
-            </button>
+          <div style="margin-top:10px;padding:10px;border-radius:8px;background:#f8fafc;border:1.5px solid #cbd5e1;display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:12px;font-weight:700;color:#1e293b;">Done tagging this photo? Move to the next step:</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn sm" type="button" id="btn-insp-next-lab" style="flex:1;justify-content:center;">Step 3: Restore Photo →</button>
+              <button class="btn sm success" type="button" id="btn-insp-next-sync" style="flex:1;justify-content:center;">Step 4: Save &amp; Upload →</button>
+            </div>
           </div>
+
+          <details id="insp-quick-step4" style="margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:var(--raised);">
+            <summary style="font-size:12.5px;font-weight:600;color:#1e3a8a;cursor:pointer;user-select:none;">⚡ Quick Step 4 Actions for This Photo</summary>
+            <div class="insp-sync-actions" style="margin-top:8px;">
+              <button class="btn sm btn-fill primary" type="button" id="btn-insp-compare-sync" title="Compare photo &amp; GEDCOM metadata against FamilySearch Beta and sync both facts and photo">
+                ⚖️ Compare &amp; Sync to FamilySearch
+              </button>
+              <button class="btn sm btn-fill ${p.fsSynced ? 'btn-synced' : ''}" type="button" id="btn-insp-fs" title="${p.fsSynced ? 'Open this uploaded photo on FamilySearch Beta Memories, or re-upload an updated copy' : 'Upload only this photo and its face tags to FamilySearch Beta Memories'}">
+                ${p.fsSynced
+                  ? `✓ View FS Memory${p.fsMemoryId ? ` #${esc(p.fsMemoryId)}` : ''} ↗`
+                  : (p.fsId ? (p.fsId.includes(',') ? `Upload Photo Only (${p.fsId.split(',').length} Relatives)` : `Upload Photo Only (${esc(p.fsId)})`) : (fsUser ? 'Upload Photo Only' : 'Sign in & Upload Photo'))}
+              </button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+              <button class="btn sm insp-btn-export" type="button" id="btn-download-file" style="flex:1;justify-content:center;" title="Export and download a standalone JPEG copy with embedded EXIF &amp; IPTC tags to your computer">
+                <span data-icon="download"></span><span>Export JPEG</span>
+              </button>
+              <button class="btn sm insp-btn-share" type="button" id="btn-share-photo" style="flex:1;justify-content:center;" title="Share photo via Messages, Mail, AirDrop, or copy image/link">
+                <span data-icon="share"></span><span>Share</span>
+              </button>
+              <button class="btn sm" type="button" id="btn-insp-cite" title="Copy formatted caption & citation for Ancestry.com or MyHeritage">
+                Copy citation
+              </button>
+            </div>
+          </details>
           <div class="mob-inspector-spacer mob-only" style="height:60px;width:100%;pointer-events:none;" aria-hidden="true"></div>
         `;
             mountIcons(box);
@@ -9058,6 +9146,51 @@
             if (updateRecordBtn) {
               updateRecordBtn.onclick = () => {
                 commitInspectorInputs(p, true);
+                render();
+              };
+            }
+
+            const inspNextLabBtn = box.querySelector('#btn-insp-next-lab');
+            if (inspNextLabBtn) {
+              inspNextLabBtn.onclick = () => {
+                commitInspectorInputs(p, false);
+                if (isMobile()) closeMobileInspector();
+                openPhotoLab(p.id, 'restore');
+              };
+            }
+
+            const inspNextSyncBtn = box.querySelector('#btn-insp-next-sync');
+            if (inspNextSyncBtn) {
+              inspNextSyncBtn.onclick = () => {
+                commitInspectorInputs(p, false);
+                if (isMobile()) closeMobileInspector();
+                mode = 'sync';
+                render();
+              };
+            }
+
+            const inspClearTagsBtn = box.querySelector('#btn-insp-clear-tags');
+            if (inspClearTagsBtn) {
+              inspClearTagsBtn.onclick = async () => {
+                if (!window.confirm(`Remove all ${p.people.length} tagged relative(s) from ${p.title || p.file || p.id}?`)) return;
+                p.people = [];
+                p.fsId = '';
+                if (Array.isArray(p.faces)) {
+                  p.faces.forEach((fc) => {
+                    if (fc) {
+                      delete fc.name;
+                      fc.fsId = '';
+                      fc.confirmed = false;
+                      fc.recognized = false;
+                    }
+                  });
+                }
+                p.unnamedFaces = (p.faces || []).filter((fc) => !(fc && fc.name && fc.name.trim())).length;
+                saveItemMetadata(p);
+                if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                  await saveArchiveToDb(items, rootFolderName);
+                }
+                notify(`Cleared tagged relatives on ${p.title || p.id}.`);
                 render();
               };
             }
@@ -13484,6 +13617,7 @@
                                     if (result && result.success) {
                                       p.fsSynced = true;
                                       p.fsMemoryId = result.memoryId;
+                                      p.fsSyncedAt = Date.now();
                                       if (result.dateInfo && result.dateInfo.iso && (!p.isoDate || p.isoDate !== result.dateInfo.iso)) {
                                         p.isoDate = result.dateInfo.iso;
                                         if (result.dateInfo.decade) p.decade = result.dateInfo.decade;
@@ -13492,6 +13626,7 @@
                                         p.place = result.placeInfo.fullName;
                                       }
                                       saveItemMetadata(p);
+                                      reconcileGedcomSyncLedgerFromItems([p]);
 
                                       const linkedCount = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.length : (p.people && p.people.length > 0 ? p.people.length : 1);
                                       const pidSummary = (result.linkedPids && result.linkedPids.length > 0) ? result.linkedPids.join(', ') : (p.fsId || '');
@@ -13643,18 +13778,24 @@
                                 }
 
                                 function formatExportFilename(p) {
+                                  if (!p) return 'Family_Photo.jpg';
                                   const dt = p.isoDate || 'Undated';
-                                  const slug = p.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 34);
-                                  return `${dt}_${p.branch}_${slug}.jpg`;
+                                  const slug = (p.title || 'Photo').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 34);
+                                  return `${dt}_${p.branch || 'Family'}_${slug}.jpg`;
                                 }
 
                                 function formatCitation(p) {
-                                  const who = p.people.length ? p.people.map((x) => x.name).join(', ') : 'Unidentified relatives';
+                                  if (!p) return '';
+                                  const who = (Array.isArray(p.people) && p.people.length) ? p.people.map((x) => x.name).join(', ') : 'Unidentified relatives';
                                   const story = p.story || 'Transcribed from family archive print.';
-                                  return `${p.title} (${p.isoDate || 'Undated'}) — ${p.place || 'Location unrecorded'}. Relatives: ${who}. Notes: ${story}`;
+                                  return `${p.title || p.id} (${p.isoDate || 'Undated'}) — ${p.place || 'Location unrecorded'}. Relatives: ${who}. Notes: ${story}`;
                                 }
 
                                 function copyCitation(p) {
+                                  if (!p) {
+                                    notify('Select a photo first to copy its citation.');
+                                    return;
+                                  }
                                   const text = formatCitation(p);
                                   if (navigator.clipboard && navigator.clipboard.writeText) {
                                     navigator.clipboard.writeText(text).catch(() => { });
@@ -13664,144 +13805,230 @@
 
                                 function renderSyncHub() {
                                   const host = document.getElementById('sync-hub-host');
+                                  if (!host) return;
                                   const p = currentPhoto();
                                   const active = items.filter((x) => !x.inReview);
                                   const unsynced = active.filter((x) => !x.fsSynced);
-                                  const syncedCount = active.length - unsynced.length;
+                                  const syncedPhotos = active.filter((x) => x.fsSynced);
+                                  const syncedCount = syncedPhotos.length;
+                                  const gd = window._activeGedcomData;
+                                  if (gd) reconcileGedcomSyncLedgerFromItems(items);
 
                                   host.innerHTML = `
           <div class="sync-grid">
-            <!-- SITE 1: FAMILYSEARCH.ORG (OFFICIAL OAUTH2 + MEMORIES API) -->
-            <article class="sync-card">
+            <!-- 1. PAF / GEDCOM -> FAMILYSEARCH BETA SYNC (PICK UP WHERE YOU LEFT OFF) -->
+            <article class="sync-card sync-card-wide">
               <div class="sync-head">
                 <div>
-                  <h2 class="sync-title">1. FamilySearch.org</h2>
-                  <div class="mono muted">Direct Tree &amp; Memories REST API</div>
+                  <h2 class="sync-title">1. PAF / GEDCOM → FamilySearch Beta Sync (Pick Up Where You Left Off)</h2>
+                  <div class="muted" style="font-size:13px;">Compare your saved family tree and photos against FamilySearch Beta. People you already synced stay remembered so you can pick up right where you stopped.</div>
                 </div>
-                <span class="pill pos">Official API</span>
+                <span class="pill ${fsUser ? 'pos' : 'warn'}">${fsUser ? `Connected: ${esc(fsUser.name)}` : 'Sign in required'}</span>
               </div>
-              <p class="sync-desc">
-                FamilySearch provides an official OAuth2 PKCE login and Memories API. Sign in once to upload 4K-restored prints, ISO dates, stories, and person tags directly from this workspace.
-              </p>
 
               <div class="sync-box">
                 ${fsUser ? `
-                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
                     <div>
-                      <div style="font-weight:600;color:var(--pos);">Connected: ${esc(fsUser.name)}</div>
-                      <div class="mono muted">Tree Person ID: ${esc(fsUser.pid)} · OAuth2 token active</div>
+                      <div style="font-weight:700;color:var(--pos);font-size:13.5px;">✓ Connected to FamilySearch Beta: ${esc(fsUser.name)}</div>
+                      <div class="mono muted">Tree Person ID: ${esc(fsUser.pid || 'Signed in')} · OAuth2 session active</div>
                     </div>
                     <button class="btn sm" type="button" id="btn-sync-signout">Sign out</button>
                   </div>
                 ` : `
-                  <div style="margin-bottom:8px;">
-                    <div style="font-weight:600;">Not signed in to FamilySearch</div>
-                    <div class="muted">Redirects securely to ident.familysearch.org (no password stored locally).</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:700;font-size:14px;">Sign in to FamilySearch Beta to compare &amp; upload</div>
+                      <div class="muted">Redirects securely to FamilySearch (no password stored locally).</div>
+                    </div>
+                    <button class="btn primary" type="button" id="btn-sync-signin">Sign in to FamilySearch Beta</button>
                   </div>
-                  <button class="btn primary" type="button" id="btn-sync-signin" style="width:100%;">
-                    Sign in to FamilySearch.org
-                  </button>
                 `}
-                <div style="margin-top:8px;font-size:11px;background:var(--ground);padding:6px 8px;border-radius:6px;border:1px solid var(--border);">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+                <details style="margin-top:8px;font-size:11.5px;background:var(--ground);padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+                  <summary style="cursor:pointer;font-weight:600;color:var(--muted);user-select:none;">⚙️ FamilySearch Redirect URI Settings</summary>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0 4px;gap:6px;flex-wrap:wrap;">
                     <span style="font-weight:600;color:var(--text);">OAuth Redirect URI:</span>
                     <div style="display:flex;gap:4px;">
-                      <button type="button" class="btn sm" id="btn-fs-noslash" style="font-size:10px;padding:1px 6px;">No Slash</button>
-                      <button type="button" class="btn sm" id="btn-fs-slash" style="font-size:10px;padding:1px 6px;">With Slash (/)</button>
+                      <button type="button" class="btn sm" id="btn-fs-noslash" style="font-size:11px;padding:1px 8px;height:26px;">No Slash</button>
+                      <button type="button" class="btn sm" id="btn-fs-slash" style="font-size:11px;padding:1px 8px;height:26px;">With Slash (/)</button>
                     </div>
                   </div>
-                  <code style="font-size:10px;word-break:break-all;color:var(--muted);">${window.FamilySearchClient ? esc(window.FamilySearchClient.getRedirectUri()) : ''}</code>
-                </div>
+                  <code style="font-size:10.5px;word-break:break-all;color:var(--muted);">${window.FamilySearchClient ? esc(window.FamilySearchClient.getRedirectUri()) : ''}</code>
+                </details>
               </div>
 
-              <div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                  <span class="mono muted">Memories queue (${unsynced.length} pending · ${syncedCount} synced)</span>
+              ${gd ? `
+                <div class="ged-resume-bar" id="ged-resume-bar">
+                  <div style="min-width:240px;flex:1;">
+                    <div style="font-size:13.5px;font-weight:700;color:#0f172a;">
+                      🌳 Auto-Saved Tree: <span>${esc(gd.fileName || 'family-tree.ged')}</span>
+                      <span class="mono muted" style="font-size:12px;font-weight:500;">(${gd.peopleList.length.toLocaleString()} people)</span>
+                    </div>
+                    <div id="ged-resume-summary" style="font-size:13.5px;color:#1e3a8a;font-weight:600;margin-top:3px;">Calculating sync progress...</div>
+                    <div class="ged-progress-track"><div class="ged-progress-fill" id="ged-progress-fill" style="width:0%;"></div></div>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button type="button" class="btn success" id="btn-ged-resume-next">▶ Pick Up Where I Left Off</button>
+                  </div>
                 </div>
+
+                <div class="ged-sync-filter-row">
+                  <button type="button" class="btn sm ged-filter-pill" data-ged-filter="unsynced" aria-pressed="${gedSyncFilter === 'unsynced' ? 'true' : 'false'}">Not Synced Yet</button>
+                  <button type="button" class="btn sm ged-filter-pill" data-ged-filter="synced" aria-pressed="${gedSyncFilter === 'synced' ? 'true' : 'false'}">Already Synced</button>
+                  <button type="button" class="btn sm ged-filter-pill" data-ged-filter="all" aria-pressed="${gedSyncFilter === 'all' ? 'true' : 'false'}">All</button>
+                  <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:4px;font-weight:600;color:#1e293b;">
+                    <input type="checkbox" id="chk-sync-ged-relinked">
+                    <span id="chk-sync-ged-relinked-lbl">Re-Linked Photos Only</span>
+                  </label>
+                  <input type="search" id="inp-sync-ged-search" value="${esc(gedSyncSearchQuery)}" placeholder="Search relative by name..." style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;background:var(--surface);">
+                </div>
+
+                <div id="sync-ged-results" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface);"></div>
+
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;padding-top:4px;">
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button type="button" class="btn sm" id="btn-sync-ged-export-meta">💾 Export Matched JPEGs w/ Metadata</button>
+                    <span id="sync-ged-export-status" class="muted" style="font-size:12px;"></span>
+                  </div>
+                  <button type="button" class="btn sm" id="btn-sync-open-ged-loader">🌳 Switch / Re-Link .ged File (Step 1)</button>
+                </div>
+              ` : `
+                <div class="sync-box" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                  <div>
+                    <div style="font-weight:700;font-size:14px;">No PAF / GEDCOM (.ged) family tree loaded yet</div>
+                    <div class="muted" style="margin-top:2px;">Load your <code>.ged</code> file once in Step 1 to sync relatives person-by-person here and save your progress across sessions.</div>
+                  </div>
+                  <button type="button" class="btn primary" id="btn-sync-open-ged-loader">🌳 Load PAF / GEDCOM (.ged) File</button>
+                </div>
+              `}
+            </article>
+
+            <!-- 2. UPLOAD ACTIVE PHOTOS TO FAMILYSEARCH MEMORIES -->
+            <article class="sync-card">
+              <div class="sync-head">
+                <div>
+                  <h2 class="sync-title">2. Upload Photos to FamilySearch Memories</h2>
+                  <div class="mono muted">${unsynced.length} pending · ${syncedCount} uploaded</div>
+                </div>
+                <span class="pill pos">Official API</span>
+              </div>
+              <p class="sync-desc">
+                Upload individual or batch family photos (with dates, places, stories, and face tags) straight to FamilySearch Beta Memories.
+              </p>
+
+              <div style="max-height:250px;overflow-y:auto;">
                 ${unsynced.length ? unsynced.map((item) => `
                   <div class="sync-queue-row">
-                    <div style="min-width:0;">
-                      <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.id)} · ${esc(item.title)}</div>
+                    <div style="min-width:0;flex:1;">
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.id)} · ${esc(item.title)}</div>
                       <div class="mono muted">${esc(item.isoDate || 'Undated')} · ${item.people.length} tagged</div>
                     </div>
-                    <button class="btn sm" type="button" data-fs-one="${esc(item.id)}">Upload</button>
+                    <div style="display:flex;gap:4px;flex-shrink:0;">
+                      <button class="btn sm" type="button" data-fs-compare="${esc(item.id)}" title="Compare person &amp; photo against FamilySearch Beta">⚖️ Compare</button>
+                      <button class="btn sm primary" type="button" data-fs-one="${esc(item.id)}">Upload</button>
+                    </div>
                   </div>
-                `).join('') : `<div class="sync-box" style="color:var(--pos);font-weight:500;">All ${active.length} active prints are synced to FamilySearch Memories.</div>`}
+                `).join('') : `<div class="sync-box" style="color:var(--pos);font-weight:600;">✓ All ${active.length} active photos are uploaded to FamilySearch Memories.</div>`}
               </div>
 
               ${unsynced.length ? `
                 <button class="btn accent" type="button" id="btn-fs-upload-all">
-                  ${fsUser ? `Upload all ${unsynced.length} pending prints` : `Sign in & upload all ${unsynced.length} prints`}
+                  ${fsUser ? `Upload All ${unsynced.length} Pending Photos` : `Sign in &amp; Upload ${unsynced.length} Photos`}
                 </button>
               ` : ''}
               ${p && p.fsSynced ? `
-                <button class="btn sm" type="button" id="btn-fs-resync-selected" style="margin-top:6px;width:100%;">
-                  ↻ Re-upload / Update Selected Photo (${esc(p.id)}) on FamilySearch
+                <button class="btn sm" type="button" id="btn-fs-resync-selected" style="width:100%;">
+                  ↻ Re-upload Selected Photo (${esc(p.id)}) to FamilySearch
                 </button>
+              ` : ''}
+              ${syncedPhotos.length ? `
+                <details style="margin-top:4px;font-size:12px;">
+                  <summary style="cursor:pointer;font-weight:600;color:#166534;user-select:none;">✓ Already Uploaded Photos (${syncedPhotos.length})</summary>
+                  <div style="max-height:170px;overflow-y:auto;margin-top:6px;">
+                    ${syncedPhotos.map((item) => `
+                      <div class="sync-queue-row">
+                        <div style="min-width:0;flex:1;">
+                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.id)} · ${esc(item.title)}</div>
+                          <div class="mono muted">${item.fsMemoryId ? `Memory #${esc(item.fsMemoryId)}` : 'Synced'}</div>
+                        </div>
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                          ${item.fsMemoryId ? `<a href="https://beta.familysearch.org/en/memories/memory/${encodeURIComponent(item.fsMemoryId)}" target="_blank" rel="noopener" class="btn sm">Open ↗</a>` : ''}
+                          <button class="btn sm" type="button" data-fs-reupload="${esc(item.id)}">↻</button>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </details>
               ` : ''}
             </article>
 
-            <!-- SITE 2: ANCESTRY.COM (ASSISTED EXIF + CITATION PACK) -->
+            <!-- 3. LOCAL BACKUPS, 4K ZIP & OTHER SITES (ANCESTRY / MYHERITAGE) -->
             <article class="sync-card">
               <div class="sync-head">
                 <div>
-                  <h2 class="sync-title">2. Ancestry.com</h2>
-                  <div class="mono muted">EXIF-Embedded Drag-and-Drop Bridge</div>
+                  <h2 class="sync-title">3. Save JPEG Backups, 4K ZIP &amp; Other Sites</h2>
+                  <div class="mono muted">EXIF/IPTC + Citations</div>
                 </div>
-                <span class="pill warn">No public API</span>
+                <span class="pill warn">Assisted Export</span>
               </div>
               <p class="sync-desc">
-                Ancestry.com does not offer a public developer API for independent apps. Instead, we embed your ISO date, location, and story directly into the 4K JPEG's EXIF/IPTC headers—which Ancestry's Media Gallery reads on drop.
+                Save copies onto your computer with names, dates, places, and stories baked into the JPEG file, or copy ready-made captions for Ancestry.com &amp; MyHeritage.
               </p>
 
-              <div class="sync-box">
-                <div class="mono muted">Selected print ready for Ancestry (${esc(p.id)})</div>
-                <div class="mono" style="font-weight:500;margin-top:4px;word-break:break-all;">${esc(formatExportFilename(p))}</div>
-                <div class="muted" style="margin-top:6px;">${esc(formatCitation(p))}</div>
+              <div class="sync-actions">
+                <button class="btn primary" type="button" id="btn-sync-export-zip">
+                  📦 Export 4K Archive ZIP (${active.length} prints)
+                </button>
+                ${p ? `
+                  <button class="btn" type="button" id="btn-sync-export-selected-jpg">
+                    💾 Save Selected Photo JPEG w/ Metadata (${esc(p.id)})
+                  </button>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn sm" type="button" id="btn-sync-share-selected" style="flex:1;justify-content:center;">Share Photo</button>
+                    <button class="btn sm" type="button" id="btn-sync-cite-selected" style="flex:1;justify-content:center;">Copy Story &amp; Citation</button>
+                  </div>
+                ` : '<div class="sync-box muted">Load or select a photo to export individual JPEG metadata and citations.</div>'}
               </div>
 
-              <div class="sync-actions">
-                <button class="btn primary" type="button" id="btn-ancestry-pack">
-                  Export Ancestry-ready 4K JPEG pack (${active.length} prints)
-                </button>
-                <button class="btn" type="button" id="btn-ancestry-cite">
-                  1-Click Copy Story &amp; Citation (${esc(p.id)})
-                </button>
-                <button class="btn sm" type="button" id="btn-ancestry-open">
-                  Open Ancestry.com Media Uploader
-                </button>
+              <div class="sync-box">
+                <div style="font-weight:700;margin-bottom:6px;">Ancestry.com &amp; MyHeritage Exports</div>
+                ${p ? `<div class="mono" style="font-size:11px;word-break:break-all;margin-bottom:6px;">${esc(formatExportFilename(p))}</div>` : ''}
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  <button class="btn sm" type="button" id="btn-ancestry-pack">Ancestry EXIF 4K Pack (${active.length})</button>
+                  <button class="btn sm" type="button" id="btn-mh-pack">MyHeritage IPTC 4K Pack + GEDCOM (${active.length})</button>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn sm" type="button" id="btn-ancestry-cite" style="flex:1;" ${p ? '' : 'disabled'}>Copy Ancestry Citation</button>
+                    <button class="btn sm" type="button" id="btn-mh-open" style="flex:1;" ${p ? '' : 'disabled'}>Copy MyHeritage Note</button>
+                  </div>
+                </div>
               </div>
             </article>
 
-            <!-- SITE 3: MYHERITAGE (ASSISTED IPTC/EXIF + GEDCOM BRIDGE) -->
+            <!-- 4. GOOGLE DRIVE BACKUP VERIFY & SYNC (MD5 CHECKSUM) -->
             <article class="sync-card">
               <div class="sync-head">
                 <div>
-                  <h2 class="sync-title">3. MyHeritage.com</h2>
-                  <div class="mono muted">IPTC/EXIF + GEDCOM 5.5.1 Media Pack</div>
+                  <h2 class="sync-title">4. Google Drive Backup Verify &amp; Sync</h2>
+                  <div class="mono muted">MD5 Checksum Verifier</div>
                 </div>
-                <span class="pill warn">API retired</span>
+                <span class="pill info">Backup Tool</span>
               </div>
               <p class="sync-desc">
-                MyHeritage retired its former Family Graph API and blocks automated upload bots. Export a standardized IPTC/EXIF 4K folder (plus optional GEDCOM media index) to drag straight into MyHeritage Photos.
+                Compare a local photo folder on your computer against your Google Drive backup folder using exact MD5 checksums to verify nothing is missing or corrupted.
               </p>
 
               <div class="sync-box">
-                <div class="mono muted">Embedded IPTC metadata fields</div>
-                <div style="margin-top:4px;"><strong>Title:</strong> ${esc(p.title)}</div>
-                <div><strong>Date / Place:</strong> ${esc(p.isoDate || 'Undated')} · ${esc(p.place || 'Unrecorded')}</div>
-                <div><strong>Keywords:</strong> ${esc(p.branch)} branch${p.people.length ? ', ' + esc(p.people.map((x) => x.name).join(', ')) : ''}</div>
+                <div style="font-weight:600;margin-bottom:4px;">What this checks:</div>
+                <ul style="margin:0;padding-left:18px;line-height:1.5;color:#334155;">
+                  <li>Finds local photos missing from Google Drive</li>
+                  <li>Optionally checks MD5 file integrity</li>
+                  <li>Safely uploads missing files or cleans cloud-only extras</li>
+                </ul>
               </div>
 
-              <div class="sync-actions">
-                <button class="btn primary" type="button" id="btn-mh-pack">
-                  Export MyHeritage 4K Pack + GEDCOM (${active.length} prints)
-                </button>
-                <button class="btn" type="button" id="btn-mh-cite">
-                  1-Click Copy Story &amp; Citation (${esc(p.id)})
-                </button>
-                <button class="btn sm" type="button" id="btn-mh-open">
-                  Open MyHeritage Family Photos
+              <div class="sync-actions" style="margin-top:auto;">
+                <button class="btn primary" type="button" id="btn-sync-open-drive-verify">
+                  ☁️ Open Google Drive Verify &amp; Sync
                 </button>
               </div>
             </article>
@@ -13843,6 +14070,361 @@
                                       render();
                                     };
                                   }
+
+                                  // Step 4 Card 1: PAF / GEDCOM Persistent Resume Queue
+                                  const openGedLoaderBtn = host.querySelector('#btn-sync-open-ged-loader');
+                                  if (openGedLoaderBtn) {
+                                    openGedLoaderBtn.onclick = () => openGedcomPafModal();
+                                  }
+
+                                  if (gd) {
+                                    const resultsEl = host.querySelector('#sync-ged-results');
+                                    const searchInp = host.querySelector('#inp-sync-ged-search');
+                                    const chkRelinked = host.querySelector('#chk-sync-ged-relinked');
+                                    const chkRelinkedLbl = host.querySelector('#chk-sync-ged-relinked-lbl');
+                                    const resumeSummaryEl = host.querySelector('#ged-resume-summary');
+                                    const progressFillEl = host.querySelector('#ged-progress-fill');
+                                    const resumeNextBtn = host.querySelector('#btn-ged-resume-next');
+                                    const filterBtns = host.querySelectorAll('[data-ged-filter]');
+                                    const exportMetaBtn = host.querySelector('#btn-sync-ged-export-meta');
+                                    const exportMetaStatus = host.querySelector('#sync-ged-export-status');
+
+                                    const photoByGedId = new Map();
+                                    const photoByNormName = new Map();
+                                    const photoByFirstLast = new Map();
+                                    items.forEach((item) => {
+                                      if (!item || !Array.isArray(item.people)) return;
+                                      item.people.forEach((pr) => {
+                                        if (!pr) return;
+                                        if (pr.gedId && !photoByGedId.has(pr.gedId)) photoByGedId.set(pr.gedId, item);
+                                        const nm = normalizeSyncPersonName(pr.name);
+                                        if (nm && !photoByNormName.has(nm)) photoByNormName.set(nm, item);
+                                        const fl = firstLastSyncKey(pr.name);
+                                        if (fl && !photoByFirstLast.has(fl)) photoByFirstLast.set(fl, item);
+                                      });
+                                    });
+
+                                    const fastLinkedPhoto = (person) => {
+                                      if (!person) return null;
+                                      if (person.id && photoByGedId.has(person.id)) return photoByGedId.get(person.id);
+                                      const nm = normalizeSyncPersonName(person.name);
+                                      if (nm && photoByNormName.has(nm)) return photoByNormName.get(nm);
+                                      const fl = firstLastSyncKey(person.name);
+                                      return (fl && photoByFirstLast.has(fl)) ? photoByFirstLast.get(fl) : null;
+                                    };
+
+                                    const getSyncRecFast = (person, lp, ledgerSnap) => {
+                                      if (!person) return null;
+                                      const gid = String(person.id || person.gedId || '').trim();
+                                      const nm = normalizeSyncPersonName(person.name);
+                                      if (gid && ledgerSnap.byGedId[gid]) return ledgerSnap.byGedId[gid];
+                                      if (nm && ledgerSnap.byName[nm]) return ledgerSnap.byName[nm];
+                                      if (!isGedcomPersonUnmarked(ledgerSnap, person) && lp && lp.fsSynced && (isCustomFolder || lp.fsMemoryId)) {
+                                        const matchedPid = findVerifiedPidOnPhotoForGedPerson(lp, person);
+                                        if (matchedPid || (lp.people && lp.people.length <= 1)) {
+                                          return {
+                                            gedId: gid,
+                                            name: person.name || '',
+                                            fsPid: matchedPid,
+                                            memoryId: lp.fsMemoryId || '',
+                                            syncedAt: lp.fsSyncedAt || 0,
+                                            summary: lp.fsMemoryId ? `Photo Memory #${lp.fsMemoryId}` : 'Synced via photo',
+                                            inferred: true
+                                          };
+                                        }
+                                      }
+                                      return null;
+                                    };
+
+                                    const formatSyncDate = (ts) => {
+                                      if (!ts) return '';
+                                      try {
+                                        return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                                      } catch (_) { return ''; }
+                                    };
+
+                                    const syncGedPersonToFamilySearch = async (person, btn, linkedPhoto, syncRec) => {
+                                      const fs = window.FamilySearchClient;
+                                      if (!fs || !fs.getStoredToken()) {
+                                        fsUser = null;
+                                        render();
+                                        notify('FamilySearch session expired — opening FamilySearch Beta sign-in...');
+                                        if (fs && typeof fs.startLogin === 'function') fs.startLogin();
+                                        return;
+                                      }
+                                      const origText = btn ? btn.textContent : '';
+                                      if (btn) {
+                                        btn.disabled = true;
+                                        btn.textContent = 'Searching FS...';
+                                      }
+                                      try {
+                                        const candidates = [];
+                                        const seenIds = new Set();
+                                        const pushCand = (c) => {
+                                          if (c && c.id && !seenIds.has(c.id.toUpperCase())) {
+                                            seenIds.add(c.id.toUpperCase());
+                                            candidates.push(c);
+                                          }
+                                        };
+                                        const knownPid = (syncRec && syncRec.fsPid) || findVerifiedPidOnPhotoForGedPerson(linkedPhoto, person) || '';
+                                        if (knownPid) {
+                                          try {
+                                            const exactHits = await fs.searchPersons(knownPid);
+                                            (exactHits || []).forEach(pushCand);
+                                          } catch (_) {}
+                                        }
+                                        const pafVitals = fs.extractStructuredPafData ? fs.extractStructuredPafData(person) : person;
+                                        const found = await fs.searchPersons(person.name, {
+                                          birthDate: person.birthDate || pafVitals.birthDate,
+                                          birthPlace: person.birthPlace || pafVitals.birthPlace,
+                                          deathDate: person.deathDate || pafVitals.deathDate,
+                                          deathPlace: person.deathPlace || pafVitals.deathPlace
+                                        });
+                                        (found || []).forEach(pushCand);
+
+                                        if (candidates.length > 0) {
+                                          const topPid = knownPid || candidates[0].id;
+                                          if (btn) btn.textContent = `Loading ${topPid}...`;
+                                          const opened = await openFamilySearchCompareModal(person, topPid, btn, candidates, linkedPhoto);
+                                          if (opened) {
+                                            if (btn) {
+                                              btn.disabled = false;
+                                              btn.textContent = origText || `Compare ${topPid}`;
+                                            }
+                                          } else {
+                                            const upd = await fs.populatePersonMissingFields(topPid, person);
+                                            recordGedcomPersonSynced(person, {
+                                              fsPid: topPid,
+                                              memoryId: (linkedPhoto && linkedPhoto.fsMemoryId) || '',
+                                              summary: upd.updated ? `Added: ${upd.added.join(', ')}` : 'Verified matching on FamilySearch Beta'
+                                            });
+                                            notify(upd.updated
+                                              ? `Updated ${topPid} (${person.name}) on FamilySearch Beta — added: ${upd.added.join(', ')}`
+                                              : `${topPid} (${person.name}) already matches FamilySearch Beta — marked synced.`);
+                                            renderSyncGedList();
+                                          }
+                                        } else {
+                                          if (!window.confirm(`No match found on FamilySearch Beta for "${person.name}". Create "${person.name}" as a new person on FamilySearch Beta now?`)) {
+                                            if (btn) {
+                                              btn.disabled = false;
+                                              btn.textContent = origText || '⚖️ Compare & Sync to FS';
+                                            }
+                                            return;
+                                          }
+                                          if (btn) btn.textContent = 'Creating...';
+                                          const created = await fs.createPerson(person);
+                                          recordGedcomPersonSynced(person, {
+                                            fsPid: created.id,
+                                            summary: 'Created on FamilySearch Beta'
+                                          });
+                                          notify(`Created ${person.name} on FamilySearch Beta (${created.id})!`);
+                                          renderSyncGedList();
+                                        }
+                                      } catch (err) {
+                                        notify(err.message || 'FamilySearch sync failed.');
+                                        if (btn) {
+                                          btn.disabled = false;
+                                          btn.textContent = origText || '⚖️ Compare & Sync to FS';
+                                        }
+                                      }
+                                    };
+
+                                    let nextUnsyncedTarget = null;
+                                    const renderSyncGedList = () => {
+                                      const ledgerSnap = loadGedcomSyncLedger();
+                                      const q = gedSyncSearchQuery.trim().toLowerCase();
+                                      let relinkedTotal = 0;
+                                      let relinkedSynced = 0;
+                                      let treeSynced = 0;
+                                      const allRelinkedRows = [];
+                                      const allOtherRows = [];
+
+                                      for (let i = 0; i < gd.peopleList.length; i++) {
+                                        const person = gd.peopleList[i];
+                                        const lp = fastLinkedPhoto(person);
+                                        const rec = getSyncRecFast(person, lp, ledgerSnap);
+                                        if (rec) treeSynced++;
+                                        if (lp) {
+                                          relinkedTotal++;
+                                          if (rec) relinkedSynced++;
+                                          allRelinkedRows.push({ person, linkedPhoto: lp, syncRec: rec });
+                                        } else {
+                                          allOtherRows.push({ person, linkedPhoto: null, syncRec: rec });
+                                        }
+                                      }
+
+                                      const effectiveRelinkedOnly = (gedSyncRelinkedOnly === null) ? (relinkedTotal > 0) : Boolean(gedSyncRelinkedOnly);
+                                      if (chkRelinked) chkRelinked.checked = effectiveRelinkedOnly;
+                                      if (chkRelinkedLbl) chkRelinkedLbl.textContent = `Re-Linked Photos Only (${relinkedTotal})`;
+
+                                      const scopedTotal = effectiveRelinkedOnly ? relinkedTotal : gd.peopleList.length;
+                                      const scopedSynced = effectiveRelinkedOnly ? relinkedSynced : treeSynced;
+                                      const scopedUnsynced = Math.max(0, scopedTotal - scopedSynced);
+                                      const pct = scopedTotal > 0 ? Math.round((scopedSynced / scopedTotal) * 100) : 0;
+
+                                      filterBtns.forEach((fBtn) => {
+                                        const modeVal = fBtn.getAttribute('data-ged-filter');
+                                        fBtn.setAttribute('aria-pressed', gedSyncFilter === modeVal ? 'true' : 'false');
+                                        if (modeVal === 'unsynced') fBtn.textContent = `Not Synced Yet (${scopedUnsynced.toLocaleString()})`;
+                                        else if (modeVal === 'synced') fBtn.textContent = `Already Synced (${scopedSynced.toLocaleString()})`;
+                                        else fBtn.textContent = `All (${scopedTotal.toLocaleString()})`;
+                                      });
+
+                                      if (resumeSummaryEl) {
+                                        resumeSummaryEl.textContent = scopedTotal > 0
+                                          ? `${effectiveRelinkedOnly ? 'Current Photo Batch' : 'Family Tree'}: ${scopedSynced.toLocaleString()} of ${scopedTotal.toLocaleString()} synced (${pct}%) · ${scopedUnsynced.toLocaleString()} remaining${effectiveRelinkedOnly && treeSynced > relinkedSynced ? ` (${treeSynced.toLocaleString()} synced across entire tree)` : ''}`
+                                          : 'Load matching photos in Step 1 or uncheck "Re-Linked Photos Only" to sync people directly from your tree.';
+                                      }
+                                      if (progressFillEl) progressFillEl.style.width = `${pct}%`;
+
+                                      const pool = effectiveRelinkedOnly ? allRelinkedRows : [...allRelinkedRows, ...allOtherRows];
+                                      nextUnsyncedTarget = pool.find((r) => !r.syncRec) || null;
+                                      if (resumeNextBtn) {
+                                        if (nextUnsyncedTarget) {
+                                          resumeNextBtn.disabled = false;
+                                          resumeNextBtn.className = 'btn success';
+                                          resumeNextBtn.textContent = `▶ Pick Up Where I Left Off: ${nextUnsyncedTarget.person.name || 'Next Person'}`;
+                                        } else {
+                                          resumeNextBtn.disabled = true;
+                                          resumeNextBtn.className = 'btn sm';
+                                          resumeNextBtn.textContent = '✓ All Caught Up in This View!';
+                                        }
+                                      }
+
+                                      const visibleRows = [];
+                                      for (let i = 0; i < pool.length && visibleRows.length < 60; i++) {
+                                        const row = pool[i];
+                                        if (gedSyncFilter === 'unsynced' && row.syncRec) continue;
+                                        if (gedSyncFilter === 'synced' && !row.syncRec) continue;
+                                        if (q) {
+                                          const hay = `${row.person.name || ''} ${row.person.id || ''} ${(row.syncRec && row.syncRec.fsPid) || ''}`.toLowerCase();
+                                          if (!hay.includes(q)) continue;
+                                        }
+                                        visibleRows.push(row);
+                                      }
+
+                                      if (visibleRows.length === 0) {
+                                        resultsEl.innerHTML = `<div class="muted" style="padding:18px;font-size:13.5px;text-align:center;">${
+                                          gedSyncFilter === 'unsynced' && scopedUnsynced === 0
+                                            ? '✓ Everyone in this filter has already been synced to FamilySearch Beta! Switch to "Already Synced" to review or uncheck "Re-Linked Photos Only" for more relatives.'
+                                            : (effectiveRelinkedOnly && relinkedTotal === 0
+                                              ? 'No re-linked photos matched in the current photo batch — uncheck "Re-Linked Photos Only" above to browse all tree relatives.'
+                                              : 'No people match your current filter/search.')
+                                        }</div>`;
+                                        return;
+                                      }
+
+                                      resultsEl.innerHTML = visibleRows.map(({ person, linkedPhoto, syncRec }, idx) => {
+                                        const thumb = linkedPhoto ? (linkedPhoto.workingSrc || linkedPhoto.src || 'sample.jpg') : '';
+                                        const dateTxt = syncRec && syncRec.syncedAt ? formatSyncDate(syncRec.syncedAt) : '';
+                                        const knownPid = (syncRec && syncRec.fsPid) || findVerifiedPidOnPhotoForGedPerson(linkedPhoto, person) || '';
+                                        return `
+                                          <div style="padding:11px 14px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;${syncRec ? 'background:rgba(22,163,74,0.06);' : ''}">
+                                            ${linkedPhoto ? `<img src="${esc(thumb)}" alt="" title="${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">` : ''}
+                                            <div style="min-width:210px;flex:1;">
+                                              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                                <span style="font-weight:700;font-size:14.5px;color:#0f172a;">${esc(person.name || 'Unnamed')}</span>
+                                                <span class="mono muted" style="font-size:11.5px;">(${esc(person.id)})</span>
+                                                ${linkedPhoto ? '<span style="background:#dcfce7;color:#166534;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;">Re-Linked</span>' : ''}
+                                                ${syncRec
+                                                  ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-size:11.5px;font-weight:700;">✓ Synced${syncRec.fsPid ? ` · ${esc(syncRec.fsPid)}` : ''}${dateTxt ? ` · ${esc(dateTxt)}` : ''}</span>`
+                                                  : '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11.5px;font-weight:700;">Not Synced Yet</span>'}
+                                              </div>
+                                              <div class="muted" style="font-size:12.5px;margin-top:2px;">
+                                                ${person.birthDate || person.birthPlace ? `b. ${esc(person.birthDate || '')} ${esc(person.birthPlace || '')}` : ''}
+                                                ${person.deathDate || person.deathPlace ? ` · d. ${esc(person.deathDate || '')} ${esc(person.deathPlace || '')}` : ''}
+                                              </div>
+                                              ${linkedPhoto ? `<div style="font-size:12px;color:#334155;margin-top:2px;">Linked photo: <strong>${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}</strong></div>` : ''}
+                                            </div>
+                                            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                                              ${syncRec ? `
+                                                ${syncRec.fsPid ? `<a href="https://beta.familysearch.org/en/tree/person/details/${encodeURIComponent(syncRec.fsPid)}" target="_blank" rel="noopener" class="btn sm">Open on FS ↗</a>` : ''}
+                                                <button type="button" class="btn sm ged-sync-compare" data-ridx="${idx}">⚖️ Re-Compare</button>
+                                                <button type="button" class="btn sm danger ged-sync-unmark" data-ridx="${idx}" title="Move back to Not Synced Yet">Undo Synced</button>
+                                              ` : `
+                                                <button type="button" class="btn sm primary ged-sync-go" data-ridx="${idx}">⚖️ Compare &amp; Sync${knownPid ? ` (${esc(knownPid)})` : ''}</button>
+                                                <button type="button" class="btn sm success ged-sync-mark" data-ridx="${idx}" title="Mark as synced if you already finished this person on FamilySearch.org">✓ Mark Done</button>
+                                              `}
+                                            </div>
+                                          </div>
+                                        `;
+                                      }).join('');
+
+                                      resultsEl.querySelectorAll('.ged-sync-go, .ged-sync-compare').forEach((btn) => {
+                                        btn.onclick = () => {
+                                          const row = visibleRows[Number(btn.getAttribute('data-ridx'))];
+                                          if (row) syncGedPersonToFamilySearch(row.person, btn, row.linkedPhoto, row.syncRec);
+                                        };
+                                      });
+                                      resultsEl.querySelectorAll('.ged-sync-mark').forEach((btn) => {
+                                        btn.onclick = () => {
+                                          const row = visibleRows[Number(btn.getAttribute('data-ridx'))];
+                                          if (!row) return;
+                                          const knownPid = findVerifiedPidOnPhotoForGedPerson(row.linkedPhoto, row.person) || '';
+                                          recordGedcomPersonSynced(row.person, {
+                                            fsPid: knownPid,
+                                            memoryId: (row.linkedPhoto && row.linkedPhoto.fsMemoryId) || '',
+                                            manual: true,
+                                            summary: 'Marked synced manually'
+                                          });
+                                          notify(`✓ Marked ${row.person.name || row.person.id} as Synced!`);
+                                          renderSyncGedList();
+                                        };
+                                      });
+                                      resultsEl.querySelectorAll('.ged-sync-unmark').forEach((btn) => {
+                                        btn.onclick = () => {
+                                          const row = visibleRows[Number(btn.getAttribute('data-ridx'))];
+                                          if (!row) return;
+                                          unmarkGedcomPersonSynced(row.person);
+                                          notify(`Moved ${row.person.name || row.person.id} back to Not Synced Yet.`);
+                                          renderSyncGedList();
+                                        };
+                                      });
+                                    };
+
+                                    filterBtns.forEach((fBtn) => {
+                                      fBtn.onclick = () => {
+                                        gedSyncFilter = fBtn.getAttribute('data-ged-filter') || 'unsynced';
+                                        renderSyncGedList();
+                                      };
+                                    });
+                                    if (chkRelinked) {
+                                      chkRelinked.onchange = () => {
+                                        gedSyncRelinkedOnly = Boolean(chkRelinked.checked);
+                                        renderSyncGedList();
+                                      };
+                                    }
+                                    if (searchInp) {
+                                      searchInp.oninput = () => {
+                                        gedSyncSearchQuery = searchInp.value || '';
+                                        renderSyncGedList();
+                                      };
+                                    }
+                                    if (resumeNextBtn) {
+                                      resumeNextBtn.onclick = () => {
+                                        if (nextUnsyncedTarget) {
+                                          syncGedPersonToFamilySearch(nextUnsyncedTarget.person, resumeNextBtn, nextUnsyncedTarget.linkedPhoto, nextUnsyncedTarget.syncRec);
+                                        }
+                                      };
+                                    }
+                                    if (exportMetaBtn) {
+                                      exportMetaBtn.onclick = async () => {
+                                        exportMetaBtn.disabled = true;
+                                        try {
+                                          await exportGedcomMatchedJpegs((msg) => {
+                                            if (exportMetaStatus) exportMetaStatus.innerHTML = msg;
+                                          });
+                                        } catch (err) {
+                                          if (exportMetaStatus) exportMetaStatus.textContent = `JPEG export failed: ${err.message}`;
+                                        } finally {
+                                          exportMetaBtn.disabled = false;
+                                        }
+                                      };
+                                    }
+                                    renderSyncGedList();
+                                  }
+
+                                  // Step 4 Card 2: Active Photo Uploads
                                   const resyncSelectedBtn = host.querySelector('#btn-fs-resync-selected');
                                   if (resyncSelectedBtn && p) {
                                     resyncSelectedBtn.onclick = async () => {
@@ -13852,6 +14434,14 @@
                                       render();
                                     };
                                   }
+                                  host.querySelectorAll('[data-fs-compare]').forEach((btn) => {
+                                    btn.onclick = async () => {
+                                      const item = items.find((x) => x.id === btn.getAttribute('data-fs-compare'));
+                                      if (item && typeof openCompareForPhoto === 'function') {
+                                        await openCompareForPhoto(item, btn);
+                                      }
+                                    };
+                                  });
                                   host.querySelectorAll('[data-fs-one]').forEach((btn) => {
                                     btn.onclick = async () => {
                                       const item = items.find((x) => x.id === btn.getAttribute('data-fs-one'));
@@ -13859,6 +14449,17 @@
                                         btn.disabled = true;
                                         btn.textContent = 'Uploading...';
                                         await uploadPrintToFamilySearch(item);
+                                        render();
+                                      }
+                                    };
+                                  });
+                                  host.querySelectorAll('[data-fs-reupload]').forEach((btn) => {
+                                    btn.onclick = async () => {
+                                      const item = items.find((x) => x.id === btn.getAttribute('data-fs-reupload'));
+                                      if (item) {
+                                        btn.disabled = true;
+                                        btn.textContent = '...';
+                                        await uploadPrintToFamilySearch(item, { replaceMemoryId: item.fsMemoryId });
                                         render();
                                       }
                                     };
@@ -13881,22 +14482,68 @@
                                       render();
                                     };
                                   }
-                                  host.querySelector('#btn-ancestry-pack').onclick = () => {
-                                    notify(`Exported ${active.length} EXIF-tagged 4K JPEGs pre-named for Ancestry.com gallery drop.`);
-                                  };
-                                  host.querySelector('#btn-ancestry-cite').onclick = () => copyCitation(p);
-                                  host.querySelector('#btn-ancestry-open').onclick = () => {
-                                    copyCitation(p);
-                                    notify('Copied citation to clipboard — ready to drop 4K JPEG into Ancestry.com Trees > Gallery.');
-                                  };
-                                  host.querySelector('#btn-mh-pack').onclick = () => {
-                                    notify(`Exported ${active.length} IPTC/EXIF 4K JPEGs + GEDCOM 5.5.1 media manifest for MyHeritage.`);
-                                  };
-                                  host.querySelector('#btn-mh-cite').onclick = () => copyCitation(p);
-                                  host.querySelector('#btn-mh-open').onclick = () => {
-                                    copyCitation(p);
-                                    notify('Copied citation to clipboard — ready to drop 4K JPEG into MyHeritage > Photos.');
-                                  };
+
+                                  // Step 4 Card 3: Local Exports, ZIP, Citations
+                                  const syncZipBtn = host.querySelector('#btn-sync-export-zip');
+                                  if (syncZipBtn) {
+                                    syncZipBtn.onclick = () => {
+                                      const topZip = document.getElementById('btn-export-zip');
+                                      if (topZip) topZip.click();
+                                      else notify('Prepared ZIP archive with 4K repairs & embedded EXIF metadata.');
+                                    };
+                                  }
+                                  const syncExpSelBtn = host.querySelector('#btn-sync-export-selected-jpg');
+                                  if (syncExpSelBtn && p) {
+                                    syncExpSelBtn.onclick = async () => {
+                                      if (!window.JpegMetadataWriter || !window.JpegMetadataWriter.downloadJpegWithMetadata) {
+                                        notify('JPEG Metadata Writer is still loading — please try again in a second.');
+                                        return;
+                                      }
+                                      syncExpSelBtn.disabled = true;
+                                      syncExpSelBtn.textContent = 'Exporting JPEG...';
+                                      try {
+                                        await window.JpegMetadataWriter.downloadJpegWithMetadata(p, p);
+                                        notify(`✓ Saved ${p.title || p.file || p.id} with embedded EXIF/IPTC metadata!`);
+                                      } catch (err) {
+                                        notify(`Export failed: ${err.message}`);
+                                      } finally {
+                                        syncExpSelBtn.disabled = false;
+                                        syncExpSelBtn.textContent = `💾 Save Selected Photo JPEG w/ Metadata (${p.id})`;
+                                      }
+                                    };
+                                  }
+                                  const syncShareSelBtn = host.querySelector('#btn-sync-share-selected');
+                                  if (syncShareSelBtn && p) {
+                                    syncShareSelBtn.onclick = () => sharePhoto(p);
+                                  }
+                                  const syncCiteSelBtn = host.querySelector('#btn-sync-cite-selected');
+                                  if (syncCiteSelBtn && p) {
+                                    syncCiteSelBtn.onclick = () => copyCitation(p);
+                                  }
+                                  const ancPackBtn = host.querySelector('#btn-ancestry-pack');
+                                  if (ancPackBtn) {
+                                    ancPackBtn.onclick = () => notify(`Exported ${active.length} EXIF-tagged 4K JPEGs pre-named for Ancestry.com gallery drop.`);
+                                  }
+                                  const ancCiteBtn = host.querySelector('#btn-ancestry-cite');
+                                  if (ancCiteBtn) ancCiteBtn.onclick = () => { if (p) copyCitation(p); };
+                                  const mhPackBtn = host.querySelector('#btn-mh-pack');
+                                  if (mhPackBtn) {
+                                    mhPackBtn.onclick = () => notify(`Exported ${active.length} IPTC/EXIF 4K JPEGs + GEDCOM 5.5.1 media manifest for MyHeritage.`);
+                                  }
+                                  const mhOpenBtn = host.querySelector('#btn-mh-open');
+                                  if (mhOpenBtn) {
+                                    mhOpenBtn.onclick = () => {
+                                      if (!p) return;
+                                      copyCitation(p);
+                                      notify('Copied citation to clipboard — ready to drop 4K JPEG into MyHeritage > Photos.');
+                                    };
+                                  }
+
+                                  // Step 4 Card 4: Google Drive Verify & Sync
+                                  const driveVerifyBtn = host.querySelector('#btn-sync-open-drive-verify');
+                                  if (driveVerifyBtn) {
+                                    driveVerifyBtn.onclick = () => openDriveSyncModal();
+                                  }
                                 }
 
       function renderStageCoachBanner(p) {
@@ -13909,14 +14556,25 @@
         const unnamedCount = activePhotos.filter((x) => getUnnamedFaceCount(x) > 0).length;
         const restoredCount = activePhotos.filter((x) => x.restored4k).length;
         const syncedCount = activePhotos.filter((x) => x.fsSynced).length;
+        const gd = window._activeGedcomData;
+        const gedSummaryBit = gd
+          ? (() => {
+              const ledgerSnap = loadGedcomSyncLedger();
+              const relinkedPpl = gd.peopleList.filter((gp) => Boolean(findLinkedPhotoForGedPerson(gp)));
+              const relinkedDone = relinkedPpl.filter((gp) => Boolean(getGedcomPersonSyncRecord(gp) || (gp.id && ledgerSnap.byGedId[gp.id]))).length;
+              return relinkedPpl.length > 0
+                ? ` · PAF batch: ${relinkedDone}/${relinkedPpl.length} synced`
+                : ` · PAF tree: ${gd.fileName}`;
+            })()
+          : '';
 
         let info;
         if (mode === 'gather') {
           info = {
             badge: 'STEP 1 OF 4 — GATHER YOUR PHOTOS',
             what: 'Choose how to load your family photos below (a few photos, a whole folder, Google Drive, or your PAF / GEDCOM family tree).',
-            why: 'Your photos stay privately on your computer — nothing is uploaded until you choose to in Step 4.',
-            progress: activeCount > 0 ? `${activeCount} photo${activeCount === 1 ? '' : 's'} currently loaded (${rootFolderName}).` : 'No photos loaded yet.',
+            why: 'Everything here stays privately on your computer — nothing is uploaded until you choose to in Step 4.',
+            progress: `${activeCount > 0 ? `${activeCount} photo${activeCount === 1 ? '' : 's'} currently loaded (${rootFolderName}).` : 'No photos loaded yet.'}${gd ? ` · Saved PAF tree: ${gd.fileName} (${gd.peopleList.length.toLocaleString()} people)` : ''}`,
             nextLabel: `Continue to Step 2: Identify & Tag (${activeCount}) →`,
             nextMode: 'catalog',
             prevLabel: '',
@@ -13947,9 +14605,9 @@
         } else {
           info = {
             badge: 'STEP 4 OF 4 — SAVE, SHARE & UPLOAD TO FAMILYSEARCH',
-            what: 'Upload tagged photos to FamilySearch Beta, download JPEG copies with names & stories saved inside the file, or copy citations for Ancestry / MyHeritage.',
-            why: 'Preserving your work here lets children, grandchildren, and relatives enjoy these photos for generations.',
-            progress: `${syncedCount} of ${activeCount} photo${activeCount === 1 ? '' : 's'} synced to FamilySearch Beta`,
+            what: 'Pick up where you left off syncing PAF / GEDCOM relatives & photos to FamilySearch Beta, save JPEGs with stories inside the file, or verify Google Drive backups.',
+            why: 'Your synced people and loaded family tree stay saved so you can close anytime and resume later.',
+            progress: `${syncedCount} of ${activeCount} photo${activeCount === 1 ? '' : 's'} uploaded${gedSummaryBit}`,
             nextLabel: '',
             nextMode: '',
             prevLabel: '← Step 3: Restore Photos',
@@ -14038,6 +14696,10 @@
         const host = document.getElementById('section-gather');
         if (!host) return;
         const activeCount = items.filter((x) => !x.inReview).length;
+        const gd = window._activeGedcomData;
+        const relinkedCount = (gd && Array.isArray(gd.peopleList))
+          ? gd.peopleList.filter((gp) => Boolean(findLinkedPhotoForGedPerson(gp))).length
+          : 0;
 
         host.innerHTML = `
           <div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
@@ -14084,10 +14746,19 @@
               <div>
                 <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">🌳 Load PAF / GEDCOM (.ged) Family Tree</h2>
                 <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
-                  Loads your genealogy file so the app can pull exact names, birth dates, places, and long stories onto your photos.
+                  Loads your genealogy file and re-links broken PAF photo filenames locally. Your tree stays saved here so you can pick up syncing anytime in Step 4.
                 </p>
+                ${gd ? `
+                  <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#dcfce7;border:1px solid #86efac;color:#14532d;font-size:13.5px;line-height:1.4;">
+                    <strong>✓ Saved Tree Loaded:</strong> ${esc(gd.fileName || 'family-tree.ged')}<br>
+                    ${gd.peopleList.length.toLocaleString()} people${relinkedCount > 0 ? ` · ${relinkedCount} linked to current photos` : ''}
+                  </div>
+                ` : ''}
               </div>
-              <button type="button" class="btn" id="gather-btn-gedcom" style="width:100%;height:44px;font-size:15px;">🌳 Open PAF / GEDCOM Tree</button>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <button type="button" class="btn primary" id="gather-btn-gedcom" style="width:100%;height:44px;font-size:15px;">${gd ? '🌳 Manage / Re-Link PAF Tree (.ged)' : '🌳 Open PAF / GEDCOM Tree (.ged)'}</button>
+                ${gd ? `<button type="button" class="btn success" id="gather-btn-gedcom-step4" style="width:100%;height:40px;font-size:14px;">▶ Jump to Step 4: Resume FamilySearch Sync →</button>` : ''}
+              </div>
             </div>
 
             <div class="gather-card">
@@ -14125,6 +14796,13 @@
         host.querySelector('#gather-btn-pick').onclick = () => document.getElementById('btn-pick-1-5').click();
         host.querySelector('#gather-btn-folder').onclick = () => document.getElementById('btn-choose-folder').click();
         host.querySelector('#gather-btn-gedcom').onclick = () => document.getElementById('btn-open-gedcom-hub').click();
+        const gedStep4Btn = host.querySelector('#gather-btn-gedcom-step4');
+        if (gedStep4Btn) {
+          gedStep4Btn.onclick = () => {
+            mode = 'sync';
+            render();
+          };
+        }
         host.querySelector('#gather-btn-cloud').onclick = () => document.getElementById('btn-open-cloud-hub').click();
       }
 
@@ -14157,6 +14835,10 @@
         const isCatalog = mode === 'catalog';
         const isLab = mode === 'lab';
         const isSync = mode === 'sync';
+
+        if (topFalBtn) topFalBtn.hidden = !isLab;
+        const topExportZipBtn = document.getElementById('btn-export-zip');
+        if (topExportZipBtn) topExportZipBtn.hidden = !isSync;
 
         const gatherSection = document.getElementById('section-gather');
         if (gatherSection) gatherSection.hidden = !isGather;
@@ -14208,8 +14890,8 @@
           document.getElementById('page-sub').textContent = 'Unified non-destructive studio: 4K Restore, B&W Colorize & Cast Fix, Light & Histogram, Crop & Straighten, Magic Eraser, and Red-Eye.';
           renderPhotoLab();
         } else {
-          document.getElementById('page-heading').textContent = 'Genealogy Sync & 3-Site Export Hub';
-          document.getElementById('page-sub').textContent = 'Direct OAuth2 upload to FamilySearch.org + EXIF-embedded 4K export packs & 1-click citations for Ancestry.com and MyHeritage.';
+          document.getElementById('page-heading').textContent = 'Step 4: Save, Sync & Share';
+          document.getElementById('page-sub').textContent = 'Pick up where you left off syncing your PAF / GEDCOM tree and photos to FamilySearch Beta, export metadata-embedded JPEGs, or verify Google Drive backups.';
           renderSyncHub();
         }
 
@@ -15920,9 +16602,12 @@
       setAppLoadingProgress(70, 'Restoring family metadata & relatives...');
       mountIcons();
       await restoreCatalogMetadata(items);
-      
+      reconcileGedcomSyncLedgerFromItems(items);
+
       setAppLoadingProgress(85, 'Rendering photo ledger...');
       render();
+
+      restoreSavedGedcomFromDb().catch(() => {});
       
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth().catch(() => {});
@@ -16639,6 +17324,10 @@
 
             sanitizePhotoPersonPids(p);
             saveItemMetadata(p);
+            recordGedcomPersonSynced(
+              { id: personObj.gedId || '', name: fullName },
+              { fsPid: newPid, memoryId: p.fsMemoryId || '', summary: connSuccessText || 'Created on FamilySearch Beta' }
+            );
             if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
               await saveArchiveToDb(items, rootFolderName);
             }
@@ -16921,6 +17610,15 @@
         if (vitalConflict) {
           rows.forEach((r) => { r.checked = false; });
         }
+        const allMatch = rows.length > 0 && rows.every((r) => r.status === 'match') && !vitalConflict;
+        if (allMatch && !isGedcomPersonUnmarked(loadGedcomSyncLedger(), person)) {
+          recordGedcomPersonSynced(person, {
+            fsPid: activePid,
+            memoryId: (linkedPhoto && linkedPhoto.fsMemoryId) || '',
+            summary: bannerMsg || 'All fields verified matching on FamilySearch Beta'
+          });
+          if (mode === 'sync') renderSyncHub();
+        }
 
         const candOptions = (Array.isArray(candidates) ? candidates : []).map((c) => {
           const desc = [c.name, c.lifespan || [c.birthDate, c.deathDate].filter(Boolean).join('–'), c.birthPlace].filter(Boolean).join(' · ');
@@ -16947,9 +17645,9 @@
               <button type="button" class="btn sm" id="fs-cmp-create-new" style="margin-left:auto;">+ Not a Match? Create New Person</button>
             </div>
             <div style="padding:14px 20px;overflow-y:auto;flex:1;">
-              ${bannerMsg ? `
+              ${(bannerMsg || allMatch) ? `
                 <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:#dcfce7;border:1px solid #86efac;color:#166534;font-size:12.5px;line-height:1.45;">
-                  <strong>${esc(bannerMsg)}</strong>${rows.every((r) => r.status === 'match') ? ' — Everything now matches FamilySearch Beta (nothing left to add).' : ''}
+                  <strong>${esc(bannerMsg || `✓ Everything matches FamilySearch Beta (${activePid})`)}</strong>${allMatch ? ' — Saved to your Synced progress so you can pick up with the next person.' : ''}
                 </div>
               ` : ''}
               ${vitalConflict ? `
@@ -16985,8 +17683,9 @@
             </div>
             <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
               <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(activePid)}" target="_blank" rel="noopener" class="btn sm accent">Open ${esc(activePid)} on FamilySearch Beta ↗</a>
-              <div style="display:flex;gap:8px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="btn sm" id="fs-cmp-cancel">← Back to List</button>
+                ${allMatch ? `<button type="button" class="btn sm success" id="fs-cmp-mark-done">✓ Mark Synced &amp; Close</button>` : ''}
                 <button type="button" class="btn sm primary" id="fs-cmp-apply">Apply Checked Updates</button>
               </div>
             </div>
@@ -16998,6 +17697,19 @@
         cmpOverlay.querySelector('#fs-cmp-close').onclick = closeCmp;
         cmpOverlay.querySelector('#fs-cmp-cancel').onclick = closeCmp;
         cmpOverlay.onclick = (e) => { if (e.target === cmpOverlay) closeCmp(); };
+        const markDoneBtn = cmpOverlay.querySelector('#fs-cmp-mark-done');
+        if (markDoneBtn) {
+          markDoneBtn.onclick = () => {
+            recordGedcomPersonSynced(person, {
+              fsPid: activePid,
+              memoryId: (linkedPhoto && linkedPhoto.fsMemoryId) || '',
+              summary: 'All fields verified matching on FamilySearch Beta'
+            });
+            if (mode === 'sync') renderSyncHub();
+            notify(`✓ Marked ${person.name || activePid} as Synced!`);
+            closeCmp();
+          };
+        }
 
         const candSel = cmpOverlay.querySelector('#fs-cmp-cand');
         if (candSel) {
@@ -17031,6 +17743,11 @@
             createNewBtn.textContent = 'Creating...';
             try {
               const created = await fs.createPerson(person);
+              recordGedcomPersonSynced(person, {
+                fsPid: created.id,
+                summary: 'Created on FamilySearch Beta'
+              });
+              if (mode === 'sync') renderSyncHub();
               notify(`Created new person ${person.name} on FamilySearch Beta (${created.id})!`);
               if (sourceBtn) sourceBtn.textContent = `✓ Created ${created.id}`;
               closeCmp();
@@ -17113,8 +17830,10 @@
                 if (upRes && upRes.success) {
                   p.fsSynced = true;
                   p.fsMemoryId = upRes.memoryId;
+                  p.fsSyncedAt = Date.now();
                   if (!p.fsId) p.fsId = activePid;
                   saveItemMetadata(p);
+                  reconcileGedcomSyncLedgerFromItems([p]);
                   if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
                     await saveArchiveToDb(items, rootFolderName);
                   }
@@ -17143,6 +17862,12 @@
             const msg = summary.length
               ? `✓ Updated ${activePid}: ${summary.join(', ')}.`
               : 'No new changes needed.';
+            recordGedcomPersonSynced(person, {
+              fsPid: activePid,
+              memoryId: (linkedPhoto && linkedPhoto.fsMemoryId) || '',
+              summary: summary.length ? summary.join(', ') : 'Verified matching on FamilySearch Beta'
+            });
+            if (mode === 'sync') renderSyncHub();
             notify(msg);
             if (sourceBtn) {
               sourceBtn.textContent = `✓ Synced ${activePid}`;
@@ -17269,7 +17994,334 @@
       }
 
       /* =====================================================================
-         PAF / GEDCOM (.ged) IMPORTER, PHOTO RE-LINKER & FAMILYSEARCH TREE
+         PERSISTENT PAF / GEDCOM FILE & FAMILYSEARCH SYNC PROGRESS LEDGER
+         ===================================================================== */
+      function normalizeSyncPersonName(raw) {
+        return String(raw || '')
+          .replace(/^\s*(?:great[-\s]*)?(?:aunt|uncle|grandma|grandpa|grandmother|grandfather|nana|papa|cousin|mr|mrs|ms|miss|dr)\.?\s+/i, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function firstLastSyncKey(raw) {
+        const toks = normalizeSyncPersonName(raw).split(' ').filter((t) => t.length >= 2);
+        return toks.length >= 2 ? `${toks[0]} ${toks[toks.length - 1]}` : '';
+      }
+
+      function loadGedcomSyncLedger() {
+        const base = { version: 1, byGedId: {}, byName: {}, unmarked: {} };
+        try {
+          const raw = localStorage.getItem(GEDCOM_SYNC_LEDGER_KEY);
+          if (!raw) return base;
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            return {
+              version: 1,
+              byGedId: (parsed.byGedId && typeof parsed.byGedId === 'object') ? parsed.byGedId : {},
+              byName: (parsed.byName && typeof parsed.byName === 'object') ? parsed.byName : {},
+              unmarked: (parsed.unmarked && typeof parsed.unmarked === 'object') ? parsed.unmarked : {}
+            };
+          }
+        } catch (_) {}
+        return base;
+      }
+
+      function saveGedcomSyncLedger(ledger) {
+        try {
+          localStorage.setItem(GEDCOM_SYNC_LEDGER_KEY, JSON.stringify(ledger));
+        } catch (_) {}
+        if (typeof setMetaInDb === 'function') {
+          setMetaInDb('gedcom_sync_ledger', ledger).catch(() => {});
+        }
+      }
+
+      async function hydrateGedcomSyncLedgerFromDb() {
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const dbLedger = await getMetaFromDb('gedcom_sync_ledger');
+          if (!dbLedger || typeof dbLedger !== 'object') return;
+          const local = loadGedcomSyncLedger();
+          const mergeBucket = (dst, src) => {
+            if (!src || typeof src !== 'object') return;
+            Object.entries(src).forEach(([k, v]) => {
+              if (!v) return;
+              if (!dst[k] || ((v.syncedAt || 0) > (dst[k].syncedAt || 0))) {
+                dst[k] = v;
+              }
+            });
+          };
+          mergeBucket(local.byGedId, dbLedger.byGedId);
+          mergeBucket(local.byName, dbLedger.byName);
+          if (dbLedger.unmarked && typeof dbLedger.unmarked === 'object') {
+            Object.entries(dbLedger.unmarked).forEach(([k, ts]) => {
+              if (typeof ts === 'number' && ts > (local.unmarked[k] || 0)) {
+                local.unmarked[k] = ts;
+              }
+            });
+          }
+          localStorage.setItem(GEDCOM_SYNC_LEDGER_KEY, JSON.stringify(local));
+        } catch (_) {}
+      }
+
+      function isGedcomPersonUnmarked(ledger, person) {
+        if (!ledger || !ledger.unmarked || !person) return false;
+        const gid = String(person.id || person.gedId || '').trim();
+        const norm = normalizeSyncPersonName(person.name);
+        return Boolean((gid && ledger.unmarked[`id:${gid}`]) || (norm && ledger.unmarked[`name:${norm}`]));
+      }
+
+      function personMatchesPhotoEntry(photoPerson, gedPerson) {
+        if (!photoPerson || !gedPerson) return false;
+        if (photoPerson.gedId && gedPerson.id && photoPerson.gedId === gedPerson.id) return true;
+        const xNorm = normalizeSyncPersonName(photoPerson.name);
+        const pNorm = normalizeSyncPersonName(gedPerson.name);
+        if (xNorm && pNorm && xNorm === pNorm) return true;
+        const xFl = firstLastSyncKey(photoPerson.name);
+        const pFl = firstLastSyncKey(gedPerson.name);
+        return Boolean(xFl && pFl && xFl === pFl && !photoPerson.gedId);
+      }
+
+      function findLinkedPhotoForGedPerson(person) {
+        if (!Array.isArray(items) || !items.length || !person) return null;
+        const pNorm = normalizeSyncPersonName(person.name);
+        const pFl = firstLastSyncKey(person.name);
+        return items.find((p) => Array.isArray(p.people) && p.people.some((x) => x.gedId && person.id && x.gedId === person.id))
+          || items.find((p) => Array.isArray(p.people) && pNorm && p.people.some((x) => normalizeSyncPersonName(x.name) === pNorm))
+          || items.find((p) => Array.isArray(p.people) && pFl && p.people.some((x) => firstLastSyncKey(x.name) === pFl))
+          || null;
+      }
+
+      function findVerifiedPidOnPhotoForGedPerson(lp, person) {
+        if (!lp || !person) return '';
+        const ppl = Array.isArray(lp.people) ? lp.people : [];
+        const direct = ppl.find((x) => x.fsId && personMatchesPhotoEntry(x, person));
+        if (direct && direct.fsId) return String(direct.fsId).trim().toUpperCase();
+        const pFl = firstLastSyncKey(person.name);
+        const flPid = pFl ? ppl.find((x) => x.fsId && firstLastSyncKey(x.name) === pFl) : null;
+        if (flPid && flPid.fsId) return String(flPid.fsId).trim().toUpperCase();
+        const singlePhotoPid = String(lp.fsId || '').trim().toUpperCase();
+        if (ppl.length <= 1 && singlePhotoPid && !singlePhotoPid.includes(',')) return singlePhotoPid;
+        return '';
+      }
+
+      function getGedcomPersonSyncRecord(person) {
+        if (!person) return null;
+        const ledger = loadGedcomSyncLedger();
+        const gid = String(person.id || person.gedId || '').trim();
+        const norm = normalizeSyncPersonName(person.name);
+        if (gid && ledger.byGedId[gid]) return ledger.byGedId[gid];
+        if (norm && ledger.byName[norm]) return ledger.byName[norm];
+        if (!isGedcomPersonUnmarked(ledger, person)) {
+          const lp = findLinkedPhotoForGedPerson(person);
+          if (lp && lp.fsSynced && (isCustomFolder || lp.fsMemoryId)) {
+            const matchedPid = findVerifiedPidOnPhotoForGedPerson(lp, person);
+            if (matchedPid || (lp.people && lp.people.length <= 1)) {
+              return {
+                gedId: gid,
+                name: person.name || '',
+                fsPid: matchedPid,
+                memoryId: lp.fsMemoryId || '',
+                syncedAt: lp.fsSyncedAt || 0,
+                summary: lp.fsMemoryId ? `Photo Memory #${lp.fsMemoryId}` : 'Synced via photo',
+                inferred: true
+              };
+            }
+          }
+        }
+        return null;
+      }
+
+      function recordGedcomPersonSynced(person, info = {}) {
+        if (!person && !info.fsPid) return null;
+        const name = (person && person.name) || info.name || '';
+        let gid = String((person && (person.id || person.gedId)) || info.gedId || '').trim();
+        if (!gid && name && window._activeGedcomData && window.GedcomImporter && typeof window.GedcomImporter.findGedcomPeopleByName === 'function') {
+          const hits = window.GedcomImporter.findGedcomPeopleByName(window._activeGedcomData, name) || [];
+          const normTarget = normalizeSyncPersonName(name);
+          const exact = hits.find((h) => normalizeSyncPersonName(h.name) === normTarget);
+          if (exact) gid = exact.id;
+          else if (hits.length === 1) gid = hits[0].id;
+        }
+        const norm = normalizeSyncPersonName(name);
+        const ledger = loadGedcomSyncLedger();
+        if (gid && ledger.unmarked) delete ledger.unmarked[`id:${gid}`];
+        if (norm && ledger.unmarked) delete ledger.unmarked[`name:${norm}`];
+        const prev = (gid && ledger.byGedId[gid]) || (norm && ledger.byName[norm]) || {};
+        const entry = {
+          gedId: gid || prev.gedId || '',
+          name: name || prev.name || '',
+          fsPid: String(info.fsPid || prev.fsPid || '').trim().toUpperCase(),
+          memoryId: String(info.memoryId || prev.memoryId || '').trim(),
+          syncedAt: info.syncedAt || Date.now(),
+          summary: info.summary || prev.summary || 'Synced to FamilySearch Beta',
+          manual: Boolean(info.manual)
+        };
+        if (gid) ledger.byGedId[gid] = entry;
+        if (norm) ledger.byName[norm] = entry;
+        saveGedcomSyncLedger(ledger);
+        return entry;
+      }
+
+      function unmarkGedcomPersonSynced(person) {
+        if (!person) return;
+        const ledger = loadGedcomSyncLedger();
+        const gid = String(person.id || person.gedId || '').trim();
+        const norm = normalizeSyncPersonName(person.name);
+        const now = Date.now();
+        if (gid) {
+          delete ledger.byGedId[gid];
+          ledger.unmarked[`id:${gid}`] = now;
+        }
+        if (norm) {
+          delete ledger.byName[norm];
+          ledger.unmarked[`name:${norm}`] = now;
+        }
+        saveGedcomSyncLedger(ledger);
+      }
+
+      function reconcileGedcomSyncLedgerFromItems(photoItems) {
+        if (!Array.isArray(photoItems) || !photoItems.length) return;
+        const ledger = loadGedcomSyncLedger();
+        const gd = window._activeGedcomData;
+        const gp = window.GedcomImporter;
+        let changed = false;
+
+        photoItems.forEach((p) => {
+          if (!p || !p.fsSynced || (!isCustomFolder && !p.fsMemoryId)) return;
+          const ppl = Array.isArray(p.people) ? p.people : [];
+          ppl.forEach((pr) => {
+            if (!pr || !pr.name) return;
+            const norm = normalizeSyncPersonName(pr.name);
+            const fl = firstLastSyncKey(pr.name);
+            let fsPid = String(pr.fsId || '').trim().toUpperCase();
+            if (!fsPid && fl) {
+              const sibPid = ppl.find((other) => other !== pr && other.fsId && firstLastSyncKey(other.name) === fl);
+              if (sibPid && sibPid.fsId) fsPid = String(sibPid.fsId).trim().toUpperCase();
+            }
+            if (!fsPid && ppl.length === 1 && p.fsId && !String(p.fsId).includes(',')) {
+              fsPid = String(p.fsId).trim().toUpperCase();
+            }
+            if (!fsPid && !p.fsMemoryId) return;
+
+            let gid = String(pr.gedId || '').trim();
+            if (!gid && gd && gp && typeof gp.findGedcomPeopleByName === 'function') {
+              const hits = gp.findGedcomPeopleByName(gd, pr.name) || [];
+              const exact = hits.find((h) => normalizeSyncPersonName(h.name) === norm);
+              if (exact) gid = exact.id;
+              else if (hits.length === 1) gid = hits[0].id;
+            }
+
+            const ts = p.fsSyncedAt || 0;
+            if ((gid && (ledger.unmarked[`id:${gid}`] || 0) > ts) || (norm && (ledger.unmarked[`name:${norm}`] || 0) > ts)) {
+              return;
+            }
+            const existing = (gid && ledger.byGedId[gid]) || (norm && ledger.byName[norm]) || null;
+            if (existing && (existing.fsPid || !fsPid) && (existing.syncedAt || 0) >= ts) {
+              if (gid && !ledger.byGedId[gid]) {
+                ledger.byGedId[gid] = { ...existing, gedId: gid };
+                changed = true;
+              }
+              return;
+            }
+            const entry = {
+              gedId: gid || (existing && existing.gedId) || '',
+              name: pr.name,
+              fsPid: fsPid || (existing && existing.fsPid) || '',
+              memoryId: String(p.fsMemoryId || (existing && existing.memoryId) || ''),
+              syncedAt: ts || (existing && existing.syncedAt) || Date.now(),
+              summary: p.fsMemoryId ? `Photo Memory #${p.fsMemoryId}` : 'Synced via photo',
+              manual: false
+            };
+            if (gid) ledger.byGedId[gid] = entry;
+            if (norm) ledger.byName[norm] = entry;
+            changed = true;
+          });
+        });
+
+        if (changed) saveGedcomSyncLedger(ledger);
+      }
+
+      async function saveActiveGedcomToDb(fileName, rawText) {
+        if (!rawText || typeof setMetaInDb !== 'function') return false;
+        return await setMetaInDb('active_gedcom_file', {
+          fileName: fileName || 'family-tree.ged',
+          text: rawText,
+          savedAt: Date.now()
+        });
+      }
+
+      async function clearSavedGedcomFile() {
+        window._activeGedcomData = null;
+        if (typeof setMetaInDb === 'function') {
+          await setMetaInDb('active_gedcom_file', null);
+        }
+        render();
+        notify('Cleared saved PAF / GEDCOM file.');
+      }
+
+      async function restoreSavedGedcomFromDb() {
+        if (gedcomRestoreStarted) return;
+        const gp = window.GedcomImporter;
+        if (!gp || typeof gp.parseGedcomText !== 'function') {
+          window.addEventListener('archival_ai_ready', () => {
+            restoreSavedGedcomFromDb().catch(() => {});
+          }, { once: true });
+          return;
+        }
+        gedcomRestoreStarted = true;
+        await hydrateGedcomSyncLedgerFromDb();
+        const saved = typeof getMetaFromDb === 'function' ? await getMetaFromDb('active_gedcom_file') : null;
+        if (saved && saved.text) {
+          try {
+            const gd = await gp.parseGedcomText(saved.text, saved.fileName || 'family-tree.ged');
+            gd.savedAt = saved.savedAt || Date.now();
+            window._activeGedcomData = gd;
+            reconcileGedcomSyncLedgerFromItems(items);
+            render();
+            return;
+          } catch (err) {
+            console.warn('Could not re-parse saved GEDCOM from IndexedDB:', err);
+          }
+        }
+        reconcileGedcomSyncLedgerFromItems(items);
+      }
+
+      async function exportGedcomMatchedJpegs(onStatus = null) {
+        const gd = window._activeGedcomData;
+        const gp = window.GedcomImporter;
+        if (!gd || !gp) {
+          notify('Load a PAF / GEDCOM (.ged) file first.');
+          return { exported: 0, total: 0 };
+        }
+        if (!window.JpegMetadataWriter || !window.JpegMetadataWriter.downloadJpegWithMetadata) {
+          notify('JPEG Metadata Writer is still loading — please try again in a second.');
+          return { exported: 0, total: 0 };
+        }
+        const res = gp.relinkPhotosWithGedcom(gd, items);
+        const matchedSet = new Set(res.matchedIds || []);
+        const targets = items.filter((p) => matchedSet.has(p.id));
+        if (targets.length === 0) {
+          if (onStatus) onStatus('No GEDCOM-matched photos in the current batch to export yet.');
+          notify('No GEDCOM-matched photos in the current batch to export yet.');
+          return { exported: 0, total: 0 };
+        }
+        let exported = 0;
+        for (let i = 0; i < targets.length; i++) {
+          if (onStatus) onStatus(`Embedding GEDCOM metadata into JPEG ${i + 1} / ${targets.length}...`);
+          const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(targets[i], targets[i]);
+          if (ok) exported++;
+        }
+        if (onStatus) {
+          onStatus(`✓ Exported <strong>${exported}</strong> JPEG${exported === 1 ? '' : 's'} with embedded EXIF/IPTC GEDCOM metadata to Downloads.`);
+        }
+        notify(`Exported ${exported} JPEGs with embedded GEDCOM metadata!`);
+        return { exported, total: targets.length };
+      }
+
+      /* =====================================================================
+         STEP 1: PAF / GEDCOM (.ged) TREE LOADER & PHOTO RE-LINKER
          ===================================================================== */
       function openGedcomPafModal() {
         const gp = window.GedcomImporter;
@@ -17284,35 +18336,38 @@
           <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:740px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.25);overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
-                <h2 style="font-size:17px;font-weight:700;margin:0;">🌳 PAF / GEDCOM (.ged) Importer &amp; Photo Re-Linker</h2>
-                <p class="muted" style="font-size:12px;margin:2px 0 0;">Reconnect broken PAF photo links by filename, browse 100K+ people, and sync missing people/fields to FamilySearch Beta.</p>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">🌳 Step 1: Load PAF / GEDCOM (.ged) Tree &amp; Photo Re-Linker</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Load your family tree file and re-link broken photo paths locally. Nothing is uploaded here — FamilySearch syncing happens in Step 4.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="ged-modal-close">✕ Close</button>
             </div>
             <div style="padding:18px 20px;overflow-y:auto;flex:1;" id="ged-modal-body">
-              <div style="padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border);margin-bottom:14px;font-size:12.5px;line-height:1.5;">
-                <strong>Have a <code>.paf</code> file?</strong> Open it in <strong>PAF</strong> (or free <strong>RootsMagic Essentials</strong> / <strong>Ancestral Quest Basics</strong>) and choose <strong>File → Export → GEDCOM (<code>.ged</code>)</strong>. That preserves all 100K+ names, dates, places, notes, and the original broken photo paths so we can re-link them automatically here.
+              <div style="padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border);margin-bottom:14px;font-size:13px;line-height:1.5;">
+                <strong>Have a <code>.paf</code> file?</strong> Open it in <strong>PAF</strong> (or free <strong>RootsMagic Essentials</strong> / <strong>Ancestral Quest Basics</strong>) and choose <strong>File → Export → GEDCOM (<code>.ged</code>)</strong>. That preserves all names, dates, places, notes, and photo links so we keep your tree saved here across visits.
               </div>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
                 <input type="file" id="inp-ged-file" accept=".ged,.gedcom">
                 <button type="button" class="btn sm accent" id="btn-ged-relink-now" ${window._activeGedcomData ? '' : 'disabled'}>🔗 Re-Link Current Batch</button>
                 <button type="button" class="btn sm" id="btn-ged-search-drive" ${window._activeGedcomData ? '' : 'disabled'}>☁️ Search Google Drive for Matches</button>
-                <button type="button" class="btn sm" id="btn-ged-export-meta" ${window._activeGedcomData ? '' : 'disabled'}>💾 Export Matched JPEGs w/ Metadata</button>
+                <button type="button" class="btn sm danger" id="btn-ged-clear-file" ${window._activeGedcomData ? '' : 'hidden'}>✕ Clear Saved .ged</button>
               </div>
-              <div id="ged-status" class="muted" style="font-size:12.5px;margin-bottom:12px;">
-                ${window._activeGedcomData ? `Loaded: <strong>${esc(window._activeGedcomData.fileName)}</strong> — ${window._activeGedcomData.peopleList.length.toLocaleString()} people, ${window._activeGedcomData.totalPhotoLinks.toLocaleString()} photo links.` : 'No .ged file loaded yet.'}
+              <div id="ged-status" style="font-size:13.5px;margin-bottom:12px;color:#1e293b;">
+                ${window._activeGedcomData ? `✓ Saved Tree Loaded: <strong>${esc(window._activeGedcomData.fileName)}</strong> — ${window._activeGedcomData.peopleList.length.toLocaleString()} people, ${window._activeGedcomData.totalPhotoLinks.toLocaleString()} photo links.` : 'No .ged file loaded yet.'}
               </div>
               <div style="border-top:1px solid var(--border);padding-top:12px;">
-                <div id="ged-active-photo-bar" style="margin-bottom:10px;"></div>
-                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Search People in GEDCOM / PAF (compare &amp; sync to FamilySearch Beta, tag to photo, or open in Photo Lab):</label>
+                <label style="font-size:13px;font-weight:700;display:block;margin-bottom:6px;">Re-Linked Photos &amp; People Preview (browse only — tag photos in Step 2 or sync to FamilySearch in Step 4):</label>
                 <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-                  <input type="search" id="inp-ged-search" placeholder="Type a name (e.g., Patricia Gill)..." style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;">
-                  <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;">
+                  <input type="search" id="inp-ged-search" placeholder="Search a relative by name (e.g., Patricia Gill)..." style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--control);border-radius:6px;font-size:13.5px;">
+                  <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:600;">
                     <input type="checkbox" id="chk-ged-relinked-only"> Re-Linked Photos Only
                   </label>
                 </div>
                 <div id="ged-results" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
               </div>
+            </div>
+            <div style="padding:12px 20px;border-top:1px solid var(--border);background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <button type="button" class="btn sm" id="ged-modal-step4">▶ Jump to Step 4: Sync Tree to FamilySearch →</button>
+              <button type="button" class="btn success" id="ged-modal-step2">Continue to Step 2: Identify &amp; Tag →</button>
             </div>
           </div>
         `;
@@ -17321,71 +18376,29 @@
         const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
         overlay.querySelector('#ged-modal-close').onclick = closeModal;
         overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+        overlay.querySelector('#ged-modal-step2').onclick = () => {
+          closeModal();
+          mode = 'catalog';
+          render();
+        };
+        overlay.querySelector('#ged-modal-step4').onclick = () => {
+          closeModal();
+          mode = 'sync';
+          render();
+        };
 
         const statusEl = overlay.querySelector('#ged-status');
-        const activePhotoBarEl = overlay.querySelector('#ged-active-photo-bar');
         const resultsEl = overlay.querySelector('#ged-results');
         const searchInp = overlay.querySelector('#inp-ged-search');
         const relinkedOnlyChk = overlay.querySelector('#chk-ged-relinked-only');
         const relinkBtn = overlay.querySelector('#btn-ged-relink-now');
         const driveSearchBtn = overlay.querySelector('#btn-ged-search-drive');
-        const exportMetaBtn = overlay.querySelector('#btn-ged-export-meta');
+        const clearFileBtn = overlay.querySelector('#btn-ged-clear-file');
 
-        const openPhotoInLab = (photoItem) => {
-          if (!photoItem) return;
-          selectedId = photoItem.id;
-          mode = 'lab';
-          closeModal();
-          render();
-        };
-
-        const renderActivePhotoBar = () => {
-          if (!activePhotoBarEl) return;
-          const cp = currentPhoto();
-          if (!cp) {
-            activePhotoBarEl.innerHTML = '';
-            return;
-          }
-          const thumbSrc = cp.workingSrc || cp.src || 'sample.jpg';
-          const taggedNames = Array.isArray(cp.people) && cp.people.length
-            ? cp.people.map((x) => x.name).filter(Boolean).join(', ')
-            : 'No people tagged yet';
-          activePhotoBarEl.innerHTML = `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
-              <img src="${esc(thumbSrc)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">
-              <div style="min-width:0;flex:1;">
-                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Selected Photo: ${esc(cp.title || cp.file || cp.id)} <span class="mono muted" style="font-size:11px;">(${esc(cp.id)})</span></div>
-                <div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Tagged: ${esc(taggedNames)}</div>
-              </div>
-              <div style="display:flex;gap:6px;flex-shrink:0;">
-                <button type="button" class="btn sm" id="btn-ged-clear-cur-tags" title="Clear wrong/demo tags from this photo">✕ Clear Tags</button>
-                <button type="button" class="btn sm" id="btn-ged-open-cur-lab">🖼️ Open in Photo Lab</button>
-              </div>
-            </div>
-          `;
-          const clearBtn = activePhotoBarEl.querySelector('#btn-ged-clear-cur-tags');
-          if (clearBtn) {
-            clearBtn.onclick = async () => {
-              cp.people = [];
-              cp.faces = [];
-              cp.fsId = '';
-              cp.fsMemoryId = '';
-              cp.fsSynced = false;
-              if (cp.file && /^Patricia Josephine Gill$/i.test(cp.title || '')) {
-                cp.title = cp.file.replace(/\.[^.]+$/, '');
-              }
-              saveItemMetadata(cp);
-              if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
-                await saveArchiveToDb(items, rootFolderName);
-              }
-              render();
-              renderSearch();
-              notify(`Cleared tags on ${cp.file || cp.id}.`);
-            };
-          }
-          const labBtn = activePhotoBarEl.querySelector('#btn-ged-open-cur-lab');
-          if (labBtn) labBtn.onclick = () => openPhotoInLab(cp);
-        };
+        if (relinkedOnlyChk && window._activeGedcomData) {
+          const hasAnyRelinked = window._activeGedcomData.peopleList.some((p) => Boolean(findLinkedPhotoForGedPerson(p)));
+          relinkedOnlyChk.checked = hasAnyRelinked;
+        }
 
         const persistAndSelectRelinked = async (res) => {
           const matchedSet = new Set(res.matchedIds || []);
@@ -17400,25 +18413,16 @@
           if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
             await saveArchiveToDb(items, rootFolderName);
           }
+          reconcileGedcomSyncLedgerFromItems(items);
           render();
         };
 
         const renderSearch = () => {
           const gd = window._activeGedcomData;
           if (!gd) {
-            resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:12px;">Load a .ged file above to search people.</div>';
+            resultsEl.innerHTML = '<div class="muted" style="padding:14px;font-size:13px;">Choose your <code>.ged</code> file above to load your family tree and match it to photos.</div>';
             return;
           }
-          const findLinkedPhotoForPerson = (person) => {
-            if (!Array.isArray(items) || !items.length || !person) return null;
-            const pNameLow = (person.name || '').toLowerCase();
-            return items.find((p) =>
-              Array.isArray(p.people) && p.people.some((x) =>
-                (x.gedId && x.gedId === person.id) || (pNameLow && (x.name || '').toLowerCase() === pNameLow)
-              )
-            ) || null;
-          };
-
           const q = searchInp.value.trim().toLowerCase();
           const onlyRelinked = Boolean(relinkedOnlyChk && relinkedOnlyChk.checked);
           const linkedRows = [];
@@ -17426,151 +18430,78 @@
           for (let i = 0; i < gd.peopleList.length; i++) {
             const person = gd.peopleList[i];
             if (q && !(person.name && person.name.toLowerCase().includes(q))) continue;
-            const lp = findLinkedPhotoForPerson(person);
+            const lp = findLinkedPhotoForGedPerson(person);
             if (lp) {
               linkedRows.push({ person, linkedPhoto: lp });
             } else if (!onlyRelinked && otherRows.length < 40) {
               otherRows.push({ person, linkedPhoto: null });
             }
           }
-          const combinedRows = [...linkedRows, ...otherRows].slice(0, 50);
-          const matches = combinedRows.map((r) => r.person);
-          if (matches.length === 0) {
-            resultsEl.innerHTML = `<div class="muted" style="padding:14px;font-size:12px;">${onlyRelinked ? 'No re-linked photos in the current batch yet.' : 'No matching people found.'}</div>`;
+          const combinedRows = [...linkedRows, ...otherRows].slice(0, 60);
+          if (combinedRows.length === 0) {
+            resultsEl.innerHTML = `<div class="muted" style="padding:14px;font-size:13px;">${onlyRelinked ? 'No re-linked photos in the current batch yet — uncheck "Re-Linked Photos Only" to browse all people in your tree.' : 'No matching people found.'}</div>`;
             return;
           }
-          const curPhoto = currentPhoto();
-          renderActivePhotoBar();
 
-          resultsEl.innerHTML = combinedRows.map(({ person, linkedPhoto }, idx) => {
+          resultsEl.innerHTML = combinedRows.map(({ person, linkedPhoto }) => {
             const linkedThumb = linkedPhoto ? (linkedPhoto.workingSrc || linkedPhoto.src || 'sample.jpg') : '';
+            const syncRec = getGedcomPersonSyncRecord(person);
             return `
             <div style="padding:10px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${linkedPhoto ? 'background:rgba(22,163,74,0.06);' : ''}">
-              ${linkedPhoto ? `<img src="${esc(linkedThumb)}" alt="" title="${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">` : ''}
+              ${linkedPhoto ? `<img src="${esc(linkedThumb)}" alt="" title="${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">` : ''}
               <div style="min-width:190px;flex:1;">
-                <div style="font-weight:600;font-size:13px;">${esc(person.name || 'Unnamed')} <span class="mono muted" style="font-size:11px;">(${esc(person.id)})</span> ${linkedPhoto ? '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">Re-Linked</span>' : ''}</div>
-                <div class="muted" style="font-size:11.5px;">
+                <div style="font-weight:700;font-size:14px;">
+                  ${esc(person.name || 'Unnamed')}
+                  <span class="mono muted" style="font-size:11.5px;font-weight:500;">(${esc(person.id)})</span>
+                  ${linkedPhoto ? '<span style="background:#dcfce7;color:#166534;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;margin-left:5px;">Re-Linked</span>' : ''}
+                  ${syncRec ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;margin-left:4px;">✓ Synced${syncRec.fsPid ? ` (${esc(syncRec.fsPid)})` : ''}</span>` : ''}
+                </div>
+                <div class="muted" style="font-size:12.5px;">
                   ${person.birthDate || person.birthPlace ? `b. ${esc(person.birthDate || '')} ${esc(person.birthPlace || '')}` : ''}
                   ${person.deathDate || person.deathPlace ? ` · d. ${esc(person.deathDate || '')} ${esc(person.deathPlace || '')}` : ''}
                 </div>
-                ${linkedPhoto ? `<div class="muted" style="font-size:11px;margin-top:2px;">Linked photo: <strong>${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}</strong></div>` : ''}
-              </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-                ${linkedPhoto ? `<button type="button" class="btn sm ged-lab" data-idx="${idx}" title="Open this person's linked photo in Photo Lab">🖼️ Photo Lab</button>` : ''}
-                ${curPhoto ? `<button type="button" class="btn sm ged-tag" data-idx="${idx}" title="Tag onto ${esc(curPhoto.title || curPhoto.file || curPhoto.id)}">+ Tag to Selected Photo</button>` : ''}
-                <button type="button" class="btn sm primary ged-fs" data-idx="${idx}">Sync to FamilySearch Beta</button>
+                ${linkedPhoto ? `<div style="font-size:12px;color:#1e293b;margin-top:2px;">Matched photo: <strong>${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}</strong></div>` : ''}
               </div>
             </div>
           `;
           }).join('');
-
-          resultsEl.querySelectorAll('.ged-lab').forEach((btn) => {
-            btn.onclick = () => {
-              const person = matches[Number(btn.getAttribute('data-idx'))];
-              const linked = findLinkedPhotoForPerson(person);
-              if (linked) openPhotoInLab(linked);
-            };
-          });
-
-          resultsEl.querySelectorAll('.ged-tag').forEach((btn) => {
-            btn.onclick = () => {
-              const person = matches[Number(btn.getAttribute('data-idx'))];
-              const p = currentPhoto();
-              if (!p || !person) return;
-              if (!Array.isArray(p.people)) p.people = [];
-              if (!p.people.some((x) => (x.name || '').toLowerCase() === (person.name || '').toLowerCase())) {
-                p.people.push({
-                  name: person.name,
-                  rel: 'Relative',
-                  branch: person.surname || p.branch || '',
-                  gedId: person.id,
-                  sex: person.sex,
-                  birthDate: person.birthDate,
-                  birthPlace: person.birthPlace,
-                  deathDate: person.deathDate,
-                  deathPlace: person.deathPlace,
-                  notes: person.notes
-                });
-                saveItemMetadata(p);
-                render();
-                renderSearch();
-                notify(`Tagged ${person.name} on ${p.title || p.file || p.id}.`);
-              } else {
-                notify(`${person.name} is already tagged on ${p.id}.`);
-              }
-            };
-          });
-
-          resultsEl.querySelectorAll('.ged-fs').forEach((btn) => {
-            btn.onclick = async () => {
-              const person = matches[Number(btn.getAttribute('data-idx'))];
-              const fs = window.FamilySearchClient;
-              if (!fs || !fs.getStoredToken()) {
-                fsUser = null;
-                render();
-                notify('FamilySearch session expired — opening FamilySearch Beta sign-in...');
-                if (fs && typeof fs.startLogin === 'function') fs.startLogin();
-                return;
-              }
-              btn.disabled = true;
-              btn.textContent = 'Searching FS...';
-              try {
-                const pafVitals = fs.extractStructuredPafData ? fs.extractStructuredPafData(person) : person;
-                const found = await fs.searchPersons(person.name, {
-                  birthDate: person.birthDate || pafVitals.birthDate,
-                  birthPlace: person.birthPlace || pafVitals.birthPlace,
-                  deathDate: person.deathDate || pafVitals.deathDate,
-                  deathPlace: person.deathPlace || pafVitals.deathPlace
-                });
-                if (found && found.length > 0) {
-                  const top = found[0];
-                  btn.textContent = `Loading ${top.id}...`;
-                  const opened = await openFamilySearchCompareModal(person, top.id, btn, found, findLinkedPhotoForPerson(person));
-                  if (opened) {
-                    btn.disabled = false;
-                    btn.textContent = `Compare ${top.id}`;
-                  } else {
-                    const upd = await fs.populatePersonMissingFields(top.id, person);
-                    if (upd.updated) {
-                      notify(`Updated ${top.id} (${person.name}) on FamilySearch Beta — added: ${upd.added.join(', ')}`);
-                      btn.textContent = `✓ Updated ${top.id}`;
-                    } else {
-                      notify(`${top.id} (${person.name}) already has all these fields on FamilySearch Beta.`);
-                      btn.textContent = `✓ Matched ${top.id}`;
-                    }
-                  }
-                } else {
-                  btn.textContent = 'Creating...';
-                  const created = await fs.createPerson(person);
-                  notify(`Created ${person.name} on FamilySearch Beta (${created.id})!`);
-                  btn.textContent = `✓ Created ${created.id}`;
-                }
-              } catch (err) {
-                notify(err.message || 'FamilySearch sync failed.');
-                btn.disabled = false;
-                btn.textContent = 'Sync to FamilySearch Beta';
-              }
-            };
-          });
         };
+
+        if (clearFileBtn) {
+          clearFileBtn.onclick = async () => {
+            await clearSavedGedcomFile();
+            relinkBtn.disabled = true;
+            if (driveSearchBtn) driveSearchBtn.disabled = true;
+            clearFileBtn.hidden = true;
+            statusEl.textContent = 'Cleared saved .ged file. Choose a new .ged file above anytime.';
+            renderSearch();
+          };
+        }
 
         overlay.querySelector('#inp-ged-file').onchange = async (e) => {
           const file = e.target.files && e.target.files[0];
           if (!file) return;
-          statusEl.textContent = 'Parsing GEDCOM file...';
+          statusEl.textContent = 'Parsing & saving GEDCOM file...';
           try {
             const gedData = await gp.parseGedcomFile(file, (p) => {
               statusEl.textContent = `${p.stage} (${p.pct}%)`;
             });
             window._activeGedcomData = gedData;
+            if (gedData.rawText) {
+              await saveActiveGedcomToDb(file.name, gedData.rawText);
+            }
             const res = gp.relinkPhotosWithGedcom(gedData, items);
             if (res.matchedPhotos > 0) {
               await persistAndSelectRelinked(res);
+            } else {
+              reconcileGedcomSyncLedgerFromItems(items);
+              render();
             }
             relinkBtn.disabled = false;
             if (driveSearchBtn) driveSearchBtn.disabled = false;
-            if (exportMetaBtn) exportMetaBtn.disabled = false;
-            statusEl.innerHTML = `✓ Parsed <strong>${gedData.peopleList.length.toLocaleString()} people</strong> and <strong>${gedData.totalPhotoLinks.toLocaleString()} photo links</strong>. Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.totalLinksRestored} new person links restored).`;
+            if (clearFileBtn) clearFileBtn.hidden = false;
+            if (relinkedOnlyChk) relinkedOnlyChk.checked = res.matchedPhotos > 0;
+            statusEl.innerHTML = `✓ Parsed &amp; auto-saved <strong>${gedData.peopleList.length.toLocaleString()} people</strong> and <strong>${gedData.totalPhotoLinks.toLocaleString()} photo links</strong>. Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.totalLinksRestored} new person links restored). <em>Stays saved automatically on reload!</em>`;
             renderSearch();
           } catch (err) {
             statusEl.textContent = `Error reading GEDCOM: ${err.message}`;
@@ -17581,6 +18512,7 @@
           if (!window._activeGedcomData) return;
           const res = gp.relinkPhotosWithGedcom(window._activeGedcomData, items);
           await persistAndSelectRelinked(res);
+          if (relinkedOnlyChk && res.matchedPhotos > 0) relinkedOnlyChk.checked = true;
           statusEl.innerHTML = `✓ Matched <strong>${res.matchedPhotos}</strong> photos in current batch (${res.newlyUpdatedPhotos} newly updated, ${res.totalLinksRestored} new person links restored).`;
           renderSearch();
         };
@@ -17630,6 +18562,7 @@
               await loadCloudFilesIntoArchive(matchedDriveFiles, 'GDrive_GEDCOM_Matches');
               const res = gp.relinkPhotosWithGedcom(gd, items);
               await persistAndSelectRelinked(res);
+              if (relinkedOnlyChk && res.matchedPhotos > 0) relinkedOnlyChk.checked = true;
               statusEl.innerHTML = `✓ Found &amp; imported <strong>${matchedDriveFiles.length}</strong> matching photos from Google Drive and populated GEDCOM metadata on <strong>${res.matchedPhotos}</strong> photos!`;
               renderSearch();
               notify(`Loaded ${matchedDriveFiles.length} GEDCOM-matched photos from Google Drive!`);
@@ -17637,39 +18570,6 @@
               statusEl.textContent = `Google Drive search failed: ${err.message}`;
             } finally {
               driveSearchBtn.disabled = false;
-            }
-          };
-        }
-
-        if (exportMetaBtn) {
-          exportMetaBtn.onclick = async () => {
-            const gd = window._activeGedcomData;
-            if (!gd) return;
-            if (!window.JpegMetadataWriter || !window.JpegMetadataWriter.downloadJpegWithMetadata) {
-              notify('JPEG Metadata Writer is still loading — please try again in a second.');
-              return;
-            }
-            const res = gp.relinkPhotosWithGedcom(gd, items);
-            const matchedSet = new Set(res.matchedIds || []);
-            const targets = items.filter((p) => matchedSet.has(p.id));
-            if (targets.length === 0) {
-              statusEl.textContent = 'No GEDCOM-matched photos in the current batch to export yet.';
-              return;
-            }
-            exportMetaBtn.disabled = true;
-            let exported = 0;
-            try {
-              for (let i = 0; i < targets.length; i++) {
-                statusEl.textContent = `Embedding GEDCOM metadata into JPEG ${i + 1} / ${targets.length}...`;
-                const ok = await window.JpegMetadataWriter.downloadJpegWithMetadata(targets[i], targets[i]);
-                if (ok) exported++;
-              }
-              statusEl.innerHTML = `✓ Exported <strong>${exported}</strong> JPEG${exported === 1 ? '' : 's'} with embedded EXIF/IPTC GEDCOM metadata to Downloads.`;
-              notify(`Exported ${exported} JPEGs with embedded GEDCOM metadata!`);
-            } catch (err) {
-              statusEl.textContent = `JPEG metadata export failed: ${err.message}`;
-            } finally {
-              exportMetaBtn.disabled = false;
             }
           };
         }
