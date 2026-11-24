@@ -120,6 +120,7 @@ export async function parseGedcomText(text, fileName = 'family-tree.ged', onProg
           notes: '',
           objeIds: [],
           inlineObje: [],
+          photoFileNames: [],
           famc: [],
           fams: []
         };
@@ -291,15 +292,25 @@ export async function parseGedcomText(text, fileName = 'family-tree.ged', onProg
     }
   };
 
+  const pushPersonPhotoName = (pid, rawPath) => {
+    const p = peopleById.get(pid);
+    const b = extractBasename(rawPath);
+    if (p && b && !p.photoFileNames.includes(b)) {
+      p.photoFileNames.push(b);
+    }
+  };
+
   for (const person of peopleById.values()) {
     for (const oid of person.objeIds) {
       const obj = objeById.get(oid);
       if (obj && obj.file) {
+        pushPersonPhotoName(person.id, obj.file);
         addLink(obj.file, obj.title, obj.note, [person.id], person.birthDate, person.birthPlace);
       }
     }
     for (const inline of person.inlineObje) {
       if (inline.file) {
+        pushPersonPhotoName(person.id, inline.file);
         addLink(inline.file, inline.title, inline.note, [person.id], person.birthDate, person.birthPlace);
       }
     }
@@ -310,11 +321,13 @@ export async function parseGedcomText(text, fileName = 'family-tree.ged', onProg
     for (const oid of fam.objeIds) {
       const obj = objeById.get(oid);
       if (obj && obj.file) {
+        famPids.forEach((fpid) => pushPersonPhotoName(fpid, obj.file));
         addLink(obj.file, obj.title, obj.note, famPids, fam.marrDate, fam.marrPlace);
       }
     }
     for (const inline of fam.inlineObje) {
       if (inline.file) {
+        famPids.forEach((fpid) => pushPersonPhotoName(fpid, inline.file));
         addLink(inline.file, inline.title, inline.note, famPids, fam.marrDate, fam.marrPlace);
       }
     }

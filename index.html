@@ -2777,6 +2777,9 @@
       <button class="nav-item" type="button" data-queue="unsynced">
         <span data-icon="tree"></span><span>FamilySearch queue</span><span class="nav-count" id="q-unsynced">4</span>
       </button>
+      <button class="nav-item" type="button" data-queue="gedcom_matched">
+        <span data-icon="tree"></span><span>PAF / GEDCOM matched</span><span class="nav-count" id="q-gedcom-matched">0</span>
+      </button>
 
       <div class="group-label">Batch Cleanup &amp; Repairs</div>
       <button class="nav-item" type="button" data-queue="lowres">
@@ -2901,13 +2904,16 @@
         </div>
 
         <div class="header-controls">
-          <!-- View Switch inside Catalog: #4 Ledger vs #2 Contact Sheet -->
+          <!-- View Switch inside Catalog: #4 Ledger vs #2 Contact Sheet vs Map vs People / Tree -->
           <div class="segmented" id="catalog-view-switch" role="group" aria-label="Catalog layout">
             <button type="button" data-layout="ledger" aria-pressed="true">
               <span data-icon="table"></span><span>Ledger</span>
             </button>
             <button type="button" data-layout="sheet" aria-pressed="false">
               <span data-icon="grid"></span><span>Contact sheet</span>
+            </button>
+            <button type="button" data-layout="people" aria-pressed="false" title="Browse people in your PAF / GEDCOM tree and attach or review their photos">
+              <span data-icon="tree"></span><span>People / Tree</span>
             </button>
             <button type="button" data-layout="map" aria-pressed="false">
               <span data-icon="map"></span><span>Global Map</span>
@@ -3855,6 +3861,8 @@
       let gedSyncRelinkedOnly = null; // null = auto-default to re-linked photos when present
       let gedSyncSearchQuery = '';
       let gedcomRestoreStarted = false;
+      let peopleViewFilter = 'auto'; // 'auto' | 'with_photos' | 'needs_photo' | 'all'
+      let peopleViewSearchQuery = '';
 
       /* Photo Lab interactive states */
       let activeTool = 'restore';  // 'restore' | 'color' | 'tone' | 'crop' | 'erase' | 'redeye'
@@ -5167,6 +5175,7 @@
             if (activeQueue === 'no_people') return isNoPeoplePhoto(p);
             if (activeQueue === 'unnamed' && getUnnamedFaceCount(p) === 0) return false;
             if (activeQueue === 'unsynced' && p.fsSynced) return false;
+            if (activeQueue === 'gedcom_matched' && !isPhotoLinkedToGedcom(p)) return false;
             if (activeQueue === 'lowres' && !isLowRes(p)) return false;
           }
           if (search) {
@@ -5221,6 +5230,7 @@
         const noPeopleCount = activePhotos.filter((p) => isNoPeoplePhoto(p)).length;
         const unscannedCount = activePhotos.filter((p) => !isPhotoFaceScanned(p) && !hasPeople(p) && !isScreenshotPhoto(p)).length;
         const screenshotCount = activePhotos.filter((p) => isScreenshotPhoto(p)).length;
+        const gedcomMatchedCount = activePhotos.filter((p) => isPhotoLinkedToGedcom(p)).length;
 
         document.getElementById('q-all').textContent = s.activeCount;
         const qWithPeople = document.getElementById('q-with-people');
@@ -5229,6 +5239,8 @@
         if (qNoPeople) qNoPeople.textContent = noPeopleCount;
         document.getElementById('q-unnamed').textContent = s.unnamedPhotoCount;
         document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
+        const qGedMatched = document.getElementById('q-gedcom-matched');
+        if (qGedMatched) qGedMatched.textContent = gedcomMatchedCount;
         document.getElementById('q-lowres').textContent = s.lowResCount;
         document.getElementById('q-dups').textContent = findDuplicatePairs(items).length;
         document.getElementById('q-junk').textContent = screenshotCount;
@@ -5325,8 +5337,292 @@
             window.Charts.barList(document.getElementById('chart-branches'), brData);
           }
 
+          function renderPeopleTreeView(host) {
+            if (!host) return;
+            const gd = window._activeGedcomData;
+            const activePhotos = items.filter((p) => p && !p.inReview);
+
+            const photosByGedId = new Map();
+            const photosByNormName = new Map();
+            const photosByFirstLast = new Map();
+            const addMap = (map, k, photo) => {
+              if (!k) return;
+              if (!map.has(k)) map.set(k, []);
+              const arr = map.get(k);
+              if (!arr.includes(photo)) arr.push(photo);
+            };
+            activePhotos.forEach((ph) => {
+              (ph.people || []).forEach((pr) => {
+                if (!pr) return;
+                if (pr.gedId) addMap(photosByGedId, pr.gedId, ph);
+                const nm = normalizeSyncPersonName(pr.name);
+                if (nm) addMap(photosByNormName, nm, ph);
+                const fl = firstLastSyncKey(pr.name);
+                if (fl && !pr.gedId) addMap(photosByFirstLast, fl, ph);
+              });
+            });
+
+            const getLinkedPhotosFast = (person) => {
+              if (!person) return [];
+              const seen = new Set();
+              const out = [];
+              const pushAll = (arr) => {
+                if (!arr) return;
+                for (let i = 0; i < arr.length; i++) {
+                  const ph = arr[i];
+                  if (!seen.has(ph.id)) {
+                    seen.add(ph.id);
+                    out.push(ph);
+                  }
+                }
+              };
+              if (person.id) pushAll(photosByGedId.get(person.id));
+              pushAll(photosByNormName.get(normalizeSyncPersonName(person.name)));
+              if (out.length === 0) pushAll(photosByFirstLast.get(firstLastSyncKey(person.name)));
+              return out;
+            };
+
+            let peopleSource = [];
+            if (gd && Array.isArray(gd.peopleList)) {
+              peopleSource = gd.peopleList;
+            } else {
+              const fallbackMap = new Map();
+              activePhotos.forEach((ph) => {
+                (ph.people || []).forEach((pr) => {
+                  if (!pr || !pr.name) return;
+                  const key = normalizeSyncPersonName(pr.name);
+                  if (!key || fallbackMap.has(key)) return;
+                  fallbackMap.set(key, {
+                    id: pr.gedId || '',
+                    name: pr.name,
+                    surname: pr.branch || ph.branch || '',
+                    birthDate: pr.birthDate || '',
+                    birthPlace: pr.birthPlace || '',
+                    deathDate: pr.deathDate || '',
+                    deathPlace: pr.deathPlace || '',
+                    notes: pr.notes || '',
+                    photoFileNames: []
+                  });
+                });
+              });
+              peopleSource = Array.from(fallbackMap.values());
+            }
+
+            host.innerHTML = `
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:240px;">
+                    <div style="font-size:15.5px;font-weight:700;color:#0f172a;">
+                      ${gd ? `🌳 Family Tree People (${esc(gd.fileName || 'PAF / GEDCOM')} · ${gd.peopleList.length.toLocaleString()} relatives)` : '🌳 Relatives Identified in Your Photos'}
+                    </div>
+                    <div style="font-size:13.5px;color:#1e3a8a;margin-top:3px;">
+                      Click any relative's photo thumbnail to edit it on the right, or use <strong>➕ Add Photo from Computer</strong> / <strong>🔗 Link Existing Photo</strong> to attach photos straight to any relative's PAF / GEDCOM record.
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn sm" id="btn-people-switch-ledger">📋 View All Photos in Ledger (${activePhotos.length})</button>
+                    <button type="button" class="btn sm primary" id="btn-people-open-gedcom">${gd ? '🌳 Change / Re-Link .ged' : '🌳 Load PAF / GEDCOM (.ged)'}</button>
+                  </div>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="with_photos">With Photos</button>
+                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="needs_photo">Needs a Photo</button>
+                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="all">All People</button>
+                  <input type="search" id="inp-people-search" value="${esc(peopleViewSearchQuery)}" placeholder="Find any relative by name (e.g., Mary Costello, Jeff Viola)..." style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--control);border-radius:8px;font-size:14.5px;background:var(--surface);">
+                </div>
+
+                <div id="people-tree-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+              </div>
+            `;
+
+            const listEl = host.querySelector('#people-tree-list');
+            const searchInp = host.querySelector('#inp-people-search');
+            const filterBtns = host.querySelectorAll('[data-pv-filter]');
+
+            host.querySelector('#btn-people-switch-ledger').onclick = () => {
+              layout = 'ledger';
+              render();
+            };
+            host.querySelector('#btn-people-open-gedcom').onclick = () => {
+              if (typeof openGedcomPafModal === 'function') openGedcomPafModal();
+            };
+
+            const ledgerSnap = typeof loadGedcomSyncLedger === 'function' ? loadGedcomSyncLedger() : { byGedId: {}, byName: {} };
+
+            const renderPeopleCards = () => {
+              const q = peopleViewSearchQuery.trim().toLowerCase();
+              const withPhotosList = [];
+              const needsPhotoList = [];
+              for (let i = 0; i < peopleSource.length; i++) {
+                const person = peopleSource[i];
+                const linkedPhotos = getLinkedPhotosFast(person);
+                if (linkedPhotos.length > 0) withPhotosList.push({ person, linkedPhotos });
+                else needsPhotoList.push({ person, linkedPhotos });
+              }
+
+              const effectiveFilter = peopleViewFilter === 'auto'
+                ? (withPhotosList.length > 0 ? 'with_photos' : 'all')
+                : peopleViewFilter;
+
+              filterBtns.forEach((b) => {
+                const f = b.getAttribute('data-pv-filter');
+                b.setAttribute('aria-pressed', effectiveFilter === f ? 'true' : 'false');
+                if (f === 'with_photos') b.textContent = `With Photos (${withPhotosList.length.toLocaleString()})`;
+                else if (f === 'needs_photo') b.textContent = `Needs a Photo (${needsPhotoList.length.toLocaleString()})`;
+                else b.textContent = `All People (${peopleSource.length.toLocaleString()})`;
+              });
+
+              const basePool = effectiveFilter === 'with_photos'
+                ? withPhotosList
+                : (effectiveFilter === 'needs_photo' ? needsPhotoList : [...withPhotosList, ...needsPhotoList]);
+
+              const visible = [];
+              for (let i = 0; i < basePool.length && visible.length < 60; i++) {
+                const item = basePool[i];
+                if (q) {
+                  const hay = `${item.person.name || ''} ${item.person.id || ''} ${(item.person.birthPlace || '')} ${(item.person.photoFileNames || []).join(' ')}`.toLowerCase();
+                  if (!hay.includes(q)) continue;
+                }
+                visible.push(item);
+              }
+
+              if (visible.length === 0) {
+                listEl.innerHTML = `
+                  <div class="panel" style="padding:28px 20px;text-align:center;">
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:6px;">
+                      ${peopleSource.length === 0
+                        ? 'No relatives loaded here yet'
+                        : (effectiveFilter === 'with_photos' ? 'No relatives have linked photos in the current batch yet' : 'No matching relatives found')}
+                    </div>
+                    <p class="muted" style="font-size:13.5px;margin:0 0 14px;">
+                      ${peopleSource.length === 0
+                        ? 'Load a PAF / GEDCOM (.ged) family tree in Step 1, or select a photo and tag a family member in the right panel.'
+                        : 'Click "All People" above to browse all relatives in your tree and add photos directly to anyone.'}
+                    </p>
+                    ${effectiveFilter === 'with_photos' && peopleSource.length > 0 ? `<button type="button" class="btn primary" id="btn-pv-show-all">Show All ${peopleSource.length.toLocaleString()} People to Add Photos</button>` : ''}
+                  </div>
+                `;
+                const showAllBtn = listEl.querySelector('#btn-pv-show-all');
+                if (showAllBtn) {
+                  showAllBtn.onclick = () => {
+                    peopleViewFilter = 'all';
+                    renderPeopleCards();
+                  };
+                }
+                return;
+              }
+
+              listEl.innerHTML = visible.map(({ person, linkedPhotos }, idx) => {
+                const gid = String(person.id || '').trim();
+                const norm = normalizeSyncPersonName(person.name);
+                const syncRec = (gid && ledgerSnap.byGedId[gid]) || (norm && ledgerSnap.byName[norm]) || null;
+                const lifeLine = [
+                  (person.birthDate || person.birthPlace) ? `b. ${[person.birthDate, person.birthPlace].filter(Boolean).join(' · ')}` : '',
+                  (person.deathDate || person.deathPlace) ? `d. ${[person.deathDate, person.deathPlace].filter(Boolean).join(' · ')}` : ''
+                ].filter(Boolean).join(' — ');
+                const pafFileHint = Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0 && linkedPhotos.length === 0
+                  ? `<div style="font-size:12.5px;color:#1e40af;background:#eff6ff;padding:5px 9px;border-radius:6px;margin-top:6px;border:1px solid #bfdbfe;">📎 Original PAF photo file${person.photoFileNames.length > 1 ? 's' : ''}: <strong>${esc(person.photoFileNames.slice(0, 4).join(', '))}</strong></div>`
+                  : '';
+
+                return `
+                  <div style="border:1.5px solid ${linkedPhotos.length ? '#86efac' : '#cbd5e1'};background:${linkedPhotos.length ? '#f0fdf4' : '#ffffff'};border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                      <div style="min-width:220px;flex:1;">
+                        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+                          <span style="font-size:16.5px;font-weight:700;color:#0f172a;">${esc(person.name || 'Unnamed')}</span>
+                          ${person.id ? `<span class="mono muted" style="font-size:12px;">(${esc(person.id)})</span>` : ''}
+                          ${linkedPhotos.length > 0
+                            ? `<span class="pill pos" style="font-size:11.5px;">✓ ${linkedPhotos.length} Photo${linkedPhotos.length === 1 ? '' : 's'} Linked</span>`
+                            : '<span class="pill warn" style="font-size:11.5px;">No Photo Yet</span>'}
+                          ${syncRec
+                            ? `<span class="pill info" style="font-size:11.5px;">✓ Synced${syncRec.fsPid ? ` · ${esc(syncRec.fsPid)}` : ''}</span>`
+                            : ''}
+                        </div>
+                        ${lifeLine ? `<div style="font-size:13px;color:#334155;margin-top:3px;">${esc(lifeLine)}</div>` : ''}
+                        ${person.notes ? `<div class="muted" style="font-size:12.5px;margin-top:3px;line-height:1.4;">📝 ${esc(person.notes.slice(0, 180))}${person.notes.length > 180 ? '…' : ''}</div>` : ''}
+                        ${pafFileHint}
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;">
+                        <button type="button" class="btn sm primary pv-add-photo" data-pidx="${idx}" title="Pick a photo from your computer and link it directly to ${esc(person.name)}">➕ Add Photo from Computer</button>
+                        ${activePhotos.length > 0 ? `<button type="button" class="btn sm pv-link-existing" data-pidx="${idx}" title="Attach one of your currently loaded photos to ${esc(person.name)}">🔗 Link Existing Photo</button>` : ''}
+                      </div>
+                    </div>
+
+                    ${linkedPhotos.length > 0 ? `
+                      <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px;border-top:1px solid rgba(22,163,74,0.2);">
+                        ${linkedPhotos.map((ph) => {
+                          const isSel = ph.id === selectedId;
+                          return `
+                            <button type="button" class="pv-select-photo" data-photo-id="${esc(ph.id)}" style="display:flex;align-items:center;gap:8px;padding:6px 10px 6px 6px;border-radius:8px;border:2px solid ${isSel ? '#1d4ed8' : '#cbd5e1'};background:${isSel ? '#dbeafe' : '#ffffff'};cursor:pointer;text-align:left;max-width:290px;">
+                              <img src="${esc(afterSrc(ph))}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:6px;flex-shrink:0;">
+                              <div style="min-width:0;">
+                                <div style="font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ph.title || ph.file || ph.id)}</div>
+                                <div style="font-size:11.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${isSel ? '✓ Selected — edit on right' : 'Click to inspect & tag →'}</div>
+                              </div>
+                            </button>
+                          `;
+                        }).join('')}
+                      </div>
+                    ` : ''}
+                  </div>
+                `;
+              }).join('');
+
+              listEl.querySelectorAll('.pv-select-photo').forEach((btn) => {
+                btn.onclick = () => {
+                  commitInspectorInputs(currentPhoto(), false);
+                  selectedId = btn.getAttribute('data-photo-id');
+                  renderInspector();
+                  renderPeopleCards();
+                  if (isMobile()) openMobileInspector();
+                };
+              });
+              listEl.querySelectorAll('.pv-add-photo').forEach((btn) => {
+                btn.onclick = () => {
+                  const row = visible[Number(btn.getAttribute('data-pidx'))];
+                  if (!row) return;
+                  const inp = document.createElement('input');
+                  inp.type = 'file';
+                  inp.multiple = true;
+                  inp.accept = 'image/*';
+                  inp.onchange = async () => {
+                    if (inp.files && inp.files.length) {
+                      await addLocalFilesAndLinkToPerson(inp.files, row.person);
+                    }
+                  };
+                  inp.click();
+                };
+              });
+              listEl.querySelectorAll('.pv-link-existing').forEach((btn) => {
+                btn.onclick = () => {
+                  const row = visible[Number(btn.getAttribute('data-pidx'))];
+                  if (row) openLinkExistingPhotoModal(row.person);
+                };
+              });
+            };
+
+            filterBtns.forEach((b) => {
+              b.onclick = () => {
+                peopleViewFilter = b.getAttribute('data-pv-filter') || 'all';
+                renderPeopleCards();
+              };
+            });
+            if (searchInp) {
+              searchInp.oninput = () => {
+                peopleViewSearchQuery = searchInp.value || '';
+                renderPeopleCards();
+              };
+            }
+            renderPeopleCards();
+          }
+
           function renderCatalogCenter() {
             const host = document.getElementById('catalog-center');
+            if (layout === 'people') {
+              renderPeopleTreeView(host);
+              return;
+            }
 
             /* Empty state when demo prints are cleared */
             if (items.length === 0) {
@@ -5894,7 +6190,7 @@
                           </div>
                         </td>
                         <td>
-                          <div style="font-weight:500;">${esc(p.title)}</div>
+                          <div style="font-weight:500;">${esc(p.title)}${isPhotoLinkedToGedcom(p) ? ' <span class="pill pos" style="font-size:10.5px;padding:1px 6px;margin-left:4px;" title="Linked to PAF / GEDCOM tree record">🌳 PAF</span>' : ''}</div>
                           <div style="font-size:12px;color:var(--muted);margin-top:2px;">${peopleLine}${faceNote}</div>
                         </td>
                         <td class="mono" style="white-space:nowrap;">${p.isoDate ? esc(p.isoDate) : '<span class="muted">Undated</span>'}</td>
@@ -7254,7 +7550,13 @@
           if (!chosenName || !p.faces[activeIdx]) return;
 
           const targetFace = p.faces[activeIdx];
-          const resolvedPid = resolveKnownPidForName(chosenName, personObj.fsId);
+          const matchedGed = typeof findGedcomPersonByNameOrId === 'function'
+            ? findGedcomPersonByNameOrId(chosenName, (personObj && personObj.gedId) || '')
+            : null;
+          const gedSyncRec = (matchedGed && typeof getGedcomPersonSyncRecord === 'function')
+            ? getGedcomPersonSyncRecord(matchedGed)
+            : null;
+          const resolvedPid = resolveKnownPidForName(chosenName, personObj.fsId) || (gedSyncRec && gedSyncRec.fsPid) || '';
 
           p.faces.forEach((otherFace, idx) => {
             if (idx !== activeIdx && (otherFace.name || '').trim().toLowerCase() === chosenName.toLowerCase()) {
@@ -7274,6 +7576,7 @@
 
           targetFace.name = chosenName;
           targetFace.fsId = effectivePid;
+          if (matchedGed && matchedGed.id) targetFace.gedId = matchedGed.id;
           targetFace.confirmed = true;
           targetFace.recognized = true;
           targetFace.suggestedName = chosenName;
@@ -7282,12 +7585,18 @@
             existingRel = {
               name: chosenName,
               rel: personObj.rel || 'Relative',
-              branch: personObj.branch || p.branch || '',
+              branch: personObj.branch || (matchedGed && matchedGed.surname) || p.branch || '',
               fsId: effectivePid || undefined
             };
             p.people.push(existingRel);
           } else if (effectivePid && !existingRel.fsId) {
             existingRel.fsId = effectivePid;
+          }
+          if (matchedGed) {
+            if (matchedGed.id && !existingRel.gedId) existingRel.gedId = matchedGed.id;
+            ['sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'notes'].forEach((k) => {
+              if (!existingRel[k] && matchedGed[k]) existingRel[k] = matchedGed[k];
+            });
           }
 
           if (resolvedPid) {
@@ -8061,6 +8370,7 @@
                   <div style="flex:1;min-width:0;">
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                       <span style="font-weight:700;font-size:15.5px;color:var(--text);">${esc(person.name)}</span>
+                      ${person.gedId ? `<span class="pill info" style="font-size:11px;padding:2px 6px;font-weight:600;" title="Linked to PAF / GEDCOM record ${esc(person.gedId)}">🌳 PAF ${esc(person.gedId)}</span>` : ''}
                       ${person.fsId ? `
                         <span class="pill mono pos" style="font-size:12px;padding:2px 6px;font-weight:600;display:inline-flex;align-items:center;gap:4px;" title="FamilySearch Tree PID: ${esc(person.fsId)}">
                           <span>${esc(person.fsId)}</span>
@@ -8086,6 +8396,7 @@
             <div class="add-person-box" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;">
               <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Tag an Individual</div>
               <input id="f-person-name" type="text" list="family-members-datalist" placeholder="Relative name (e.g. Josephine Costello)..." style="font-size:14px;padding:6px 9px;border:1px solid var(--border);border-radius:5px;background:var(--surface);">
+              <div id="insp-tag-ged-suggestions" style="display:none;max-height:155px;overflow-y:auto;flex-direction:column;gap:4px;"></div>
               <datalist id="family-members-datalist">
                 ${Array.from(new Set(items.flatMap(x => x.people ? x.people.map(pr => pr.name) : []))).filter(Boolean).sort().map(name => `<option value="${esc(name)}">`).join('')}
               </datalist>
@@ -8659,85 +8970,12 @@
               .replace(/^\s*(?:great[-\s]*)?(?:aunt|uncle|grandma|grandpa|grandmother|grandfather|nana|papa|cousin|mr|mrs|ms|miss|dr)\.?\s+/i, '')
               .trim();
 
-            const findGedcomPersonForName = (rawName, gedIdHint = '') => {
-              const gd = window._activeGedcomData;
-              if (!gd) return null;
-              if (gedIdHint && gd.peopleById && gd.peopleById.has(gedIdHint)) {
-                return gd.peopleById.get(gedIdHint);
-              }
-              const cleaned = stripRelHonorifics(rawName);
-              if (!cleaned) return null;
-              if (window.GedcomImporter && typeof window.GedcomImporter.findGedcomPeopleByName === 'function') {
-                const hits = window.GedcomImporter.findGedcomPeopleByName(gd, cleaned);
-                if (hits && hits.length > 0) {
-                  const exact = hits.find((h) => (h.name || '').toLowerCase() === cleaned.toLowerCase());
-                  return exact || hits[0];
-                }
-              }
-              if (Array.isArray(gd.peopleList)) {
-                const low = cleaned.toLowerCase();
-                return gd.peopleList.find((g) => g.name && g.name.toLowerCase() === low)
-                  || gd.peopleList.find((g) => g.name && g.name.toLowerCase().includes(low))
-                  || null;
-              }
-              return null;
-            };
+            const findGedcomPersonForName = (rawName, gedIdHint = '') => findGedcomPersonByNameOrId(rawName, gedIdHint);
 
             const applyGedcomPersonToPhoto = async (gp) => {
               if (!gp || !gp.name) return;
-              if (!Array.isArray(p.people)) p.people = [];
-              const gLow = gp.name.trim().toLowerCase();
-              let entry = p.people.find((pr) => (pr.gedId && pr.gedId === gp.id) || (pr.name || '').trim().toLowerCase() === gLow);
-              if (!entry) {
-                entry = {
-                  name: gp.name.trim(),
-                  rel: 'Relative',
-                  branch: gp.surname || p.branch || ''
-                };
-                p.people.push(entry);
-              }
-              entry.gedId = gp.id;
-              if (gp.sex) entry.sex = gp.sex;
-              if (gp.birthDate) entry.birthDate = gp.birthDate;
-              if (gp.birthPlace) entry.birthPlace = gp.birthPlace;
-              if (gp.deathDate) entry.deathDate = gp.deathDate;
-              if (gp.deathPlace) entry.deathPlace = gp.deathPlace;
-              if (gp.notes) entry.notes = gp.notes;
-              if (gp.surname && !p.branch) p.branch = gp.surname;
-
-              if (!p.place && (gp.deathPlace || gp.birthPlace)) {
-                p.place = gp.deathPlace || gp.birthPlace;
-              }
-              if (!p.isoDate && (gp.deathDate || gp.birthDate) && window.GedcomImporter && window.GedcomImporter.gedDateToIso) {
-                const iso = window.GedcomImporter.gedDateToIso(gp.deathDate || gp.birthDate);
-                if (iso) {
-                  p.isoDate = iso;
-                  const yr = Number(iso.slice(0, 4));
-                  if (yr >= 1700 && yr <= 2099) p.decade = `${String(yr).slice(0, 3)}0s`;
-                }
-              }
-
-              const lifeBits = [
-                gp.birthDate || gp.birthPlace ? `b. ${[gp.birthDate, gp.birthPlace].filter(Boolean).join(', ')}` : '',
-                gp.deathDate || gp.deathPlace ? `d. ${[gp.deathDate, gp.deathPlace].filter(Boolean).join(', ')}` : ''
-              ].filter(Boolean).join(' · ');
-              const sumLine = `${gp.name.trim()}${lifeBits ? ` (${lifeBits})` : ''}${gp.notes ? ` — ${gp.notes}` : ''}`;
-              if (!p.story || !p.story.trim()) {
-                p.story = sumLine;
-              } else if (!p.story.includes(gp.name.trim()) && gp.notes && !p.story.includes(gp.notes.slice(0, 40))) {
-                p.story = `${p.story.trim()}\n\n${sumLine}`;
-              }
-
-              if (p.faces && p.faces.length === 1 && p.people.length === 1 && !p.faces[0].name) {
-                p.faces[0].name = gp.name.trim();
-              }
-              p.unnamedFaces = (p.faces || []).filter(fc => !(fc.name || '').trim()).length;
-              sanitizePhotoPersonPids(p);
-              saveItemMetadata(p);
-              if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
-                await saveArchiveToDb(items, rootFolderName);
-              }
-              notify(`✓ Pulled PAF/GEDCOM metadata for ${gp.name.trim()} onto ${p.id}.`);
+              await linkGedcomPersonToPhoto(p, gp);
+              notify(`✓ Linked & pulled PAF/GEDCOM details for ${gp.name.trim()} onto ${p.id}.`);
               render();
             };
 
@@ -8867,10 +9105,11 @@
               });
             });
 
-            // Autocomplete pre-fill relationship & branch
+            // Autocomplete pre-fill relationship & branch + live PAF / GEDCOM matches
             const nameInput = box.querySelector('#f-person-name');
             const relInput = box.querySelector('#f-person-rel');
             const branchInput = box.querySelector('#f-person-branch');
+            const gedSugEl = box.querySelector('#insp-tag-ged-suggestions');
             if (nameInput) {
               nameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -8880,7 +9119,8 @@
                 }
               });
               nameInput.addEventListener('input', () => {
-                const val = nameInput.value.trim().toLowerCase();
+                const rawVal = nameInput.value.trim();
+                const val = rawVal.toLowerCase();
                 for (const item of items) {
                   const match = item.people && item.people.find((pr) => pr.name.toLowerCase() === val);
                   if (match) {
@@ -8888,6 +9128,45 @@
                     if (match.branch && branchInput && !branchInput.value) branchInput.value = match.branch;
                     break;
                   }
+                }
+                if (gedSugEl) {
+                  const gd = window._activeGedcomData;
+                  if (!gd || rawVal.length < 2) {
+                    gedSugEl.style.display = 'none';
+                    gedSugEl.innerHTML = '';
+                    return;
+                  }
+                  const hits = [];
+                  for (let i = 0; i < gd.peopleList.length && hits.length < 6; i++) {
+                    const gp = gd.peopleList[i];
+                    if (gp && gp.name && gp.name.toLowerCase().includes(val)) hits.push(gp);
+                  }
+                  if (hits.length === 0) {
+                    gedSugEl.style.display = 'none';
+                    gedSugEl.innerHTML = '';
+                    return;
+                  }
+                  gedSugEl.style.display = 'flex';
+                  gedSugEl.innerHTML = hits.map((gp, sIdx) => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 7px;background:var(--surface);border:1px solid #93c5fd;border-radius:6px;">
+                      <div style="min-width:0;">
+                        <div style="font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🌳 ${esc(gp.name)} <span class="mono muted" style="font-size:10.5px;">(${esc(gp.id)})</span></div>
+                        ${(gp.birthDate || gp.birthPlace) ? `<div class="muted" style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">b. ${esc([gp.birthDate, gp.birthPlace].filter(Boolean).join(' '))}</div>` : ''}
+                      </div>
+                      <button type="button" class="btn sm primary insp-sug-link" data-sidx="${sIdx}" style="height:26px;padding:0 8px;font-size:11px;flex-shrink:0;">Link PAF</button>
+                    </div>
+                  `).join('');
+                  gedSugEl.querySelectorAll('.insp-sug-link').forEach((sBtn) => {
+                    sBtn.onclick = async () => {
+                      const gp = hits[Number(sBtn.getAttribute('data-sidx'))];
+                      if (!gp) return;
+                      await linkGedcomPersonToPhoto(p, gp, {
+                        rel: (relInput && relInput.value.trim()) ? relInput.value.trim() : 'Relative'
+                      });
+                      notify(`✓ Tagged & linked to PAF / GEDCOM: ${gp.name} (${gp.id})`);
+                      render();
+                    };
+                  });
                 }
               });
             }
@@ -8900,12 +9179,14 @@
               const branch = (branchInput && branchInput.value.trim()) ? branchInput.value.trim() : (p.branch || '');
               if (branch) recordUserBranch(branch);
               const gedMatch = findGedcomPersonForName(name);
+              const gedSyncRec = (gedMatch && typeof getGedcomPersonSyncRecord === 'function') ? getGedcomPersonSyncRecord(gedMatch) : null;
               const existingEntry = p.people.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
               const newEntry = {
                 name,
                 rel,
                 branch: branch || (gedMatch && gedMatch.surname) || '',
                 gedId: gedMatch ? gedMatch.id : undefined,
+                fsId: (gedSyncRec && gedSyncRec.fsPid) ? gedSyncRec.fsPid : undefined,
                 sex: gedMatch ? gedMatch.sex : undefined,
                 birthDate: gedMatch ? gedMatch.birthDate : undefined,
                 birthPlace: gedMatch ? gedMatch.birthPlace : undefined,
@@ -8916,24 +9197,27 @@
               if (existingEntry) {
                 existingEntry.rel = rel;
                 if (newEntry.branch) existingEntry.branch = newEntry.branch;
-                ['gedId', 'sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'notes'].forEach((k) => {
+                ['gedId', 'fsId', 'sex', 'birthDate', 'birthPlace', 'deathDate', 'deathPlace', 'notes'].forEach((k) => {
                   if (!existingEntry[k] && newEntry[k]) existingEntry[k] = newEntry[k];
                 });
               } else {
                 p.people.push(newEntry);
               }
               const targetEntry = existingEntry || newEntry;
+              if (targetEntry.fsId && typeof appendPidToPhoto === 'function') appendPidToPhoto(p, targetEntry.fsId);
               if (p.faces && p.faces.length === 1 && p.people.length === 1) {
                 p.faces[0].name = name;
               }
               p.unnamedFaces = (p.faces || []).filter(fc => !fc.name).length;
+              sanitizePhotoPersonPids(p);
               saveItemMetadata(p);
+              const pafNote = gedMatch ? ` · Linked to PAF (${gedMatch.id})` : '';
               if (targetEntry.fsId) {
-                notify(`Updated ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}.`);
+                notify(`Updated ${name} (${rel}${branch ? ` · ${branch}` : ''})${pafNote} on ${p.id}.`);
                 render();
                 return;
               }
-              notify(`${existingEntry ? 'Updated' : 'Tagged'} ${name} (${rel}${branch ? ` · ${branch}` : ''}) on ${p.id}. Searching FamilySearch Tree...`);
+              notify(`${existingEntry ? 'Updated' : 'Tagged'} ${name} (${rel}${branch ? ` · ${branch}` : ''})${pafNote} on ${p.id}. Searching FamilySearch Tree...`);
               render();
 
               // Vital-aware FamilySearch lookup: only auto-bind on a single unambiguous match
@@ -14874,6 +15158,9 @@
           if (layout === 'ledger') {
             document.getElementById('page-heading').textContent = "Family Photo Ledger";
             document.getElementById('page-sub').textContent = "Review and organize your family photos. Select any photo to tag relatives and edit details on the right, or open Photo Lab to restore and enhance.";
+          } else if (layout === 'people') {
+            document.getElementById('page-heading').textContent = "People & Family Tree Photos";
+            document.getElementById('page-sub').textContent = "Browse people from your PAF / GEDCOM tree, add new photos or link existing scans to any relative, and click a photo to inspect it on the right.";
           } else if (layout === 'map') {
             document.getElementById('page-heading').textContent = "Family History Photo Map";
             document.getElementById('page-sub').textContent = "Geographic map of where family photos were taken. Click any map pin to inspect photos, view relatives, or open Photo Lab.";
@@ -14909,6 +15196,7 @@
           activeFolder = null;
           catalogPage = 1;
           mode = 'catalog';
+          if (layout === 'people') layout = 'ledger';
           document.getElementById('sidebar').classList.remove('open');
           render();
         });
@@ -16530,9 +16818,11 @@
       }
 
       const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'gather') mode = 'gather';
       if (params.get('mode') === 'lab') mode = 'lab';
       if (params.get('mode') === 'sync') mode = 'sync';
       if (params.get('layout') === 'sheet') layout = 'sheet';
+      if (params.get('layout') === 'people') layout = 'people';
       if (params.get('layout') === 'map') layout = 'map';
       if (params.get('tool')) {
         activeTool = params.get('tool');
@@ -18243,6 +18533,375 @@
         if (changed) saveGedcomSyncLedger(ledger);
       }
 
+      function stripRelHonorificPrefix(raw) {
+        return String(raw || '')
+          .replace(/^\s*(?:great[-\s]*)?(?:aunt|uncle|grandma|grandpa|grandmother|grandfather|nana|papa|cousin|mr|mrs|ms|miss|dr)\.?\s+/i, '')
+          .trim();
+      }
+
+      function findGedcomPersonByNameOrId(rawName, gedIdHint = '') {
+        const gd = window._activeGedcomData;
+        if (!gd) return null;
+        if (gedIdHint && gd.peopleById && gd.peopleById.has(gedIdHint)) {
+          return gd.peopleById.get(gedIdHint);
+        }
+        const cleaned = stripRelHonorificPrefix(rawName);
+        if (!cleaned) return null;
+        if (window.GedcomImporter && typeof window.GedcomImporter.findGedcomPeopleByName === 'function') {
+          const hits = window.GedcomImporter.findGedcomPeopleByName(gd, cleaned);
+          if (hits && hits.length > 0) {
+            const normTarget = normalizeSyncPersonName(cleaned);
+            const exact = hits.find((h) => normalizeSyncPersonName(h.name) === normTarget);
+            return exact || hits[0];
+          }
+        }
+        if (Array.isArray(gd.peopleList)) {
+          const low = cleaned.toLowerCase();
+          return gd.peopleList.find((g) => g.name && g.name.toLowerCase() === low)
+            || gd.peopleList.find((g) => g.name && g.name.toLowerCase().includes(low))
+            || null;
+        }
+        return null;
+      }
+
+      function findAllLinkedPhotosForGedPerson(person) {
+        if (!Array.isArray(items) || !items.length || !person) return [];
+        const pNorm = normalizeSyncPersonName(person.name);
+        const pFl = firstLastSyncKey(person.name);
+        return items.filter((p) => {
+          if (!p || p.inReview || !Array.isArray(p.people)) return false;
+          return p.people.some((x) => {
+            if (!x) return false;
+            if (x.gedId && person.id && x.gedId === person.id) return true;
+            if (pNorm && normalizeSyncPersonName(x.name) === pNorm) return true;
+            return Boolean(pFl && firstLastSyncKey(x.name) === pFl && !x.gedId);
+          });
+        });
+      }
+
+      function isPhotoLinkedToGedcom(p) {
+        if (!p || !Array.isArray(p.people) || !p.people.length) return false;
+        if (p.people.some((pr) => pr && pr.gedId)) return true;
+        if (!window._activeGedcomData) return false;
+        return p.people.some((pr) => pr && pr.name && Boolean(findGedcomPersonByNameOrId(pr.name)));
+      }
+
+      async function linkGedcomPersonToPhoto(p, gp, opts = {}) {
+        if (!p || !gp || !gp.name) return null;
+        if (!Array.isArray(p.people)) p.people = [];
+        const cleanName = gp.name.trim();
+        const gNorm = normalizeSyncPersonName(cleanName);
+        const gFl = firstLastSyncKey(cleanName);
+        let entry = p.people.find((pr) =>
+          pr && ((pr.gedId && gp.id && pr.gedId === gp.id) || normalizeSyncPersonName(pr.name) === gNorm)
+        );
+        if (!entry && gFl) {
+          entry = p.people.find((pr) => pr && !pr.gedId && firstLastSyncKey(pr.name) === gFl);
+        }
+        if (!entry) {
+          entry = {
+            name: cleanName,
+            rel: opts.rel || 'Relative',
+            branch: gp.surname || p.branch || ''
+          };
+          p.people.push(entry);
+        }
+        if (gp.id) entry.gedId = gp.id;
+        if (gp.sex && !entry.sex) entry.sex = gp.sex;
+        if (gp.birthDate && !entry.birthDate) entry.birthDate = gp.birthDate;
+        if (gp.birthPlace && !entry.birthPlace) entry.birthPlace = gp.birthPlace;
+        if (gp.deathDate && !entry.deathDate) entry.deathDate = gp.deathDate;
+        if (gp.deathPlace && !entry.deathPlace) entry.deathPlace = gp.deathPlace;
+        if (gp.notes && !entry.notes) entry.notes = gp.notes;
+        if (gp.surname && !entry.branch) entry.branch = gp.surname;
+
+        const syncRec = typeof getGedcomPersonSyncRecord === 'function' ? getGedcomPersonSyncRecord(gp) : null;
+        const knownPid = (syncRec && syncRec.fsPid) || gp.fsId || '';
+        if (knownPid && !entry.fsId) {
+          entry.fsId = knownPid;
+          if (typeof appendPidToPhoto === 'function') appendPidToPhoto(p, knownPid);
+        }
+
+        if (opts.fillPhotoFields !== false) {
+          if (gp.surname && !p.branch) p.branch = gp.surname;
+          if (!p.place && (gp.deathPlace || gp.birthPlace)) {
+            p.place = gp.deathPlace || gp.birthPlace;
+          }
+          if (!p.isoDate && (gp.deathDate || gp.birthDate) && window.GedcomImporter && window.GedcomImporter.gedDateToIso) {
+            const iso = window.GedcomImporter.gedDateToIso(gp.deathDate || gp.birthDate);
+            if (iso) {
+              p.isoDate = iso;
+              const yr = Number(iso.slice(0, 4));
+              if (yr >= 1700 && yr <= 2099) p.decade = `${String(yr).slice(0, 3)}0s`;
+            }
+          }
+          const lifeBits = [
+            gp.birthDate || gp.birthPlace ? `b. ${[gp.birthDate, gp.birthPlace].filter(Boolean).join(', ')}` : '',
+            gp.deathDate || gp.deathPlace ? `d. ${[gp.deathDate, gp.deathPlace].filter(Boolean).join(', ')}` : ''
+          ].filter(Boolean).join(' · ');
+          const sumLine = `${cleanName}${lifeBits ? ` (${lifeBits})` : ''}${gp.notes ? ` — ${gp.notes}` : ''}`;
+          if (!p.story || !p.story.trim()) {
+            p.story = sumLine;
+          } else if (!p.story.includes(cleanName) && gp.notes && !p.story.includes(gp.notes.slice(0, 40))) {
+            p.story = `${p.story.trim()}\n\n${sumLine}`;
+          }
+        }
+
+        if (p.faces && p.faces.length === 1 && p.people.length === 1 && !p.faces[0].name) {
+          p.faces[0].name = cleanName;
+          if (entry.fsId) p.faces[0].fsId = entry.fsId;
+        }
+        p.unnamedFaces = getUnnamedFaceCount(p);
+        sanitizePhotoPersonPids(p);
+        saveItemMetadata(p);
+        if (opts.persistArchive !== false && typeof saveArchiveToDb === 'function' && isCustomFolder) {
+          await saveArchiveToDb(items, rootFolderName);
+        }
+        return entry;
+      }
+
+      async function addLocalFilesAndLinkToPerson(files, gp) {
+        if (!files || !files.length || !gp) return;
+        const imgFiles = Array.from(files).filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+        if (!imgFiles.length) {
+          notify('No supported image files were selected.');
+          return;
+        }
+        const selectedFiles = imgFiles.slice(0, 20);
+        try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
+        await setMetaInDb('demoCleared', true);
+        await setMetaInDb('isCustom', true);
+
+        const wasCustom = isCustomFolder;
+        isCustomFolder = true;
+        if (!wasCustom || !rootFolderName || rootFolderName === '(No folder opened)' || rootFolderName === 'Gill_Costello_Archive') {
+          rootFolderName = 'Family_Photos';
+        }
+        const baseItems = wasCustom && Array.isArray(items) ? items.slice() : [];
+        const usedIds = new Set(baseItems.map((x) => x.id));
+        const byFileName = new Map(baseItems.map((x) => [String(x.file || '').toLowerCase(), x]));
+        let nextNum = baseItems.length + 1;
+        const makeUniqueId = () => {
+          while (usedIds.has(`PH-${String(nextNum).padStart(3, '0')}`)) nextNum++;
+          const id = `PH-${String(nextNum).padStart(3, '0')}`;
+          usedIds.add(id);
+          return id;
+        };
+
+        const addedOrLinked = [];
+        const newlyCreated = [];
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          const existing = byFileName.get(String(file.name || '').toLowerCase());
+          if (existing) {
+            await linkGedcomPersonToPhoto(existing, gp, { persistArchive: false });
+            addedOrLinked.push(existing);
+            continue;
+          }
+          const cleanTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || gp.name;
+          const fallbackDate = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : '';
+          let isoDate = fallbackDate;
+          let decade = '1990s';
+          if (window.FamilySearchClient && typeof window.FamilySearchClient.parseFamilySearchDate === 'function') {
+            const parsed = window.FamilySearchClient.parseFamilySearchDate('', { filename: file.name, file: file.name });
+            if (parsed && parsed.iso && parsed.quality !== 'none' && parsed.quality !== 'unparsed') {
+              isoDate = parsed.iso;
+              decade = parsed.decade || decade;
+            }
+          }
+          if (!isoDate && gp.birthDate && window.GedcomImporter && window.GedcomImporter.gedDateToIso) {
+            isoDate = window.GedcomImporter.gedDateToIso(gp.birthDate);
+          }
+          const yr = isoDate ? Number(isoDate.slice(0, 4)) : 1990;
+          if (yr >= 1700 && yr <= 2099) decade = `${String(yr).slice(0, 3)}0s`;
+          const url = URL.createObjectURL(file);
+          const id = makeUniqueId();
+          const fileKb = Math.max(1, Math.round(file.size / 1024));
+          const newRec = {
+            id,
+            file: file.name,
+            title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
+            subfolder: rootFolderName,
+            isoDate,
+            decade,
+            year: yr,
+            date: isoDate,
+            place: '',
+            branch: gp.surname || '',
+            people: [],
+            unnamedFaces: 0,
+            width: 1200,
+            height: 900,
+            origWidth: 1200,
+            origHeight: 900,
+            origKb: fileKb,
+            origCrop: '50% 50%',
+            origScale: 1,
+            origRestored4k: false,
+            kb: fileKb,
+            restored4k: false,
+            fsId: '',
+            fsSynced: false,
+            fsMemoryId: '',
+            inReview: false,
+            screenshot: isScreenshotPhoto({ file: file.name, title: file.name, width: 1200, height: 900, mimeType: file.type }),
+            crop: '50% 50%',
+            scale: 1,
+            filter: 'none',
+            story: '',
+            src: url,
+            workingSrc: null,
+            _pre4kSrc: null,
+            _workingBlob: null,
+            _file: file,
+            edits: [],
+            rotation: 0,
+            straighten: 0,
+            flipH: false,
+            cropRatio: 'Original',
+            cropBox: { x: 8, y: 8, w: 84, h: 84 },
+            tone: { brightness: 100, contrast: 100, shadows: 0, highlights: 0, sharpen: 0, smooth: 0, vignette: 0, defade: false },
+            color: { warmth: 0, tint: 0, saturation: 100, sepia: 0, bw: false, colorizeStrength: 82 },
+            model: 'gfpgan',
+            upscaleTarget: '4k',
+            spotRemove: -1,
+            denoise: 62,
+            fidelity: 68,
+            scratchesFixed: true,
+            descreen: false,
+            deglare: false,
+            blemishesErased: 0,
+            redEyesFixed: 0,
+            eyePins: [],
+            history: []
+          };
+          await linkGedcomPersonToPhoto(newRec, gp, { persistArchive: false });
+          baseItems.push(newRec);
+          newlyCreated.push(newRec);
+          addedOrLinked.push(newRec);
+        }
+
+        items = baseItems;
+        if (addedOrLinked[0]) selectedId = addedOrLinked[0].id;
+        try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        notify(`✓ Added ${addedOrLinked.length} photo${addedOrLinked.length === 1 ? '' : 's'} & linked to ${gp.name} (${gp.id || 'PAF'})!`);
+        render();
+        if (newlyCreated.length > 0) {
+          scheduleMetadataExtraction(newlyCreated);
+          scheduleBackgroundFaceScan(newlyCreated);
+        }
+      }
+
+      function openLinkExistingPhotoModal(gp) {
+        if (!gp) return;
+        const activePhotos = items.filter((x) => !x.inReview);
+        if (activePhotos.length === 0) {
+          notify('No photos are loaded yet — click "Add Photo from Computer" to pick photos for this relative!');
+          return;
+        }
+        const selectedPhotoIds = new Set();
+        let showAllLoaded = !activePhotos.some((x) => !x.people || x.people.length === 0);
+        let qFilter = '';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.58);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">🔗 Link Existing Photo(s) to ${esc(gp.name || 'Relative')}</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Click any photo below to attach this person's PAF / GEDCOM details (${esc(gp.id || 'Record')}) to it.</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="link-ex-close">✕ Close</button>
+            </div>
+            <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="search" id="link-ex-search" placeholder="Search photo filename or title..." style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--control);border-radius:7px;font-size:14px;">
+              <label style="font-size:13.5px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+                <input type="checkbox" id="link-ex-all" ${showAllLoaded ? 'checked' : ''}> Show All Loaded Photos (${activePhotos.length})
+              </label>
+            </div>
+            <div id="link-ex-grid" style="padding:16px 20px;overflow-y:auto;flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-content:start;"></div>
+            <div style="padding:12px 20px;border-top:1px solid var(--border);background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <span id="link-ex-count" style="font-size:13.5px;font-weight:600;color:#1e293b;">Select one or more photos above</span>
+              <button type="button" class="btn success" id="link-ex-apply" disabled>✓ Link Selected Photo(s)</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+        overlay.querySelector('#link-ex-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const gridEl = overlay.querySelector('#link-ex-grid');
+        const applyBtn = overlay.querySelector('#link-ex-apply');
+        const countEl = overlay.querySelector('#link-ex-count');
+        const alreadySet = new Set(findAllLinkedPhotosForGedPerson(gp).map((x) => x.id));
+
+        const renderGrid = () => {
+          const filtered = activePhotos.filter((ph) => {
+            if (!showAllLoaded && Array.isArray(ph.people) && ph.people.length > 0 && !alreadySet.has(ph.id)) return false;
+            if (qFilter) {
+              const hay = `${ph.id || ''} ${ph.file || ''} ${ph.title || ''} ${(ph.people || []).map((x) => x.name).join(' ')}`.toLowerCase();
+              if (!hay.includes(qFilter)) return false;
+            }
+            return true;
+          });
+          if (filtered.length === 0) {
+            gridEl.innerHTML = '<div class="muted" style="grid-column:1/-1;padding:20px;text-align:center;font-size:14px;">No photos match this filter — check "Show All Loaded Photos" above to see every photo in your collection.</div>';
+          } else {
+            gridEl.innerHTML = filtered.slice(0, 80).map((ph) => {
+              const isLinked = alreadySet.has(ph.id);
+              const isSel = selectedPhotoIds.has(ph.id);
+              return `
+                <button type="button" class="link-ex-card" data-pid="${esc(ph.id)}" style="text-align:left;padding:8px;border-radius:10px;border:2px solid ${isSel ? '#15803d' : (isLinked ? '#86efac' : '#cbd5e1')};background:${isSel ? '#dcfce7' : '#ffffff'};cursor:pointer;display:flex;flex-direction:column;gap:6px;">
+                  <img src="${esc(afterSrc(ph))}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">
+                  <div style="font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ph.title || ph.file || ph.id)}</div>
+                  <div style="font-size:11.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ph.file || ph.id)}</div>
+                  ${isLinked ? '<span class="pill pos" style="font-size:11px;align-self:flex-start;">✓ Already Linked</span>' : (isSel ? '<span class="pill info" style="font-size:11px;align-self:flex-start;">✓ Selected</span>' : '<span class="muted" style="font-size:11px;">Click to select</span>')}
+                </button>
+              `;
+            }).join('');
+            gridEl.querySelectorAll('.link-ex-card').forEach((card) => {
+              card.onclick = () => {
+                const pid = card.getAttribute('data-pid');
+                if (selectedPhotoIds.has(pid)) selectedPhotoIds.delete(pid);
+                else selectedPhotoIds.add(pid);
+                renderGrid();
+              };
+            });
+          }
+          const selCnt = selectedPhotoIds.size;
+          countEl.textContent = selCnt > 0 ? `${selCnt} photo${selCnt === 1 ? '' : 's'} selected to link to ${gp.name}` : 'Click photos above to select them';
+          applyBtn.disabled = selCnt === 0;
+        };
+
+        overlay.querySelector('#link-ex-search').oninput = (e) => {
+          qFilter = (e.target.value || '').trim().toLowerCase();
+          renderGrid();
+        };
+        overlay.querySelector('#link-ex-all').onchange = (e) => {
+          showAllLoaded = Boolean(e.target.checked);
+          renderGrid();
+        };
+        applyBtn.onclick = async () => {
+          const targets = activePhotos.filter((ph) => selectedPhotoIds.has(ph.id));
+          if (!targets.length) return;
+          for (const ph of targets) {
+            await linkGedcomPersonToPhoto(ph, gp, { persistArchive: false });
+          }
+          selectedId = targets[0].id;
+          if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+            await saveArchiveToDb(items, rootFolderName);
+          }
+          closeModal();
+          notify(`✓ Linked ${targets.length} photo${targets.length === 1 ? '' : 's'} to ${gp.name} (${gp.id || 'PAF'})!`);
+          render();
+        };
+        renderGrid();
+      }
+
       async function saveActiveGedcomToDb(fileName, rawText) {
         if (!rawText || typeof setMetaInDb !== 'function') return false;
         return await setMetaInDb('active_gedcom_file', {
@@ -18379,6 +19038,17 @@
         overlay.querySelector('#ged-modal-step2').onclick = () => {
           closeModal();
           mode = 'catalog';
+          if (window._activeGedcomData) {
+            layout = 'people';
+            activeQueue = 'all';
+            activeFolder = null;
+            peopleViewFilter = 'auto';
+            peopleViewSearchQuery = '';
+            const firstMatchPerson = window._activeGedcomData.peopleList.find((gpItem) => Boolean(findLinkedPhotoForGedPerson(gpItem)));
+            const firstMatchPhoto = firstMatchPerson ? findLinkedPhotoForGedPerson(firstMatchPerson) : null;
+            if (firstMatchPhoto) selectedId = firstMatchPhoto.id;
+            notify('Step 2 opened to People / Tree — see matched relatives or click "+ Add Photo from Computer" for any person!');
+          }
           render();
         };
         overlay.querySelector('#ged-modal-step4').onclick = () => {
@@ -18443,7 +19113,7 @@
             return;
           }
 
-          resultsEl.innerHTML = combinedRows.map(({ person, linkedPhoto }) => {
+          resultsEl.innerHTML = combinedRows.map(({ person, linkedPhoto }, gidx) => {
             const linkedThumb = linkedPhoto ? (linkedPhoto.workingSrc || linkedPhoto.src || 'sample.jpg') : '';
             const syncRec = getGedcomPersonSyncRecord(person);
             return `
@@ -18462,9 +19132,25 @@
                 </div>
                 ${linkedPhoto ? `<div style="font-size:12px;color:#1e293b;margin-top:2px;">Matched photo: <strong>${esc(linkedPhoto.title || linkedPhoto.file || linkedPhoto.id)}</strong></div>` : ''}
               </div>
+              <button type="button" class="btn sm ged-row-step2" data-gidx="${gidx}">${linkedPhoto ? 'Inspect in Step 2 →' : '+ Add Photo in Step 2 →'}</button>
             </div>
           `;
           }).join('');
+          resultsEl.querySelectorAll('.ged-row-step2').forEach((btn) => {
+            btn.onclick = () => {
+              const row = combinedRows[Number(btn.getAttribute('data-gidx'))];
+              if (!row) return;
+              closeModal();
+              mode = 'catalog';
+              layout = 'people';
+              activeQueue = 'all';
+              activeFolder = null;
+              peopleViewFilter = 'all';
+              peopleViewSearchQuery = row.person.name || '';
+              if (row.linkedPhoto) selectedId = row.linkedPhoto.id;
+              render();
+            };
+          });
         };
 
         if (clearFileBtn) {

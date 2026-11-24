@@ -1,72 +1,101 @@
 /**
- * Family History Photos - Interactive Workflow Help & Tutorial
- * Comprehensive in-app guide and step-by-step workflow tutorial
- * with live app interactions, dockable walkthrough mode, and searchable FAQ.
+ * Family History Photos - Interactive Workflow Guide & Visual Tutorial
+ * Designed for 60+ family archivists with large high-contrast text,
+ * clear 4-step roadmap, real screen pictures (click to enlarge),
+ * dockable follow-along mode, and plain-English answers.
  */
 (() => {
   'use strict';
 
+  const ROADMAP = [
+    { num: 1, label: 'Gather Photos' },
+    { num: 2, label: 'Identify & Tag' },
+    { num: 3, label: 'Restore' },
+    { num: 4, label: 'Save & Share' }
+  ];
+
   const STEPS = [
     {
       step: 1,
-      badge: 'Step 1 of 7 • Getting Started',
-      title: 'Meet Your Archival Workspace & Demo Data',
-      shortTitle: 'Workspace & Demo Data',
-      desc: 'Family History Photos comes pre-loaded with a 200-print demo archive (the Gill & Costello family collection) so you can test every feature risk-free before opening your own photos.',
+      stageNum: 1,
+      badge: 'Lesson 1 of 6 • Step 1: Gather',
+      title: 'Step 1: Bring In Your Photos & PAF Family Tree',
+      shortTitle: '1. Gather Photos & Tree',
+      desc: 'Start in <strong>1. Gather Photos</strong> to bring pictures onto the screen. You can load a few favorite pictures, a whole computer folder, Google Drive albums, or your exported PAF / GEDCOM (<code>.ged</code>) family tree file.',
       bullets: [
-        '<strong>Left Sidebar:</strong> Access your photo subfolders, cleanup queues (like <em>Needs 4K restore</em> or <em>Duplicate scans</em>), and decade filters.',
-        '<strong>Top Search Bar:</strong> Instantly search by relative name, place, filename, or FamilySearch PID.',
-        '<strong>100% Private in Browser:</strong> Zero cloud uploads needed for cataloging. All indexing and metadata editing happen directly on your computer.'
+        '<strong>Pick Photo(s) or Scan Folder:</strong> Opens pictures from your computer or camera right away without copying them to any cloud server.',
+        '<strong>Load PAF / GEDCOM (.ged):</strong> Reads all names, birth/death dates, notes, and matches old PAF photo filenames to pictures you already loaded.',
+        '<strong>Stays Saved Automatically:</strong> Once you load your <code>.ged</code> file, the app remembers it — you will not have to reload it next time you visit.'
       ],
-      tip: 'You can freely edit, pin, and restore these demo photos. When ready, click "✕ Clear Demo" to start with your real photos.',
-      screenshot: './help-screenshots/step-1-workspace.png',
-      screenshotCaption: 'Main workspace: Left sidebar queues & folders, top search bar, and photo ledger.',
-      actionText: '📁 View Demo Photos & Sidebar',
-      actionId: 'action-step-1',
+      tip: 'Your photos stay privately on your own computer during Step 1. Nothing is sent to FamilySearch until you choose to upload in Step 4.',
+      screenshot: './help-screenshots/step-1-gather.png',
+      screenshotCaption: 'Step 1 Gather screen: choose photos, a folder, your PAF/GEDCOM tree, or Cloud storage.',
+      actionText: '📁 Go to Step 1: Gather Photos',
       runAction: (app) => {
-        if (app && app.setMode) app.setMode('catalog');
-        if (app && app.setLayout) app.setLayout('ledger');
-        highlightElement('#sidebar');
+        if (app && app.setMode) app.setMode('gather');
+        highlightElement('#section-gather');
       }
     },
     {
       step: 2,
-      badge: 'Step 2 of 7 • Archival Inspector',
-      title: 'Inspect Photo Records & Uncover Memories',
-      shortTitle: 'Inspect Photo Records',
-      desc: 'Clicking any row in the Ledger or tile in the Contact Sheet opens the Archival Inspector on the right side of the screen.',
+      stageNum: 2,
+      badge: 'Lesson 2 of 6 • Step 2: Identify Photos',
+      title: 'Step 2 (Photos): Name Faces, Dates & Stories',
+      shortTitle: '2A. Name Faces & Stories',
+      desc: 'In <strong>2. Identify &amp; Tag</strong>, click any photo row in the table (or switch to <strong>Contact sheet</strong> for big picture tiles) to view and edit its details on the right side.',
       bullets: [
-        '<strong>Catalog Title & Date:</strong> Keep original filenames safe while giving photos meaningful historical titles and ISO dates (YYYY-MM-DD).',
-        '<strong>Back-of-Print Memory:</strong> Type or read handwritten notes from the back of vintage physical prints so precious stories are never forgotten.',
-        '<strong>Image Metrics:</strong> Automatically displays dimensions, aspect ratio, file size, and preservation status.'
+        '<strong>Blow Up &amp; Tag Faces:</strong> Zooms in large on group photos, draws face boxes, and remembers faces so it helps recognize relatives in later photos.',
+        '<strong>Pull from PAF / GEDCOM:</strong> Links a tagged person straight to their <code>🌳 PAF</code> record, copying birth/death dates, places, and notes.',
+        '<strong>Save Locally First:</strong> Enter the date, address, and story from the back of the print, then click the blue <strong>✓ Save Changes to Catalog</strong> button.'
       ],
-      tip: 'All notes and metadata you enter are permanently saved in your browser and baked into the JPEG file when you click "Save to File".',
-      screenshot: './help-screenshots/step-2-inspector.jpg',
-      screenshotCaption: 'Archival Inspector on the right: edit titles, dates, stories, and relative tags.',
-      actionText: '🔍 Inspect Grandma\'s Photo (FH-001)',
-      actionId: 'action-step-2',
+      tip: 'Need to switch views? Notice the 4 buttons near the top right: Ledger, Contact sheet, People / Tree, and Global Map.',
+      screenshot: './help-screenshots/step-2-identify.png',
+      screenshotCaption: 'Step 2 Photo Ledger: click any photo row on the left to tag people and edit details on the right.',
+      actionText: '🏷️ Go to Step 2: Photo Ledger',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('catalog');
-        if (app && app.selectPhoto) app.selectPhoto('FH-001');
-        highlightElement('#inspector');
+        if (app && app.setLayout) app.setLayout('ledger');
+        highlightElement('#catalog-center');
       }
     },
     {
       step: 3,
-      badge: 'Step 3 of 7 • Geographic History',
-      title: 'Bring Photos to Life on the Global Map',
-      shortTitle: 'Interactive Global Map',
-      desc: 'Every family memory happened in a real place. The interactive Global Map pinpoints where your ancestors lived, celebrated, and traveled.',
+      stageNum: 2,
+      badge: 'Lesson 3 of 6 • Step 2: People / Tree',
+      title: 'Step 2 (People / Tree): Add or Link Photos to Any Relative',
+      shortTitle: '2B. Add Photos to PAF People',
+      desc: 'Want to start from a person in your family tree and attach photos directly to them? Click the <strong>People / Tree</strong> button inside Step 2.',
       bullets: [
-        '<strong>Automatic Geocoding:</strong> Type any historical address in the inspector (e.g. <em>"1633 W Wooster St, Bowling Green, OH"</em> or <em>"South Oakley Ave, Chicago, IL"</em>) and click "Drop Pin" to auto-detect GPS coordinates.',
-        '<strong>Manual Pinning:</strong> You can also click anywhere directly on the world map to place a pin manually.',
-        '<strong>Interactive Pin Popups:</strong> Click any camera pin to view the photo thumbnail, location, and jump straight into Photo Lab or the Ledger.'
+        '<strong>See Matched Relatives First:</strong> Automatically shows people from your PAF / GEDCOM file who already have matched photos — click any thumbnail to edit or tag it on the right.',
+        '<strong>➕ Add Photo from Computer:</strong> Pick new photo file(s) from your computer for any relative. Those photos are added to your collection and automatically linked to their PAF/GEDCOM record!',
+        '<strong>🔗 Link Existing Photo:</strong> Already loaded a folder or Google Drive batch? Click this to attach any loaded photo directly to that person.'
       ],
-      tip: 'Photos with existing GPS tags from smartphones or modern cameras are mapped automatically on import!',
-      screenshot: './help-screenshots/step-3-map.jpg',
-      screenshotCaption: 'Global Map view: geocoded photo pins with interactive popups.',
-      actionText: '🗺️ Switch to Global Map View',
-      actionId: 'action-step-3',
+      tip: 'Use the "With Photos", "Needs a Photo", and "All People" buttons at the top of People / Tree — or search any ancestor by name.',
+      screenshot: './help-screenshots/step-2-people.png',
+      screenshotCaption: 'Step 2 People / Tree view: attach computer photos or existing batch photos straight to any relative.',
+      actionText: '🌳 Open Step 2: People / Tree View',
+      runAction: (app) => {
+        if (app && app.setMode) app.setMode('catalog');
+        if (app && app.setLayout) app.setLayout('people');
+        highlightElement('#catalog-center');
+      }
+    },
+    {
+      step: 4,
+      stageNum: 2,
+      badge: 'Lesson 4 of 6 • Step 2: Map Pins',
+      title: 'Step 2 (Global Map): Pin Where Memories Happened',
+      shortTitle: '2C. Interactive Family Map',
+      desc: 'Bring family history to life geographically! Every photo with an address or camera GPS appears as a camera pin on the interactive <strong>Global Map</strong>.',
+      bullets: [
+        '<strong>Easy Address Lookup:</strong> Type any address or town (for example, <em>"1633 W Wooster St, Bowling Green, OH"</em>) in the right panel and click <strong>Drop Pin</strong>.',
+        '<strong>Filter by Family Line or Decade:</strong> Show just one side of the family (like Costello, Gill, or Viola) or one decade at a time.',
+        '<strong>Click Any Pin:</strong> Opens a popup preview of that photo right on the map.'
+      ],
+      tip: 'Smartphones and modern digital cameras often save GPS coordinates inside JPEG files — we map those for you automatically when loaded!',
+      screenshot: './help-screenshots/step-2-map.png',
+      screenshotCaption: 'Step 2 Global Map: filter pins by family branch or decade and click any pin to preview.',
+      actionText: '🗺️ Open Step 2: Global Map',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('catalog');
         if (app && app.setLayout) app.setLayout('map');
@@ -74,46 +103,21 @@
       }
     },
     {
-      step: 4,
-      badge: 'Step 4 of 7 • Family Tree Link',
-      title: 'Tag Relatives & Auto-Sync Tree Person IDs (PIDs)',
-      shortTitle: 'Tag Relatives & FamilySearch',
-      desc: 'Connect the faces in your photos directly to your family tree records on FamilySearch Beta.',
-      bullets: [
-        '<strong>Tag People & Relationships:</strong> Type a relative\'s name (e.g. <em>"Patricia Josephine Gill"</em>) and choose their relationship (e.g. <em>"Mother"</em>).',
-        '<strong>Live FamilySearch Tree Query:</strong> As you type, the app live-queries <code>beta.familysearch.org</code> to find matching tree ancestors.',
-        '<strong>Automated PID Binding:</strong> Select the matching relative from the dropdown to automatically bind their unique Person ID (e.g. <em>"BM6T-WQ5"</em>) with a verified emerald checkmark.'
-      ],
-      tip: 'PIDs prevent generational confusion by distinguishing between ancestors who shared the same first and last names across different centuries.',
-      screenshot: './help-screenshots/step-4-familysearch.png',
-      screenshotCaption: 'FamilySearch Beta Tree integration: match relatives & sync PIDs.',
-      actionText: '🏷️ Show Relative Tagging Form',
-      actionId: 'action-step-4',
-      runAction: (app) => {
-        if (app && app.setMode) app.setMode('catalog');
-        if (app && app.selectPhoto) app.selectPhoto('FH-001');
-        highlightElement('#insp-relatives');
-      }
-    },
-    {
       step: 5,
-      badge: 'Step 5 of 7 • Photo Restoration',
-      title: 'Enhance & Repair in the 6-Tool Photo Lab',
-      shortTitle: 'AI Photo Lab Studio',
-      desc: 'Restore aged, torn, blurry, or faded prints non-destructively with 6 specialized restoration engines:',
+      stageNum: 3,
+      badge: 'Lesson 5 of 6 • Step 3: Restore (Optional)',
+      title: 'Step 3 (Optional): Clean & Sharpen Old Photos',
+      shortTitle: '3. Photo Lab Repairs',
+      desc: 'Have faded, blurry, black-and-white, or scratched prints? Step 3 (<strong>Restore Photos</strong>) lets you gently clean them up before saving or sharing.',
       bullets: [
-        '<strong>✨ 4K Face Restore:</strong> Neural super-resolution reconstructs facial details, eyes, and expressions.',
-        '<strong>🎨 Auto Colorize:</strong> Converts black & white or sepia photographs into natural, vibrant colors.',
-        '<strong>🪄 Magic Eraser (LaMa):</strong> Deep-learning inpainting removes creases, scratches, tape stains, and tears.',
-        '<strong>⚖️ Tone & Contrast:</strong> Calibrated archival curve corrects faded highlights and crushed shadows.',
-        '<strong>👁️ Red-Eye Removal:</strong> Removes flash artifacts common in 1980s–2000s prints.',
-        '<strong>✂️ Lossless Smart Crop:</strong> Reframes portraits cleanly without degrading image resolution.'
+        '<strong>6 Easy Repair Tabs:</strong> 4K Restore (sharpens faces), Color &amp; Cast (colorizes B&amp;W prints), Light &amp; Tone, Crop &amp; Tilt, Magic Eraser (paint over creases), and Red-Eye removal.',
+        '<strong>Compare Before &amp; After:</strong> Drag the yellow center line left and right across the photo to compare the original with your repaired version.',
+        '<strong>Safe Undo &amp; Reset:</strong> Your original picture is never harmed — you can Undo a change or click Reset anytime.'
       ],
-      tip: 'Use the Split Curtain slider in Photo Lab to inspect before-and-after results side-by-side in real time.',
-      screenshot: './help-screenshots/step-5-photolab.jpg',
-      screenshotCaption: 'Photo Lab Studio: 4K Face Restore, Auto Colorize, Magic Eraser & Split Curtain.',
-      actionText: '✨ Open Photo Lab Studio',
-      actionId: 'action-step-5',
+      tip: 'Step 3 is completely optional! If your photo already looks great, click the green "Next: Step 4 — Save & Share →" button to move on.',
+      screenshot: './help-screenshots/step-3-restore.png',
+      screenshotCaption: 'Step 3 Photo Lab: drag the center line to compare Before & After and choose repairs on the right.',
+      actionText: '✨ Open Step 3: Photo Lab',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('lab');
         highlightElement('#section-lab');
@@ -121,77 +125,51 @@
     },
     {
       step: 6,
-      badge: 'Step 6 of 7 • Archival Preservation',
-      title: 'Step 2 Saves Locally · Step 4 Saves, Exports & Syncs',
-      shortTitle: 'Save, Export & Sync',
-      desc: 'In Step 2 (Identify & Tag), click <strong>✓ Save Changes to Catalog</strong> to save everything locally. When ready to upload or download files, move to <strong>Step 4: Save &amp; Share</strong>:',
+      stageNum: 4,
+      badge: 'Lesson 6 of 6 • Step 4: Save & Share',
+      title: 'Step 4: Sync to FamilySearch & Save Permanent Backups',
+      shortTitle: '4. Sync, Resume & Back Up',
+      desc: 'When your photos and people are ready, open <strong>4. Save &amp; Share</strong> to upload to FamilySearch Beta or download permanent JPEG copies with names and stories stored inside the file.',
       bullets: [
-        '<strong>1. Persistent PAF / GEDCOM Sync Queue:</strong> Your loaded <code>.ged</code> family tree and synced relatives stay saved automatically so you can pick up right where you left off.',
-        '<strong>2. JPEG Header Metadata Baking:</strong> Export standalone JPEGs with XMP, IPTC, and EXIF names, PIDs, GPS coordinates, dates, and historical stories baked inside.',
-        '<strong>3. FamilySearch Memories &amp; Drive Backup Verify:</strong> Upload photos linked to tagged relatives on FamilySearch Beta or verify local folders against Google Drive.'
+        '<strong>▶ Pick Up Where You Left Off:</strong> Card 1 remembers every relative you already synced to FamilySearch Beta (<code>✓ Synced</code>) and keeps the rest ready under <strong>Not Synced Yet</strong> so you never repeat work.',
+        '<strong>⚖️ Compare First Before Updating:</strong> Review side-by-side what is already on FamilySearch Beta versus your PAF/GEDCOM notes, check what you want to add, and apply cleanly.',
+        '<strong>💾 Save JPEGs, 4K ZIP &amp; Drive Verify:</strong> Download JPEGs with embedded EXIF/IPTC stories inside the photo, copy Ancestry/MyHeritage citations, or verify your Google Drive backup folder.'
       ],
-      tip: 'Because metadata is baked into exported JPEGs, anyone who opens the photo in Windows, Mac, or FamilySearch can read the full family history.',
-      screenshot: './help-screenshots/step-6-save.png',
-      screenshotCaption: 'Step 4 Save & Share: resume PAF/GEDCOM syncing, upload photos, bake EXIF/IPTC metadata, and verify backups.',
-      actionText: '💾 View Step 4: Save & Share',
-      actionId: 'action-step-6',
+      tip: 'If someone in your photo is not on FamilySearch yet (like a new spouse or grandchild), use "+ Add to FS" in Step 2 or "+ Not a Match? Create New Person" during Compare to add them and link them to their spouse, parents, or children!',
+      screenshot: './help-screenshots/step-4-save.png',
+      screenshotCaption: 'Step 4 Save & Share: resume FamilySearch syncing, upload Memories, export JPEGs, and verify Drive backups.',
+      actionText: '💾 Go to Step 4: Save & Share',
       runAction: (app) => {
         if (app && app.setMode) app.setMode('sync');
         highlightElement('#section-sync');
-      }
-    },
-    {
-      step: 7,
-      badge: 'Step 7 of 7 • Real Photo Workflow',
-      title: 'Clear Demo Data & Load Your Real Photos',
-      shortTitle: 'Start with Real Photos',
-      desc: 'Once you are comfortable with the demo archive, you are ready to start preserving your actual family photo collection!',
-      bullets: [
-        '<strong>Click "✕ Clear Demo":</strong> Located in the top bar and sidebar, this button empties the sample archive so you have a fresh workspace.',
-        '<strong>Click "Choose Photo Folder...":</strong> Select your folder of scanned photos on your hard drive. The app reads all subfolders and extracts existing dates and GPS tags.',
-        '<strong>Practice Anytime:</strong> You can click "Reload Demo Photos" anytime if you want to test new features or show friends how the app works.'
-      ],
-      tip: 'Your family photos never leave your device. The app uses the secure Web File System API for fast, private, 100% offline-ready archiving.',
-      screenshot: './help-screenshots/step-1-workspace.png',
-      screenshotCaption: 'Top bar & sidebar: Clear Demo Photos, Pick Photo(s), or Import from Cloud.',
-      actionText: '📂 Show Clear & Choose Folder Buttons',
-      actionId: 'action-step-7',
-      runAction: (app) => {
-        if (app && app.setMode) app.setMode('catalog');
-        highlightElement('#btn-choose-folder');
-        highlightElement('#btn-top-clear-demo');
       }
     }
   ];
 
   const FAQS = [
     {
-      q: 'How do I drop a pin on the map if my photo has no GPS?',
-      a: 'In the Archival Inspector on the right side of the screen, find the "Location & Map Pin" field. Type any street address, city, or state (e.g. <em>1633 W Wooster St, Bowling Green, OH</em>) and click <strong>Drop Pin</strong> or <strong>Auto-Geocode Address & EXIF</strong>. The app will look up the coordinates and drop an interactive pin on the map. You can also switch to the Global Map view and click directly anywhere on the map to place a pin manually.'
+      q: 'How do I add new photos straight to someone in my PAF / GEDCOM tree?',
+      a: 'Go to <strong>Step 2: Identify &amp; Tag</strong> and click the <strong>People / Tree</strong> view tab (top right of the table). Search or scroll to the relative you want, then click <strong>➕ Add Photo from Computer</strong> (to pick picture files from your PC) or <strong>🔗 Link Existing Photo</strong> (to pick a photo already open in this app). It links that photo directly to their PAF record!'
     },
     {
-      q: 'How does FamilySearch Beta tree sync work?',
-      a: 'Click "Sign in: FamilySearch" in the top bar to connect via OAuth2 to <code>beta.familysearch.org</code>. When you add or edit a relative\'s name on a photo, the app live-queries your tree and auto-fills their Person ID (PID, such as <code>BM6T-WQ5</code>). If multiple relatives share that name, a dropdown lets you pick the right ancestor. You can also paste or type a PID manually at any time.'
+      q: 'If I tag someone on a photo first, does it connect to my PAF / GEDCOM tree?',
+      a: 'Yes! When a <code>.ged</code> file is loaded, typing a relative\'s name in the right panel under <strong>Tag an Individual</strong> shows matching PAF tree suggestions you can click to link immediately, and tagging a face in <strong>Blow Up &amp; Tag Faces</strong> also auto-links matching PAF records. Linked people display a green <code>🌳 PAF</code> badge.'
     },
     {
-      q: 'Where is my information saved? Will I lose my PAF tree or sync progress on refresh?',
-      a: 'No! All photo changes, your loaded PAF / GEDCOM (<code>.ged</code>) tree, and the list of relatives you have already synced to FamilySearch Beta are saved automatically in browser storage (<code>IndexedDB</code> + <code>localStorage</code>) so you can pick up right where you left off. In Step 4 (Save &amp; Share), exporting a JPEG also bakes all names, PIDs, GPS coordinates, dates, and stories inside the image file itself.'
+      q: 'Will I lose my PAF file or FamilySearch progress when I close the browser?',
+      a: 'No! Both your loaded <code>.ged</code> tree and the list of people you already synced to FamilySearch Beta are saved automatically on your computer. Next time you open the app and go to <strong>Step 4: Save &amp; Share</strong>, click <strong>▶ Pick Up Where I Left Off</strong> to continue with the next unsynced person.'
     },
     {
-      q: 'How do the 6 AI Photo Lab restoration tools work?',
-      a: 'All 6 tools are non-destructive: <strong>4K Face Restore</strong> reconstructs blurry facial features with neural super-resolution; <strong>Auto Colorize</strong> converts sepia/B&W to vibrant color; <strong>Magic Eraser (LaMa)</strong> allows you to brush over tears and scratches to erase them; <strong>Tone & Contrast</strong> balances archival levels; <strong>Red-Eye</strong> cleans flash glare; and <strong>Crop</strong> focuses on portraits without loss of quality.'
+      q: 'What if someone in my photo is not on FamilySearch yet (like an in-law)?',
+      a: 'In Step 2\'s right panel under <em>Relatives in print</em>, click the blue <strong>+ Add to FS</strong> pill next to their name (or click <strong>+ Create on FamilySearch</strong> inside Face Tagger or Search Tree). You can create their record AND choose how they connect to someone already in the photo (Spouse, Child, Parent, or Sibling) in one step.'
     },
     {
-      q: 'Is my family data safe and private?',
-      a: 'Yes, 100%. Family History Photos runs entirely in your web browser. No photos, scans, names, or locations are ever uploaded to any third-party server or cloud database. Even folder indexing runs locally via your browser\'s File System Access API.'
+      q: 'Will Photo Lab edits ruin or overwrite my original picture files?',
+      a: 'Never. Photo Lab works non-destructively in the browser. You can click <strong>Undo</strong> or <strong>Reset</strong> at any time, and your original file on your hard drive is never modified.'
     },
     {
-      q: 'How do I switch back and forth between demo photos and my real photos?',
-      a: 'Click "✕ Clear Demo" (in the top bar or sidebar) to clear the sample archive. Then click "Choose Photo Folder..." to open your family pictures on disk. If you ever want to reload the demo archive to practice or test, just click "Reload Demo" in the sidebar.'
-    },
-    {
-      q: 'Can I export all my restored photos and metadata at once?',
-      a: 'Yes! Click "Export 4K ZIP" in the top right header to download a complete archive package containing all 4K restored prints with embedded archival EXIF/XMP metadata and citation sheets ready for Ancestry.com and MyHeritage.'
+      q: 'How do I switch between practice Demo photos and my real family photos?',
+      a: 'In Step 1 (or the top bar), click the red <strong>✕ Clear Current Photos</strong> button (or <strong>Clear Demo</strong>) to start clean, then pick photos or scan your folder. Want to practice again later? Click <strong>↺ Load Practice Demo Photos</strong> anytime.'
     }
   ];
 
@@ -220,66 +198,161 @@
       .tutorial-overlay {
         position: fixed;
         inset: 0;
-        background: transparent;
-        pointer-events: none;
+        background: rgba(15, 23, 42, 0.56);
+        backdrop-filter: blur(2px);
         z-index: 10000;
         display: flex;
-        align-items: flex-end;
-        justify-content: flex-end;
-        padding: 16px;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
         opacity: 0;
         visibility: hidden;
-        transition: opacity 200ms ease, visibility 200ms ease;
+        transition: opacity 180ms ease, visibility 180ms ease;
       }
       .tutorial-overlay.active {
         opacity: 1;
         visibility: visible;
       }
       .tutorial-modal {
-        pointer-events: auto;
-        background: var(--surface, #ffffff);
-        border: 1px solid var(--border, #dfdeda);
-        border-radius: 14px;
-        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-        max-width: 470px;
+        background: #ffffff;
+        border: 2px solid #93c5fd;
+        border-radius: 16px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.38);
+        max-width: 720px;
         width: 100%;
-        max-height: calc(100vh - 76px);
+        max-height: 92vh;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         font-family: inherit;
-        color: var(--text, #111110);
+        color: #0f172a;
+      }
+      .tutorial-roadmap {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .tutorial-road-step {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 9px;
+        border-radius: 8px;
+        background: #f1f5f9;
+        border: 1.5px solid #cbd5e1;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #334155;
+      }
+      .tutorial-road-step.is-done {
+        background: #dcfce7;
+        border-color: #86efac;
+        color: #166534;
+      }
+      .tutorial-road-step.is-active {
+        background: #1d4ed8;
+        border-color: #1e40af;
+        color: #ffffff;
+      }
+      .tutorial-road-num {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.85);
+        color: #0f172a;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 800;
+        flex-shrink: 0;
+      }
+      .tutorial-road-step.is-active .tutorial-road-num {
+        background: #ffffff;
+        color: #1d4ed8;
       }
       .step-screenshot {
-        margin: 12px 0;
-        border: 1px solid var(--border, #dfdeda);
-        border-radius: 10px;
+        margin: 12px 0 14px;
+        border: 2px solid #93c5fd;
+        border-radius: 12px;
         overflow: hidden;
-        background: var(--raised, #f0efec);
+        background: #f8fafc;
       }
       .step-screenshot img {
         display: block;
         width: 100%;
-        max-height: 210px;
+        max-height: 280px;
         object-fit: cover;
         object-position: top center;
         cursor: zoom-in;
       }
-      .step-screenshot.zoomed img {
-        max-height: none;
-        object-fit: contain;
-        cursor: zoom-out;
-      }
       .step-screenshot figcaption {
-        padding: 6px 10px;
-        font-size: 11px;
-        color: var(--muted, #575653);
-        border-top: 1px solid var(--border, #dfdeda);
+        padding: 8px 12px;
+        font-size: 13px;
+        color: #1e293b;
+        background: #eff6ff;
+        border-top: 1px solid #bfdbfe;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .btn-enlarge-shot {
+        background: #1d4ed8;
+        color: #ffffff;
+        border: 1px solid #1e40af;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12.5px;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn-enlarge-shot:hover {
+        background: #1e40af;
+      }
+      .tutorial-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 100025;
+        background: rgba(15, 23, 42, 0.88);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        gap: 12px;
+      }
+      .tutorial-lightbox.active {
+        display: flex;
+      }
+      .tutorial-lightbox img {
+        max-width: 95vw;
+        max-height: 82vh;
+        object-fit: contain;
+        border-radius: 10px;
+        border: 2px solid #93c5fd;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65);
+        background: #ffffff;
+      }
+      .tutorial-lightbox-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 95vw;
+        width: 100%;
+        max-width: 1120px;
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 600;
       }
       .tutorial-header {
-        padding: 18px 24px 14px;
-        border-bottom: 1px solid var(--border, #dfdeda);
-        background: var(--raised, #f0efec);
+        padding: 16px 22px 12px;
+        border-bottom: 1.5px solid #cbd5e1;
+        background: #f1f5f9;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -288,34 +361,37 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
       }
       .tutorial-title-box {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
       }
       .tutorial-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        background: #1d5fbf;
+        width: 38px;
+        height: 38px;
+        border-radius: 9px;
+        background: #1d4ed8;
         color: #ffffff;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 16px;
-        font-weight: 700;
+        font-size: 17px;
+        font-weight: 800;
+        flex-shrink: 0;
       }
       .tutorial-title {
         margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--text, #111110);
+        font-size: 19px;
+        font-weight: 700;
+        color: #0f172a;
       }
       .tutorial-subtitle {
         margin: 2px 0 0;
-        font-size: 12px;
-        color: var(--muted, #575653);
+        font-size: 13.5px;
+        color: #334155;
       }
       .tutorial-header-actions {
         display: flex;
@@ -323,68 +399,72 @@
         gap: 8px;
       }
       .tutorial-btn-icon {
-        background: var(--surface, #ffffff);
-        border: 1px solid var(--border, #dfdeda);
-        border-radius: 6px;
-        padding: 6px 10px;
+        background: #e2e8f0;
+        border: 1.5px solid #64748b;
+        border-radius: 8px;
+        padding: 7px 13px;
         cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text, #111110);
+        font-size: 13.5px;
+        font-weight: 700;
+        color: #0f172a;
         display: inline-flex;
         align-items: center;
         gap: 6px;
         transition: all 120ms ease;
       }
       .tutorial-btn-icon:hover {
-        background: var(--active, #e4e3de);
-        border-color: var(--control, #c8c7c2);
+        background: #cbd5e1;
+        border-color: #1e293b;
       }
       #tutorial-btn-close,
-      #docked-close {
+      #docked-close,
+      #tutorial-lightbox-close {
         background: #dc2626 !important;
         color: #ffffff !important;
         border: 2px solid #991b1b !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
         border-radius: 8px !important;
         box-shadow: 0 2px 6px rgba(185, 28, 28, 0.35) !important;
+        cursor: pointer !important;
       }
-      #tutorial-btn-close {
-        padding: 7px 14px !important;
-        font-size: 13.5px !important;
+      #tutorial-btn-close,
+      #tutorial-lightbox-close {
+        padding: 8px 15px !important;
+        font-size: 14px !important;
       }
       #docked-close {
-        padding: 3px 9px !important;
-        font-size: 12.5px !important;
+        padding: 4px 10px !important;
+        font-size: 13px !important;
       }
       #tutorial-btn-close:hover,
-      #docked-close:hover {
+      #docked-close:hover,
+      #tutorial-lightbox-close:hover {
         background: #b91c1c !important;
         border-color: #7f1d1d !important;
       }
       .tutorial-tabs {
         display: flex;
         gap: 8px;
+        flex-wrap: wrap;
       }
       .tutorial-tab-btn {
-        background: none;
-        border: none;
-        padding: 6px 14px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--muted, #575653);
+        background: #e2e8f0;
+        border: 1.5px solid #cbd5e1;
+        padding: 7px 15px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #334155;
         cursor: pointer;
         transition: all 120ms ease;
       }
       .tutorial-tab-btn.active {
-        background: var(--surface, #ffffff);
-        color: var(--accent, #1d5fbf);
-        font-weight: 600;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        background: #1d4ed8;
+        color: #ffffff;
+        border-color: #1e40af;
       }
       .tutorial-body {
-        padding: 24px;
+        padding: 20px 24px;
         overflow-y: auto;
         flex: 1;
       }
@@ -392,128 +472,143 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 18px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid var(--rule, #ecebe7);
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #e2e8f0;
+        gap: 8px;
+        flex-wrap: wrap;
       }
       .step-badge {
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 12.5px;
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        background: var(--pill-info-bg, #e8f0fe);
-        color: var(--pill-info-ink, #164388);
-        padding: 4px 10px;
+        letter-spacing: 0.04em;
+        background: #dbeafe;
+        color: #1e40af;
+        padding: 5px 12px;
         border-radius: 9999px;
       }
       .step-dots {
         display: flex;
-        gap: 6px;
+        gap: 8px;
+        align-items: center;
       }
       .step-dot {
-        width: 10px;
-        height: 10px;
+        width: 13px;
+        height: 13px;
         border-radius: 50%;
-        background: var(--border, #dfdeda);
+        background: #cbd5e1;
         cursor: pointer;
+        border: 1.5px solid #94a3b8;
         transition: all 150ms ease;
       }
       .step-dot.active {
-        background: var(--accent, #1d5fbf);
+        background: #1d4ed8;
+        border-color: #1e40af;
         transform: scale(1.25);
       }
       .step-dot.done {
-        background: var(--positive, #1f7a4c);
+        background: #16a34a;
+        border-color: #15803d;
       }
       .step-title {
-        font-size: 20px;
-        font-weight: 600;
-        margin: 0 0 12px 0;
-        color: var(--text, #111110);
+        font-size: 21px;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        color: #0f172a;
+        line-height: 1.25;
       }
       .step-desc {
-        font-size: 14px;
+        font-size: 15.5px;
         line-height: 1.6;
-        color: var(--muted, #575653);
-        margin-bottom: 16px;
+        color: #1e293b;
+        margin: 0 0 12px 0;
       }
       .step-bullets {
-        background: var(--raised, #f0efec);
-        border: 1px solid var(--border, #dfdeda);
+        background: #f8fafc;
+        border: 1.5px solid #cbd5e1;
         border-radius: 10px;
-        padding: 16px 20px;
-        margin-bottom: 18px;
+        padding: 14px 18px;
+        margin-bottom: 14px;
       }
       .step-bullets ul {
         margin: 0;
         padding-left: 20px;
       }
       .step-bullets li {
-        font-size: 13px;
-        line-height: 1.65;
-        color: var(--text, #111110);
+        font-size: 14.5px;
+        line-height: 1.6;
+        color: #0f172a;
         margin-bottom: 8px;
       }
       .step-bullets li:last-child {
         margin-bottom: 0;
       }
       .step-action-card {
-        background: rgba(29, 95, 191, 0.06);
-        border: 1px solid rgba(29, 95, 191, 0.3);
+        background: #eff6ff;
+        border: 1.5px solid #93c5fd;
         border-radius: 10px;
-        padding: 14px 18px;
+        padding: 12px 16px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 18px;
+        gap: 14px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
       }
       .step-action-desc {
-        font-size: 13px;
-        color: var(--text, #111110);
+        font-size: 14.5px;
+        color: #0f172a;
       }
       .step-action-btn {
-        background: #1d5fbf;
+        background: #15803d;
         color: #ffffff;
-        border: 1px solid #164388;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
+        border: 1.5px solid #166534;
+        padding: 9px 16px;
+        border-radius: 8px;
+        font-size: 14.5px;
+        font-weight: 700;
         cursor: pointer;
         white-space: nowrap;
         transition: background 120ms ease;
       }
       .step-action-btn:hover {
-        background: #164388;
+        background: #166534;
+      }
+      .step-action-btn.primary-nav {
+        background: #1d4ed8;
+        border-color: #1e40af;
+      }
+      .step-action-btn.primary-nav:hover {
+        background: #1e40af;
       }
       .step-tip {
         display: flex;
         align-items: flex-start;
         gap: 10px;
-        padding: 12px 16px;
-        border-radius: 8px;
-        background: var(--pill-warning-bg, #fffbeb);
-        border: 1px solid rgba(146, 64, 14, 0.2);
-        color: var(--pill-warning-ink, #92400e);
-        font-size: 12px;
-        line-height: 1.5;
+        padding: 12px 15px;
+        border-radius: 10px;
+        background: #fefce8;
+        border: 1.5px solid #fde047;
+        color: #713f12;
+        font-size: 14px;
+        line-height: 1.55;
       }
       .tutorial-footer {
-        padding: 16px 24px;
-        border-top: 1px solid var(--border, #dfdeda);
-        background: var(--raised, #f0efec);
+        padding: 14px 22px;
+        border-top: 1.5px solid #cbd5e1;
+        background: #f1f5f9;
         display: flex;
         align-items: center;
         justify-content: space-between;
-      }
-      .tutorial-footer-left {
-        display: flex;
         gap: 10px;
+        flex-wrap: wrap;
       }
+      .tutorial-footer-left,
       .tutorial-footer-right {
         display: flex;
         gap: 10px;
+        flex-wrap: wrap;
       }
       .faq-list {
         display: flex;
@@ -521,24 +616,24 @@
         gap: 12px;
       }
       .faq-item {
-        background: var(--raised, #f0efec);
-        border: 1px solid var(--border, #dfdeda);
+        background: #f8fafc;
+        border: 1.5px solid #cbd5e1;
         border-radius: 10px;
-        padding: 14px 18px;
+        padding: 15px 18px;
       }
       .faq-q {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text, #111110);
+        font-size: 16px;
+        font-weight: 700;
+        color: #0f172a;
         margin: 0 0 6px 0;
         display: flex;
         align-items: center;
         gap: 8px;
       }
       .faq-a {
-        font-size: 13px;
-        color: var(--muted, #575653);
-        line-height: 1.55;
+        font-size: 14.5px;
+        color: #1e293b;
+        line-height: 1.6;
         margin: 0;
       }
       /* Floating Docked Assistant */
@@ -547,12 +642,12 @@
         bottom: 24px;
         right: 24px;
         z-index: 9999;
-        width: 390px;
+        width: 410px;
         max-width: calc(100vw - 32px);
-        background: var(--surface, #ffffff);
-        border: 2px solid var(--accent, #1d5fbf);
-        border-radius: 12px;
-        box-shadow: 0 16px 42px rgba(0, 0, 0, 0.35);
+        background: #ffffff;
+        border: 2.5px solid #1d4ed8;
+        border-radius: 14px;
+        box-shadow: 0 18px 46px rgba(15, 23, 42, 0.35);
         padding: 16px;
         display: none;
         flex-direction: column;
@@ -571,79 +666,83 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 8px;
       }
       .docked-badge {
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--accent, #1d5fbf);
+        font-size: 12px;
+        font-weight: 800;
+        color: #1e40af;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
       }
       .docked-actions {
         display: flex;
         gap: 6px;
+        align-items: center;
       }
       .docked-btn {
-        background: none;
-        border: none;
-        color: var(--muted, #575653);
+        background: #e2e8f0;
+        border: 1px solid #64748b;
+        color: #0f172a;
         cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        font-weight: 700;
       }
       .docked-btn:hover {
-        background: var(--active, #e4e3de);
-        color: var(--text, #111110);
+        background: #cbd5e1;
       }
       .docked-title {
-        font-size: 14px;
-        font-weight: 600;
+        font-size: 16px;
+        font-weight: 700;
         margin: 0;
-        color: var(--text, #111110);
+        color: #0f172a;
       }
       .docked-desc {
-        font-size: 12px;
-        color: var(--muted, #575653);
-        line-height: 1.45;
+        font-size: 14px;
+        color: #334155;
+        line-height: 1.5;
         margin: 0;
       }
       .docked-action-btn {
-        background: #1d5fbf;
+        background: #15803d;
         color: #ffffff;
-        border: 1px solid #164388;
-        padding: 7px 12px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 600;
+        border: 1.5px solid #166534;
+        padding: 9px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 700;
         cursor: pointer;
         text-align: center;
       }
       .docked-action-btn:hover {
-        background: #164388;
+        background: #166534;
       }
       .docked-nav-row {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding-top: 6px;
-        border-top: 1px solid var(--rule, #ecebe7);
+        padding-top: 8px;
+        border-top: 1px solid #e2e8f0;
       }
       .tutorial-highlight {
-        outline: 3px solid #1d5fbf !important;
+        outline: 3px solid #1d4ed8 !important;
         outline-offset: 3px !important;
-        box-shadow: 0 0 24px rgba(29, 95, 191, 0.5) !important;
+        box-shadow: 0 0 24px rgba(29, 78, 216, 0.5) !important;
         animation: tutorialPulse 1.8s infinite alternate !important;
       }
       @keyframes tutorialPulse {
-        from { outline-color: #1d5fbf; box-shadow: 0 0 16px rgba(29, 95, 191, 0.4); }
-        to { outline-color: #10b981; box-shadow: 0 0 28px rgba(16, 185, 129, 0.6); }
+        from { outline-color: #1d4ed8; box-shadow: 0 0 16px rgba(29, 78, 216, 0.4); }
+        to { outline-color: #16a34a; box-shadow: 0 0 28px rgba(22, 163, 74, 0.6); }
       }
       @media (max-width: 640px) {
         .tutorial-modal {
           max-height: 94vh;
           border-radius: 12px;
-          margin: 8px;
+        }
+        .tutorial-roadmap {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         .tutorial-header {
           padding: 12px 14px;
@@ -652,21 +751,12 @@
           padding: 14px;
         }
         .tutorial-title {
-          font-size: 16px;
-        }
-        .step-progress-row {
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 8px;
-        }
-        .step-dots {
-          width: 100%;
-          justify-content: space-between;
+          font-size: 17px;
         }
         .tutorial-footer {
           padding: 10px 14px;
           flex-direction: column;
-          gap: 8px;
+          align-items: stretch;
         }
         .tutorial-footer-left,
         .tutorial-footer-right {
@@ -686,6 +776,31 @@
     document.head.appendChild(style);
   }
 
+  function openScreenshotLightbox(src, caption) {
+    let lb = document.getElementById('tutorial-lightbox');
+    if (!lb) {
+      lb = document.createElement('div');
+      lb.id = 'tutorial-lightbox';
+      lb.className = 'tutorial-lightbox';
+      lb.innerHTML = `
+        <div class="tutorial-lightbox-bar">
+          <span id="tutorial-lightbox-caption"></span>
+          <button type="button" id="tutorial-lightbox-close">✕ Close Picture</button>
+        </div>
+        <img id="tutorial-lightbox-img" src="" alt="">
+      `;
+      document.body.appendChild(lb);
+      lb.querySelector('#tutorial-lightbox-close').onclick = () => lb.classList.remove('active');
+      lb.onclick = (e) => {
+        if (e.target === lb) lb.classList.remove('active');
+      };
+    }
+    lb.querySelector('#tutorial-lightbox-img').src = src;
+    lb.querySelector('#tutorial-lightbox-img').alt = caption || '';
+    lb.querySelector('#tutorial-lightbox-caption').textContent = caption || 'Full Screen Picture';
+    lb.classList.add('active');
+  }
+
   function renderModalContent() {
     const body = document.getElementById('tutorial-modal-body');
     if (!body) return;
@@ -693,10 +808,10 @@
     if (activeTab === 'faq') {
       body.innerHTML = `
         <div class="faq-list">
-          <div style="margin-bottom:8px;">
-            <p style="font-size:13px; color:var(--muted); margin:0 0 12px;">Frequently asked questions and direct answers for family archivists:</p>
+          <div style="margin-bottom:4px;">
+            <p style="font-size:15px;color:#1e293b;margin:0 0 8px;font-weight:600;">Plain-English answers to common questions:</p>
           </div>
-          ${FAQS.map((item, idx) => `
+          ${FAQS.map((item) => `
             <div class="faq-item">
               <h4 class="faq-q"><span>❓</span> ${item.q}</h4>
               <p class="faq-a">${item.a}</p>
@@ -709,6 +824,15 @@
 
     const s = STEPS[currentStep];
     body.innerHTML = `
+      <div class="tutorial-roadmap" aria-label="4-step workflow overview">
+        ${ROADMAP.map((r) => `
+          <div class="tutorial-road-step ${r.num === s.stageNum ? 'is-active' : (r.num < s.stageNum ? 'is-done' : '')}">
+            <span class="tutorial-road-num">${r.num}</span>
+            <span>${r.label}</span>
+          </div>
+        `).join('')}
+      </div>
+
       <div class="step-progress-row">
         <span class="step-badge">${s.badge}</span>
         <div class="step-dots">
@@ -722,21 +846,24 @@
       <p class="step-desc">${s.desc}</p>
 
       ${s.screenshot ? `
-        <figure class="step-screenshot" id="step-screenshot-fig" title="Click to zoom screenshot">
+        <figure class="step-screenshot" id="step-screenshot-fig" title="Click to enlarge screenshot">
           <img src="${s.screenshot}" alt="${s.title}">
-          <figcaption>${s.screenshotCaption || s.title} (click image to zoom)</figcaption>
+          <figcaption>
+            <span>${s.screenshotCaption || s.title}</span>
+            <button type="button" class="btn-enlarge-shot" id="btn-enlarge-shot">🔍 Enlarge Picture</button>
+          </figcaption>
         </figure>
       ` : ''}
 
       <div class="step-bullets">
         <ul>
-          ${s.bullets.map(b => `<li>${b}</li>`).join('')}
+          ${s.bullets.map((b) => `<li>${b}</li>`).join('')}
         </ul>
       </div>
 
       <div class="step-action-card">
         <div class="step-action-desc">
-          <strong>Interactive Action:</strong> Navigate directly to this feature in the app.
+          <strong>Try it yourself:</strong> Jump straight to this screen while keeping this guide handy in the corner.
         </div>
         <button class="step-action-btn" type="button" id="btn-run-step-action">
           ${s.actionText}
@@ -744,46 +871,39 @@
       </div>
 
       <div class="step-tip">
-        <span>💡</span>
+        <span style="font-size:18px;">💡</span>
         <div>${s.tip}</div>
       </div>
     `;
 
-    // Wire action button
     const actionBtn = document.getElementById('btn-run-step-action');
     if (actionBtn) {
       actionBtn.onclick = () => {
         dockTutorial();
-        s.runAction(appBridge);
+        if (s.runAction) s.runAction(appBridge);
       };
     }
 
     const figEl = document.getElementById('step-screenshot-fig');
-    if (figEl) {
-      figEl.onclick = () => figEl.classList.toggle('zoomed');
+    if (figEl && s.screenshot) {
+      figEl.onclick = () => openScreenshotLightbox(s.screenshot, s.screenshotCaption || s.title);
     }
 
-    // Wire step dots
-    body.querySelectorAll('.step-dot').forEach(dot => {
+    body.querySelectorAll('.step-dot').forEach((dot) => {
       dot.onclick = () => {
         const stepNum = parseInt(dot.getAttribute('data-step'), 10);
         goToStep(stepNum);
       };
     });
 
-    // Update footer buttons
     const prevBtn = document.getElementById('tutorial-btn-prev');
     const nextBtn = document.getElementById('tutorial-btn-next');
     if (prevBtn) {
       prevBtn.disabled = currentStep === 0;
-      prevBtn.style.opacity = currentStep === 0 ? '0.4' : '1';
+      prevBtn.style.opacity = currentStep === 0 ? '0.45' : '1';
     }
     if (nextBtn) {
-      if (currentStep === STEPS.length - 1) {
-        nextBtn.textContent = 'Finish Tour ✓';
-      } else {
-        nextBtn.textContent = 'Next Step →';
-      }
+      nextBtn.textContent = currentStep === STEPS.length - 1 ? 'Finish Guide ✓' : 'Next Lesson →';
     }
   }
 
@@ -794,33 +914,33 @@
 
     docked.innerHTML = `
       <div class="docked-header">
-        <span class="docked-badge">Step ${s.step} of 7 • ${s.shortTitle}</span>
+        <span class="docked-badge">Lesson ${s.step} of ${STEPS.length} • ${s.shortTitle}</span>
         <div class="docked-actions">
-          <button class="docked-btn" id="docked-expand" title="Expand full guide">⤢ Expand</button>
-          <button class="docked-btn" id="docked-close" title="Close tutorial">✕ Close</button>
+          <button class="docked-btn" id="docked-expand" title="Return to large guide with pictures">⤢ Big Guide</button>
+          <button class="docked-btn" id="docked-close" title="Close guide">✕ Close</button>
         </div>
       </div>
-      <p class="docked-desc">${s.desc.substring(0, 110)}...</p>
+      <h4 class="docked-title">${s.title}</h4>
+      <p class="docked-desc">${s.desc.replace(/<[^>]+>/g, '')}</p>
       <button class="docked-action-btn" id="docked-action">${s.actionText}</button>
       <div class="docked-nav-row">
-        <button class="tutorial-btn-icon" id="docked-prev" ${currentStep === 0 ? 'disabled style="opacity:0.4"' : ''}>← Prev</button>
-        <span style="font-size:11px; color:var(--muted);">${currentStep + 1} / ${STEPS.length}</span>
-        <button class="tutorial-btn-icon" id="docked-next">${currentStep === STEPS.length - 1 ? 'Finish ✓' : 'Next →'}</button>
+        <button class="tutorial-btn-icon" id="docked-prev" ${currentStep === 0 ? 'disabled style="opacity:0.45"' : ''}>← Back</button>
+        <span style="font-size:13px;font-weight:700;color:#334155;">${currentStep + 1} of ${STEPS.length}</span>
+        <button class="tutorial-btn-icon" id="docked-next">${currentStep === STEPS.length - 1 ? 'Done ✓' : 'Next →'}</button>
       </div>
     `;
 
     document.getElementById('docked-expand').onclick = expandTutorial;
     document.getElementById('docked-close').onclick = closeTutorial;
-    document.getElementById('docked-action').onclick = () => s.runAction(appBridge);
+    document.getElementById('docked-action').onclick = () => {
+      if (s.runAction) s.runAction(appBridge);
+    };
     document.getElementById('docked-prev').onclick = () => {
       if (currentStep > 0) goToStep(currentStep - 1);
     };
     document.getElementById('docked-next').onclick = () => {
-      if (currentStep < STEPS.length - 1) {
-        goToStep(currentStep + 1);
-      } else {
-        closeTutorial();
-      }
+      if (currentStep < STEPS.length - 1) goToStep(currentStep + 1);
+      else closeTutorial();
     };
   }
 
@@ -841,11 +961,12 @@
     if (overlay) overlay.classList.add('active');
     if (docked) docked.classList.remove('active');
 
-    // Update tab header styles
     const tabTour = document.getElementById('tab-btn-tour');
     const tabFaq = document.getElementById('tab-btn-faq');
     if (tabTour) tabTour.classList.toggle('active', activeTab === 'tour');
     if (tabFaq) tabFaq.classList.toggle('active', activeTab === 'faq');
+    const footer = document.getElementById('tutorial-modal-footer');
+    if (footer) footer.style.display = activeTab === 'faq' ? 'none' : 'flex';
 
     renderModalContent();
   }
@@ -853,8 +974,10 @@
   function closeTutorial() {
     const overlay = document.getElementById('tutorial-overlay');
     const docked = document.getElementById('tutorial-docked-assistant');
+    const lb = document.getElementById('tutorial-lightbox');
     if (overlay) overlay.classList.remove('active');
     if (docked) docked.classList.remove('active');
+    if (lb) lb.classList.remove('active');
   }
 
   function dockTutorial() {
@@ -876,7 +999,6 @@
   function buildDOM() {
     if (document.getElementById('tutorial-overlay')) return;
 
-    // Create Modal Overlay
     const overlay = document.createElement('div');
     overlay.id = 'tutorial-overlay';
     overlay.className = 'tutorial-overlay';
@@ -887,13 +1009,13 @@
             <div class="tutorial-title-box">
               <div class="tutorial-icon">FH</div>
               <div>
-                <h2 class="tutorial-title" id="tutorial-modal-title">Family History Photos Guide &amp; Workflow Tutorial</h2>
-                <p class="tutorial-subtitle">Step-by-step interactive workflow tutorial with the pre-loaded demo archive</p>
+                <h2 class="tutorial-title" id="tutorial-modal-title">Easy Step-by-Step Guide &amp; Help</h2>
+                <p class="tutorial-subtitle">Clear pictures and plain-English instructions for every step (1 → 2 → 3 → 4)</p>
               </div>
             </div>
             <div class="tutorial-header-actions">
-              <button class="tutorial-btn-icon" id="tutorial-btn-dock" title="Minimize and interact with the app">
-                <span>⤢ Dock &amp; Explore App</span>
+              <button class="tutorial-btn-icon" id="tutorial-btn-dock" title="Shrink to corner so you can practice on the screen">
+                <span>⤢ Dock to Corner</span>
               </button>
               <button class="tutorial-btn-icon" id="tutorial-btn-close" title="Close guide">
                 <span>✕ Close</span>
@@ -902,40 +1024,36 @@
           </div>
 
           <div class="tutorial-tabs">
-            <button class="tutorial-tab-btn active" id="tab-btn-tour" type="button">🎯 Guided Workflow (7 Steps)</button>
-            <button class="tutorial-tab-btn" id="tab-btn-faq" type="button">💡 Help Topics &amp; FAQ</button>
+            <button class="tutorial-tab-btn active" id="tab-btn-tour" type="button">📖 Picture Walkthrough (6 Lessons)</button>
+            <button class="tutorial-tab-btn" id="tab-btn-faq" type="button">❓ Common Questions &amp; Answers</button>
           </div>
         </div>
 
-        <div class="tutorial-body" id="tutorial-modal-body">
-          <!-- Dynamic Step or FAQ Content -->
-        </div>
+        <div class="tutorial-body" id="tutorial-modal-body"></div>
 
         <div class="tutorial-footer" id="tutorial-modal-footer">
           <div class="tutorial-footer-left">
-            <button class="tutorial-btn-icon" id="tutorial-btn-prev" type="button">← Previous Step</button>
+            <button class="tutorial-btn-icon" id="tutorial-btn-prev" type="button">← Previous Lesson</button>
           </div>
           <div class="tutorial-footer-right">
             <button class="tutorial-btn-icon" id="tutorial-btn-dock-footer" type="button">⤢ Try on Screen</button>
-            <button class="step-action-btn" id="tutorial-btn-next" type="button">Next Step →</button>
+            <button class="step-action-btn primary-nav" id="tutorial-btn-next" type="button">Next Lesson →</button>
           </div>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
 
-    // Create Floating Docked Assistant
     const docked = document.createElement('div');
     docked.id = 'tutorial-docked-assistant';
     docked.className = 'tutorial-docked';
     document.body.appendChild(docked);
 
-    // Event Listeners
     document.getElementById('tutorial-btn-close').onclick = closeTutorial;
     document.getElementById('tutorial-btn-dock').onclick = dockTutorial;
     document.getElementById('tutorial-btn-dock-footer').onclick = () => {
       dockTutorial();
-      STEPS[currentStep].runAction(appBridge);
+      if (STEPS[currentStep].runAction) STEPS[currentStep].runAction(appBridge);
     };
 
     document.getElementById('tab-btn-tour').onclick = () => {
@@ -959,27 +1077,26 @@
     };
 
     document.getElementById('tutorial-btn-next').onclick = () => {
-      if (currentStep < STEPS.length - 1) {
-        goToStep(currentStep + 1);
-      } else {
-        closeTutorial();
-      }
+      if (currentStep < STEPS.length - 1) goToStep(currentStep + 1);
+      else closeTutorial();
     };
 
-    // Close on backdrop click
     overlay.onclick = (e) => {
       if (e.target === overlay) closeTutorial();
     };
 
-    // Close on Escape key
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.classList.contains('active')) {
-        closeTutorial();
+      if (e.key === 'Escape') {
+        const lb = document.getElementById('tutorial-lightbox');
+        if (lb && lb.classList.contains('active')) {
+          lb.classList.remove('active');
+        } else if (overlay.classList.contains('active')) {
+          closeTutorial();
+        }
       }
     });
   }
 
-  // Public API
   window.FamilyHistoryTutorial = {
     open: (tab = 'tour') => openTutorial(tab),
     close: () => closeTutorial(),
@@ -992,4 +1109,3 @@
     }
   };
 })();
-
