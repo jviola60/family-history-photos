@@ -56,9 +56,70 @@ function isImageFile(name, mimeType) {
    1. GOOGLE DRIVE & GOOGLE PHOTOS
    ============================================================================ */
 
-export async function requestGoogleToken(clientId, scope) {
+const GOOGLE_TOKEN_CACHE_KEY = 'fhp_gdrive_token_cache_v1';
+let _memoryGoogleToken = null;
+
+function readGoogleTokenCache() {
+  if (_memoryGoogleToken && _memoryGoogleToken.token) return _memoryGoogleToken;
+  try {
+    const raw = sessionStorage.getItem(GOOGLE_TOKEN_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.token && parsed.expiresAt) {
+      _memoryGoogleToken = parsed;
+      return parsed;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+function saveGoogleTokenCache(token, scope, expiresInSec = 3500) {
+  const rec = {
+    token,
+    scope: scope || '',
+    expiresAt: Date.now() + Math.max(60, Number(expiresInSec) || 3500) * 1000
+  };
+  _memoryGoogleToken = rec;
+  try {
+    sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(rec));
+  } catch {
+    // ignore storage errors
+  }
+  return rec;
+}
+
+export function getCachedGoogleToken(requiredScope = 'https://www.googleapis.com/auth/drive.readonly') {
+  const cached = readGoogleTokenCache();
+  if (!cached || !cached.token) return '';
+  if (cached.expiresAt - Date.now() <= 120_000) return '';
+  const have = cached.scope || '';
+  if (!requiredScope) return cached.token;
+  if (have === requiredScope) return cached.token;
+  if (requiredScope === 'https://www.googleapis.com/auth/drive.readonly' && have.includes('https://www.googleapis.com/auth/drive')) {
+    return cached.token;
+  }
+  return '';
+}
+
+export function clearCachedGoogleToken() {
+  _memoryGoogleToken = null;
+  try {
+    sessionStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export async function requestGoogleToken(clientId, scope, opts = {}) {
   const cleanId = String(clientId || '').trim();
   if (!cleanId) throw new Error('Please enter your Google OAuth Client ID first.');
+
+  if (!opts.forcePrompt) {
+    const cached = getCachedGoogleToken(scope);
+    if (cached) return cached;
+  }
 
   await loadScriptOnce('https://accounts.google.com/gsi/client');
   if (!window.google?.accounts?.oauth2) {
@@ -78,25 +139,252 @@ export async function requestGoogleToken(clientId, scope) {
           reject(new Error('No Google access token returned.'));
           return;
         }
+        saveGoogleTokenCache(resp.access_token, scope, resp.expires_in);
         resolve(resp.access_token);
       }
     });
-    client.requestAccessToken({ prompt: 'consent' });
+    client.requestAccessToken({ prompt: opts.forcePrompt ? 'consent' : '' });
   });
+}
+
+async function fetchDriveWithRetry(url, token, attempt = 0) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (res.status === 401) {
+    clearCachedGoogleToken();
+    throw new Error('Google Drive session expired — please reconnect Google Drive.');
+  }
+  if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    const waitMs = [800, 1800, 3500][attempt] || 2000;
+    await new Promise((r) => setTimeout(r, waitMs));
+    return fetchDriveWithRetry(url, token, attempt + 1);
+  }
+  return res;
+}
+
+export async function downloadGoogleDriveFile(token, fileRec) {
+  const fileId = fileRec?.cloudId || fileRec?.id;
+  if (!fileId) throw new Error('Missing Google Drive file ID.');
+  const dl = await fetchDriveWithRetry(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+    token
+  );
+  if (!dl.ok) throw new Error(`Failed to download ${fileRec?.name || fileId} (${dl.status})`);
+  const blob = await dl.blob();
+  const modMs = fileRec?.lastModified || Date.now();
+  const file = new File([blob], fileRec?.name || `drive_${fileId}.jpg`, {
+    type: blob.type || fileRec?.type || 'image/jpeg',
+    lastModified: modMs
+  });
+  if (fileRec?.webkitRelativePath) {
+    try {
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: fileRec.webkitRelativePath,
+        configurable: true
+      });
+    } catch {
+      // ignore if non-configurable
+    }
+  }
+  return file;
 }
 
 export async function listGoogleDriveFolders(token, parentId = 'root') {
   const q = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=100`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetchDriveWithRetry(url, token);
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     throw new Error(`Google Drive folder list failed (${res.status}): ${errText || res.statusText}`);
   }
   const data = await res.json();
   return data.files || [];
+}
+
+export async function listSharedWithMeDriveFolders(token) {
+  const q = "sharedWithMe = true and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,owners(displayName))&orderBy=name&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetchDriveWithRetry(url, token);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Shared Google Drive folder list failed (${res.status}): ${errText || res.statusText}`);
+  }
+  const data = await res.json();
+  return data.files || [];
+}
+
+export async function scanGoogleDriveAllImages(token, options = {}) {
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  const shouldStop = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
+  const includeFolders = options.includeFolders !== false;
+
+  const folderMap = new Map();
+  let foldersFound = 0;
+  let pagesFetched = 0;
+
+  if (includeFolders) {
+    let fPageToken = '';
+    do {
+      if (shouldStop()) break;
+      const params = new URLSearchParams({
+        q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        fields: 'nextPageToken,files(id,name,parents)',
+        pageSize: '1000',
+        supportsAllDrives: 'true',
+        includeItemsFromAllDrives: 'true'
+      });
+      if (fPageToken) params.set('pageToken', fPageToken);
+      const res = await fetchDriveWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, token);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Google Drive folder index failed (${res.status}): ${errText || res.statusText}`);
+      }
+      const data = await res.json();
+      const files = data.files || [];
+      for (let i = 0; i < files.length; i++) {
+        const fl = files[i];
+        folderMap.set(fl.id, { name: fl.name || 'Folder', parentId: (fl.parents && fl.parents[0]) || '' });
+        foldersFound++;
+      }
+      pagesFetched++;
+      fPageToken = data.nextPageToken || '';
+      if (onProgress) {
+        onProgress({ phase: 'folders', photosFound: 0, foldersFound, pagesFetched, sampleName: '' });
+      }
+    } while (fPageToken);
+  }
+
+  const pathMemo = new Map();
+  const resolveFolderPath = (parentId) => {
+    if (!parentId) return 'My Drive';
+    if (pathMemo.has(parentId)) return pathMemo.get(parentId);
+    const parts = [];
+    const seen = new Set();
+    let cur = parentId;
+    while (cur && !seen.has(cur) && parts.length < 12) {
+      seen.add(cur);
+      const info = folderMap.get(cur);
+      if (!info) break;
+      parts.unshift(info.name);
+      cur = info.parentId;
+    }
+    const resolved = parts.length > 0 ? `My Drive / ${parts.join(' / ')}` : 'My Drive';
+    pathMemo.set(parentId, resolved);
+    return resolved;
+  };
+
+  const results = [];
+  let pageToken = '';
+  do {
+    if (shouldStop()) break;
+    const params = new URLSearchParams({
+      q: "mimeType contains 'image/' and trashed = false",
+      fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,parents)',
+      pageSize: '1000',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true'
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const res = await fetchDriveWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, token);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Google Drive image scan failed (${res.status}): ${errText || res.statusText}`);
+    }
+    const data = await res.json();
+    const files = data.files || [];
+    let sampleName = '';
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (!f || !f.name) continue;
+      if (!sampleName) sampleName = f.name;
+      const parentId = (f.parents && f.parents[0]) || '';
+      const folderPath = resolveFolderPath(parentId);
+      const modMs = f.modifiedTime ? new Date(f.modifiedTime).getTime() : Date.now();
+      results.push({
+        isCloudFile: true,
+        provider: 'gdrive',
+        source: 'gdrive',
+        cloudId: f.id,
+        id: f.id,
+        name: f.name,
+        description: f.description || '',
+        size: Number(f.size) || 0,
+        type: f.mimeType || 'image/jpeg',
+        lastModified: modMs,
+        thumbnailLink: f.thumbnailLink || '',
+        path: folderPath,
+        webkitRelativePath: `${folderPath}/${f.name}`
+      });
+    }
+
+    pagesFetched++;
+    pageToken = data.nextPageToken || '';
+    if (onProgress) {
+      onProgress({
+        phase: 'images',
+        photosFound: results.length,
+        foldersFound,
+        pagesFetched,
+        sampleName
+      });
+    }
+  } while (pageToken);
+
+  return results;
+}
+
+export async function searchGoogleDriveImages(token, rawQueryTerms, options = {}) {
+  const terms = Array.isArray(rawQueryTerms)
+    ? rawQueryTerms.map((t) => String(t || '').trim()).filter(Boolean)
+    : [String(rawQueryTerms || '').trim()].filter(Boolean);
+  if (terms.length === 0) return [];
+
+  const escDriveTerm = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const nameClauses = terms.slice(0, 6).map((t) => {
+    const clean = escDriveTerm(t);
+    return `(name contains '${clean}' or fullText contains '${clean}')`;
+  });
+  const q = `mimeType contains 'image/' and trashed = false and (${nameClauses.join(' or ')})`;
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,parents)',
+    pageSize: String(Math.min(200, Math.max(10, Number(options.limit) || 80))),
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true'
+  });
+
+  const res = await fetchDriveWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, token);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Google Drive search failed (${res.status}): ${errText || res.statusText}`);
+  }
+  const data = await res.json();
+  const files = data.files || [];
+  return files
+    .filter((f) => f && isImageFile(f.name, f.mimeType))
+    .map((f) => {
+      const modMs = f.modifiedTime ? new Date(f.modifiedTime).getTime() : Date.now();
+      const rec = {
+        isCloudFile: true,
+        provider: 'gdrive',
+        source: 'gdrive',
+        cloudId: f.id,
+        id: f.id,
+        name: f.name,
+        description: f.description || '',
+        size: Number(f.size) || 0,
+        type: f.mimeType || 'image/jpeg',
+        lastModified: modMs,
+        thumbnailLink: f.thumbnailLink || '',
+        path: 'Google Drive Search',
+        webkitRelativePath: `Google Drive/${f.name}`
+      };
+      rec.fetchFile = () => downloadGoogleDriveFile(token, rec);
+      return rec;
+    });
 }
 
 export async function scanGoogleDriveFolder(token, folderId = 'root', folderName = 'Google Drive', onProgress = null) {
@@ -113,14 +401,14 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
       const q = `'${current.id}' in parents and trashed = false`;
       const params = new URLSearchParams({
         q,
-        fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime)',
-        pageSize: '200'
+        fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink)',
+        pageSize: '1000',
+        supportsAllDrives: 'true',
+        includeItemsFromAllDrives: 'true'
       });
       if (pageToken) params.set('pageToken', pageToken);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetchDriveWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, token);
       if (!res.ok) {
         throw new Error(`Google Drive scan failed (${res.status})`);
       }
@@ -134,27 +422,23 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
           const sizeBytes = Number(f.size) || 0;
           const modMs = f.modifiedTime ? new Date(f.modifiedTime).getTime() : Date.now();
           const relPath = `${current.path}/${f.name}`;
-          results.push({
+          const rec = {
             isCloudFile: true,
             provider: 'gdrive',
+            source: 'gdrive',
             cloudId: f.id,
+            id: f.id,
             name: f.name,
+            description: f.description || '',
             size: sizeBytes,
             type: f.mimeType || 'image/jpeg',
             lastModified: modMs,
-            webkitRelativePath: relPath,
-            fetchFile: async () => {
-              const dl = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.id)}?alt=media`, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
-              if (!dl.ok) throw new Error(`Failed to download ${f.name} (${dl.status})`);
-              const blob = await dl.blob();
-              return new File([blob], f.name, {
-                type: blob.type || f.mimeType || 'image/jpeg',
-                lastModified: modMs
-              });
-            }
-          });
+            thumbnailLink: f.thumbnailLink || '',
+            path: current.path,
+            webkitRelativePath: relPath
+          };
+          rec.fetchFile = () => downloadGoogleDriveFile(token, rec);
+          results.push(rec);
         }
       }
 

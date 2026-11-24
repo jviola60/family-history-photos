@@ -3861,10 +3861,27 @@
       let gedSyncRelinkedOnly = null; // null = auto-default to re-linked photos when present
       let gedSyncSearchQuery = '';
       let gedcomRestoreStarted = false;
-      let peopleViewFilter = 'auto'; // 'auto' | 'all' | 'with_photos' | 'has_paf_clue' | 'needs_photo'
+      let peopleViewFilter = 'auto'; // 'auto' | 'all' | 'with_photos' | 'has_paf_clue' | 'has_possible' | 'needs_photo'
       let peopleViewSearchQuery = '';
       let peopleViewLimit = 60;
       let peopleSmartStatusHtml = '';
+      let photoLibraryIndex = {
+        gdrive: [],
+        gdriveScannedAt: 0,
+        gdriveFolderName: '',
+        local: [],
+        localFolderName: '',
+        indexVersion: 0
+      };
+      let gedcomIndexMatches = {
+        strongMatches: [],
+        possibleMatches: [],
+        byPersonId: new Map(),
+        scannedCount: 0,
+        indexVersion: -1,
+        gedFileName: ''
+      };
+      let _gedIndexMatchGen = 0;
 
       /* Photo Lab interactive states */
       let activeTool = 'restore';  // 'restore' | 'color' | 'tone' | 'crop' | 'erase' | 'redeye'
@@ -3952,6 +3969,7 @@
             people: p.people,
             faces: cleanFaces,
             facesScanned: Boolean(p.facesScanned),
+            neuralFacesScanned: Boolean(p.neuralFacesScanned),
             hasPeopleOverride: p.hasPeopleOverride,
             unnamedFaces: p.unnamedFaces,
             inReview: Boolean(p.inReview),
@@ -4145,6 +4163,7 @@
                 p.faces = saved.faces;
               }
               if (typeof saved.facesScanned === 'boolean') p.facesScanned = saved.facesScanned;
+              if (typeof saved.neuralFacesScanned === 'boolean') p.neuralFacesScanned = saved.neuralFacesScanned;
               if (typeof saved.hasPeopleOverride === 'boolean') p.hasPeopleOverride = saved.hasPeopleOverride;
               if (typeof saved.unnamedFaces === 'number') p.unnamedFaces = saved.unnamedFaces;
               if (typeof saved.inReview === 'boolean') p.inReview = saved.inReview;
@@ -5413,13 +5432,28 @@
             const withPhotosList = [];
             const hasPafClueUnlinkedList = [];
             const hasPafClueAllList = [];
+            const hasPossibleMatchesList = [];
             const otherNeedsPhotoList = [];
+            const possibleByPerson = (gedcomIndexMatches && gedcomIndexMatches.byPersonId) || new Map();
+
             for (let i = 0; i < peopleSource.length; i++) {
               const person = peopleSource[i];
               const linkedPhotos = getLinkedPhotosFast(person);
               const hasClue = Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0;
-              const entry = { person, linkedPhotos, hasClue };
+              const rawSuggestions = (person.id && possibleByPerson.get(person.id)) || [];
+              const linkedCloudIds = new Set(linkedPhotos.map((x) => x.cloudId).filter(Boolean));
+              const linkedNames = new Set(linkedPhotos.map((x) => String(x.file || '').toLowerCase()).filter(Boolean));
+              const unlinkedSuggestions = rawSuggestions.filter((s) => {
+                const r = s && s.record;
+                if (!r) return false;
+                if (r.photoItem && linkedPhotos.some((lp) => lp.id === r.photoItem.id)) return false;
+                if (r.cloudId && linkedCloudIds.has(r.cloudId)) return false;
+                if (r.name && linkedNames.has(String(r.name).toLowerCase())) return false;
+                return true;
+              });
+              const entry = { person, linkedPhotos, hasClue, unlinkedSuggestions };
               if (hasClue) hasPafClueAllList.push(entry);
+              if (unlinkedSuggestions.length > 0) hasPossibleMatchesList.push(entry);
               if (linkedPhotos.length > 0) {
                 withPhotosList.push(entry);
               } else if (hasClue) {
@@ -5431,6 +5465,12 @@
             const needsPhotoList = [...hasPafClueUnlinkedList, ...otherNeedsPhotoList];
             const orderedAllList = [...withPhotosList, ...hasPafClueUnlinkedList, ...otherNeedsPhotoList];
 
+            const driveIndexedCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+            const localIndexedCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+            const totalIndexedCount = activePhotos.length + driveIndexedCount + localIndexedCount;
+            const totalMatchCandidates = (gedcomIndexMatches.strongMatches ? gedcomIndexMatches.strongMatches.length : 0)
+              + (gedcomIndexMatches.possibleMatches ? gedcomIndexMatches.possibleMatches.length : 0);
+
             host.innerHTML = `
               <div style="display:flex;flex-direction:column;gap:12px;">
                 <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
@@ -5440,7 +5480,7 @@
                         ${gd ? `🌳 Family Tree People (${esc(gd.fileName || 'PAF / GEDCOM')} · ALL ${gd.peopleList.length.toLocaleString()} imported · ${hasPafClueAllList.length.toLocaleString()} have PAF photo clues · ${withPhotosList.length.toLocaleString()} linked now)` : '🌳 Relatives Identified in Your Photos'}
                       </div>
                       <div style="font-size:13.5px;color:#1e3a8a;margin-top:3px;">
-                        Match &amp; re-link PAF photos from your loaded batch, a local folder, or Google Drive, run <strong>Facial Recognition</strong> across unnamed faces, or attach photos directly to anyone below.
+                        Index your Google Drive or computer folders to match filenames &amp; close names, search all indexed photos for any relative, or run <strong>Facial Recognition</strong>.
                       </div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -5452,9 +5492,20 @@
                   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:10px;border-top:1px solid #bfdbfe;">
                     <span style="font-size:12.5px;font-weight:700;color:#1e3a8a;margin-right:2px;">Step 2 Matching Tools:</span>
                     <button type="button" class="btn sm primary" id="btn-pv-relink-batch" ${gd ? '' : 'disabled'} title="Match all currently loaded photos against filenames and names in ${gd ? esc(gd.fileName) : 'your .ged tree'}">🔗 Re-Link Loaded Photos (${activePhotos.length})</button>
-                    <button type="button" class="btn sm accent" id="btn-pv-scan-local" ${gd ? '' : 'disabled'} title="Scan a folder on your computer and import only photos that match filenames or names in your PAF/GEDCOM tree">📁 Scan Local Folder for PAF Matches</button>
-                    <button type="button" class="btn sm" id="btn-pv-scan-drive" ${gd ? '' : 'disabled'} title="Scan Google Drive for photos matching filenames or names in your PAF/GEDCOM tree">☁️ Scan Google Drive for PAF Matches</button>
+                    <button type="button" class="btn sm accent" id="btn-pv-scan-local" ${gd ? '' : 'disabled'} title="Index a local folder and find exact &amp; possible matches against your PAF/GEDCOM tree">📁 Scan Local Folder (Match &amp; Index)</button>
+                    <button type="button" class="btn sm" id="btn-pv-scan-drive" ${gd ? '' : 'disabled'} title="Fast-index Google Drive (17k-116k+ photos) and match filenames &amp; names to your PAF/GEDCOM tree">☁️ Scan Google Drive (Match &amp; Index)</button>
+                    <button type="button" class="btn sm" id="btn-pv-browse-index" title="Search all loaded, Google Drive, and local folder photos by filename to link to any relative">🔍 Search Photo Library (${totalIndexedCount.toLocaleString()})</button>
                     <button type="button" class="btn sm success" id="btn-pv-face-rec" ${activePhotos.length ? '' : 'disabled'} title="Learn from photos you already tagged and suggest matches for unnamed faces across your batch">🧠 Recognize Faces Across Photos</button>
+                  </div>
+
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:8px;background:#ffffff;border:1px solid #bfdbfe;font-size:13px;color:#1e293b;">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                      <span><strong>Searchable Photo Index:</strong></span>
+                      <span>🖼️ Loaded: <strong>${activePhotos.length.toLocaleString()}</strong></span>
+                      <span>☁️ Google Drive: <strong>${driveIndexedCount.toLocaleString()}</strong>${driveIndexedCount === 0 ? ' <span class="muted">(click Scan Google Drive)</span>' : ''}</span>
+                      <span>📁 Local Folder: <strong>${localIndexedCount.toLocaleString()}</strong></span>
+                    </div>
+                    ${totalMatchCandidates > 0 ? `<button type="button" class="btn sm success" id="btn-pv-review-matches">💡 Review ${totalMatchCandidates.toLocaleString()} Name Match${totalMatchCandidates === 1 ? '' : 'es'} →</button>` : ''}
                   </div>
 
                   <div id="pv-smart-status" ${peopleSmartStatusHtml ? '' : 'hidden'} style="padding:9px 12px;border-radius:8px;background:#ffffff;border:1.5px solid #93c5fd;font-size:13.5px;color:#0f172a;line-height:1.45;">
@@ -5466,6 +5517,7 @@
                   <button type="button" class="btn sm ged-filter-pill" data-pv-filter="all">All People (${peopleSource.length.toLocaleString()})</button>
                   <button type="button" class="btn sm ged-filter-pill" data-pv-filter="with_photos">With Linked Photos (${withPhotosList.length.toLocaleString()})</button>
                   <button type="button" class="btn sm ged-filter-pill" data-pv-filter="has_paf_clue">Has PAF Photo Clue (${hasPafClueAllList.length.toLocaleString()})</button>
+                  <button type="button" class="btn sm ged-filter-pill" data-pv-filter="has_possible">💡 Possible Matches (${hasPossibleMatchesList.length.toLocaleString()})</button>
                   <button type="button" class="btn sm ged-filter-pill" data-pv-filter="needs_photo">Needs a Photo (${needsPhotoList.length.toLocaleString()})</button>
                   <input type="search" id="inp-people-search" value="${esc(peopleViewSearchQuery)}" placeholder="Find any relative by name, ID, place, or PAF filename..." style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--control);border-radius:8px;font-size:14.5px;background:var(--surface);">
                 </div>
@@ -5527,6 +5579,22 @@
                 }
               };
             }
+            const browseIdxBtn = host.querySelector('#btn-pv-browse-index');
+            if (browseIdxBtn) {
+              browseIdxBtn.onclick = () => {
+                if (typeof openPhotoIndexBrowserModal === 'function') {
+                  openPhotoIndexBrowserModal();
+                }
+              };
+            }
+            const reviewMatchesBtn = host.querySelector('#btn-pv-review-matches');
+            if (reviewMatchesBtn) {
+              reviewMatchesBtn.onclick = () => {
+                if (typeof openGedcomMatchReviewModal === 'function') {
+                  openGedcomMatchReviewModal(gedcomIndexMatches, 'All Indexed Photos');
+                }
+              };
+            }
             const faceRecBtn = host.querySelector('#btn-pv-face-rec');
             if (faceRecBtn) {
               faceRecBtn.onclick = () => {
@@ -5548,6 +5616,7 @@
                 if (f === 'all') b.textContent = `All People (${peopleSource.length.toLocaleString()})`;
                 else if (f === 'with_photos') b.textContent = `With Linked Photos (${withPhotosList.length.toLocaleString()})`;
                 else if (f === 'has_paf_clue') b.textContent = `Has PAF Photo Clue (${hasPafClueAllList.length.toLocaleString()})`;
+                else if (f === 'has_possible') b.textContent = `💡 Possible Matches (${hasPossibleMatchesList.length.toLocaleString()})`;
                 else b.textContent = `Needs a Photo (${needsPhotoList.length.toLocaleString()})`;
               });
 
@@ -5555,7 +5624,9 @@
                 ? withPhotosList
                 : (effectiveFilter === 'has_paf_clue'
                   ? [...hasPafClueAllList.filter((x) => x.linkedPhotos.length > 0), ...hasPafClueUnlinkedList]
-                  : (effectiveFilter === 'needs_photo' ? needsPhotoList : orderedAllList));
+                  : (effectiveFilter === 'has_possible'
+                    ? hasPossibleMatchesList
+                    : (effectiveFilter === 'needs_photo' ? needsPhotoList : orderedAllList)));
 
               const matchedPool = q
                 ? basePool.filter((item) => {
@@ -5574,12 +5645,14 @@
                         ? 'No relatives loaded here yet'
                         : (effectiveFilter === 'with_photos'
                           ? 'No relatives have linked photos in the current batch yet'
-                          : (effectiveFilter === 'has_paf_clue' ? 'No people with PAF photo clues match your search' : 'No matching relatives found'))}
+                          : (effectiveFilter === 'has_possible'
+                            ? 'No possible filename matches indexed yet — scan Google Drive or a Local Folder above!'
+                            : (effectiveFilter === 'has_paf_clue' ? 'No people with PAF photo clues match your search' : 'No matching relatives found')))}
                     </div>
                     <p class="muted" style="font-size:14px;margin:0 0 14px;">
                       ${peopleSource.length === 0
                         ? 'Load your PAF / GEDCOM (.ged) family tree in Step 1, or select a photo in Ledger and tag a family member.'
-                        : 'Try "Scan Local Folder for PAF Matches" or "Scan Google Drive for PAF Matches" above, or switch to "All People" to add photos directly to any relative.'}
+                        : 'Try "Scan Local Folder" or "Scan Google Drive" above, or switch to "All People" and click "Find & Link Photo" on any relative.'}
                     </p>
                     ${effectiveFilter !== 'all' && peopleSource.length > 0 ? `<button type="button" class="btn primary" id="btn-pv-show-all">Show All ${peopleSource.length.toLocaleString()} People</button>` : ''}
                   </div>
@@ -5595,7 +5668,7 @@
                 return;
               }
 
-              const cardsHtml = visible.map(({ person, linkedPhotos }, idx) => {
+              const cardsHtml = visible.map(({ person, linkedPhotos, unlinkedSuggestions }, idx) => {
                 const gid = String(person.id || '').trim();
                 const norm = normalizeSyncPersonName(person.name);
                 const syncRec = (gid && ledgerSnap.byGedId[gid]) || (norm && ledgerSnap.byName[norm]) || null;
@@ -5606,6 +5679,7 @@
                 const pafFileHint = Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0 && linkedPhotos.length === 0
                   ? `<div style="font-size:12.5px;color:#1e40af;background:#eff6ff;padding:5px 9px;border-radius:6px;margin-top:6px;border:1px solid #bfdbfe;">📎 Original PAF photo clue${person.photoFileNames.length > 1 ? 's' : ''}: <strong>${esc(person.photoFileNames.slice(0, 4).join(', '))}</strong></div>`
                   : '';
+                const suggCnt = Array.isArray(unlinkedSuggestions) ? unlinkedSuggestions.length : 0;
 
                 return `
                   <div style="border:1.5px solid ${linkedPhotos.length ? '#86efac' : '#cbd5e1'};background:${linkedPhotos.length ? '#f0fdf4' : '#ffffff'};border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
@@ -5619,6 +5693,7 @@
                             : (Array.isArray(person.photoFileNames) && person.photoFileNames.length > 0
                               ? '<span class="pill info" style="font-size:11.5px;">📎 PAF Photo Clue</span>'
                               : '<span class="pill warn" style="font-size:11.5px;">No Photo Yet</span>')}
+                          ${suggCnt > 0 ? `<button type="button" class="pill info pv-open-suggestions" data-pidx="${idx}" style="border:1px solid #60a5fa;cursor:pointer;font-size:11.5px;font-weight:700;">💡 ${suggCnt} Possible Match${suggCnt === 1 ? '' : 'es'}</button>` : ''}
                           ${syncRec
                             ? `<span class="pill info" style="font-size:11.5px;">✓ Synced${syncRec.fsPid ? ` · ${esc(syncRec.fsPid)}` : ''}</span>`
                             : ''}
@@ -5628,8 +5703,8 @@
                         ${pafFileHint}
                       </div>
                       <div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;">
-                        <button type="button" class="btn sm primary pv-add-photo" data-pidx="${idx}" title="Pick a photo from your computer and link it directly to ${esc(person.name)}">➕ Add Photo from Computer</button>
-                        ${activePhotos.length > 0 ? `<button type="button" class="btn sm pv-link-existing" data-pidx="${idx}" title="Attach one of your currently loaded photos to ${esc(person.name)}">🔗 Link Existing Photo</button>` : ''}
+                        <button type="button" class="btn sm primary pv-find-link" data-pidx="${idx}" title="Search all loaded, Google Drive, and local folder photos for ${esc(person.name)}">🔍 Find &amp; Link Photo</button>
+                        <button type="button" class="btn sm pv-add-photo" data-pidx="${idx}" title="Pick a single image file from your computer and link it directly to ${esc(person.name)}">📁 Upload File from PC</button>
                       </div>
                     </div>
 
@@ -5699,10 +5774,16 @@
                   inp.click();
                 };
               });
-              listEl.querySelectorAll('.pv-link-existing').forEach((btn) => {
+              listEl.querySelectorAll('.pv-find-link').forEach((btn) => {
                 btn.onclick = () => {
                   const row = visible[Number(btn.getAttribute('data-pidx'))];
-                  if (row) openLinkExistingPhotoModal(row.person);
+                  if (row) openFindAndLinkPhotoModal(row.person, 'auto');
+                };
+              });
+              listEl.querySelectorAll('.pv-open-suggestions').forEach((btn) => {
+                btn.onclick = () => {
+                  const row = visible[Number(btn.getAttribute('data-pidx'))];
+                  if (row) openFindAndLinkPhotoModal(row.person, 'suggested');
                 };
               });
             };
@@ -6954,6 +7035,7 @@
 
         p.faces = mergedFaces;
         p.facesScanned = true;
+        p.neuralFacesScanned = true;
 
         if (p.faces.length > 0 && typeof window.FaceDetectorEngine.recognizeFaces === 'function') {
           await window.FaceDetectorEngine.recognizeFaces(src, p.faces, p.people);
@@ -15998,14 +16080,15 @@
         processNextBatch();
       }
 
-      /* Non-blocking background face detection (boxes only — no cross-person auto-guessing) */
+      /* Non-blocking background face detection (neural boxes only — gentle on slow computers) */
       async function scheduleBackgroundFaceScan(list, forceAll = false) {
         if (!window.FaceDetectorEngine || typeof window.FaceDetectorEngine.detectFaces !== 'function' || !Array.isArray(list) || !list.length) {
           _bgFaceScanState = { running: false, done: 0, total: 0 };
           return;
         }
+        const isNeural = Boolean(window.FaceDetectorEngine.getEngineInfo && window.FaceDetectorEngine.getEngineInfo().neural);
         const targets = list.filter((rec) => rec && rec.src && !rec.inReview && !isScreenshotPhoto(rec) &&
-          (forceAll || (!rec.facesScanned && !(Array.isArray(rec.faces) && rec.faces.length > 0))));
+          (forceAll || !rec.facesScanned || (isNeural && !rec.neuralFacesScanned)));
         if (targets.length === 0) {
           _bgFaceScanState = { running: false, done: 0, total: 0 };
           renderSidebarCounts();
@@ -16029,7 +16112,7 @@
 
           const rec = targets[i];
           try {
-            const priorConfirmed = (forceAll && Array.isArray(rec.faces))
+            const priorConfirmed = Array.isArray(rec.faces)
               ? rec.faces.filter((fc) => fc && fc.box && (fc.confirmed || (fc.name || '').trim()))
               : [];
             const detected = await window.FaceDetectorEngine.detectFaces(afterSrc(rec));
@@ -16064,6 +16147,7 @@
 
             rec.faces = mergedFaces;
             rec.facesScanned = true;
+            if (isNeural) rec.neuralFacesScanned = true;
             rec.unnamedFaces = getUnnamedFaceCount(rec);
             saveItemMetadata(rec);
           } catch (_scanErr) {}
@@ -16078,7 +16162,7 @@
               if (rec.id === selectedId) renderInspector();
             }
           }
-          await new Promise((r) => setTimeout(r, 60));
+          await new Promise((r) => setTimeout(r, 100));
         }
 
         if (myGen !== _bgFaceScanGen) return;
@@ -16206,6 +16290,8 @@
             newItems.push({
               id: `FH-${String(i + 1).padStart(5, '0')}`,
               file: file.name,
+              cloudId: (rawEntry && rawEntry.cloudId) ? rawEntry.cloudId : '',
+              cloudProvider: (rawEntry && rawEntry.provider) ? rawEntry.provider : '',
               subfolder,
               title: cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1),
               isoDate,
@@ -16345,6 +16431,23 @@
           activeFolderBatchIndex = 0;
           duplicateResolved = false;
           ignoredDupPairKeys = new Set();
+
+          photoLibraryIndex.local = imgFiles.map((f, idx) => ({
+            source: 'local',
+            id: `local:${idx}:${f.name}`,
+            name: f.name,
+            path: f.webkitRelativePath || rootFolderName,
+            webkitRelativePath: f.webkitRelativePath || f.name,
+            size: f.size || 0,
+            lastModified: f.lastModified || Date.now(),
+            type: f.type || 'image/jpeg',
+            fileObj: f
+          }));
+          photoLibraryIndex.localFolderName = rootFolderName;
+          photoLibraryIndex.indexVersion++;
+          if (typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
+          }
 
           await loadFolderBatch(0);
         };
@@ -17067,6 +17170,7 @@
       render();
 
       restoreSavedGedcomFromDb().catch(() => {});
+      restoreGdriveIndexFromDb().catch(() => {});
       
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth().catch(() => {});
@@ -17087,6 +17191,35 @@
         if (!fileList || !fileList.length) {
           notify('No photos were found to load.');
           return;
+        }
+        if (fileList[0] && fileList[0].provider === 'gdrive') {
+          const gdriveRecords = fileList.map((f) => ({
+            isCloudFile: true,
+            provider: 'gdrive',
+            source: 'gdrive',
+            cloudId: f.cloudId || f.id,
+            id: f.cloudId || f.id,
+            name: f.name,
+            description: f.description || '',
+            path: f.path || (f.webkitRelativePath ? f.webkitRelativePath.replace(/\/[^/]+$/, '') : (sourceLabel || 'Google Drive')),
+            webkitRelativePath: f.webkitRelativePath || `${sourceLabel || 'Google Drive'}/${f.name}`,
+            size: Number(f.size) || 0,
+            lastModified: f.lastModified || Date.now(),
+            type: f.type || 'image/jpeg',
+            thumbnailLink: f.thumbnailLink || ''
+          }));
+          if (gdriveRecords.length >= photoLibraryIndex.gdrive.length) {
+            photoLibraryIndex.gdrive = gdriveRecords;
+            photoLibraryIndex.gdriveScannedAt = Date.now();
+            photoLibraryIndex.gdriveFolderName = sourceLabel || 'Google Drive';
+            photoLibraryIndex.indexVersion++;
+            if (typeof saveGdriveIndexToDb === 'function') {
+              saveGdriveIndexToDb(gdriveRecords, photoLibraryIndex.gdriveFolderName).catch(() => {});
+            }
+            if (typeof refreshGedcomIndexMatches === 'function') {
+              refreshGedcomIndexMatches().catch(() => {});
+            }
+          }
         }
         rootFolderName = sourceLabel || 'Cloud_Photos';
         isCustomFolder = true;
@@ -17113,7 +17246,7 @@
         }
         const saved = hub.getCloudSettings();
         let activeTab = 'gdrive';
-        let gdriveToken = '';
+        let gdriveToken = (hub.getCachedGoogleToken ? hub.getCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly') : '') || '';
         let gdriveStack = [{ id: 'root', name: 'My Drive' }];
         let odToken = '';
         let odStack = [{ id: 'root', name: 'OneDrive' }];
@@ -17180,16 +17313,28 @@
               const folder = gdriveStack[gdriveStack.length - 1];
               status.textContent = `Loading folders in ${folder.name}...`;
               try {
-                const folders = await hub.listGoogleDriveFolders(gdriveToken, folder.id);
+                const folders = folder.id === '__shared_with_me__'
+                  ? (hub.listSharedWithMeDriveFolders ? await hub.listSharedWithMeDriveFolders(gdriveToken) : [])
+                  : await hub.listGoogleDriveFolders(gdriveToken, folder.id);
                 status.textContent = `Path: ${gdriveStack.map((x) => x.name).join(' / ')}`;
+                const sharedShortcut = (gdriveStack.length === 1 && hub.listSharedWithMeDriveFolders)
+                  ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--rule);gap:8px;background:#eff6ff;">
+                       <button type="button" class="link-btn gd-open" data-id="__shared_with_me__" data-name="Shared with me" style="font-size:13px;font-weight:700;color:#1e3a8a;">👥 Shared with me (folders shared by family)</button>
+                       <span class="muted" style="font-size:11.5px;">Open →</span>
+                     </div>`
+                  : '';
                 listEl.innerHTML = `
                   ${gdriveStack.length > 1 ? `<button type="button" class="nav-item" id="gd-up" style="width:100%;border-bottom:1px solid var(--rule);">⬅️ Back to ${esc(gdriveStack[gdriveStack.length - 2].name)}</button>` : ''}
-                  ${folders.length === 0 ? '<div class="muted" style="padding:14px;font-size:12px;">No subfolders here. Click "Scan" above to scan this folder for photos.</div>' : folders.map((f) => `
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--rule);gap:8px;">
-                      <button type="button" class="link-btn gd-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:13px;font-weight:500;">📁 ${esc(f.name)}</button>
-                      <button type="button" class="btn sm gd-scan" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Scan Folder</button>
-                    </div>
-                  `).join('')}
+                  ${sharedShortcut}
+                  ${folders.length === 0 ? '<div class="muted" style="padding:14px;font-size:12px;">No subfolders here. Click "Scan" above to scan this folder for photos.</div>' : folders.map((f) => {
+                    const ownerLabel = f.owners && f.owners[0] && f.owners[0].displayName ? ` <span class="muted" style="font-size:11px;">(${esc(f.owners[0].displayName)})</span>` : '';
+                    return `
+                      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--rule);gap:8px;">
+                        <button type="button" class="link-btn gd-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:13px;font-weight:500;">📁 ${esc(f.name)}${ownerLabel}</button>
+                        <button type="button" class="btn sm gd-scan" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Scan Folder</button>
+                      </div>
+                    `;
+                  }).join('')}
                 `;
                 const upBtn = listEl.querySelector('#gd-up');
                 if (upBtn) upBtn.onclick = () => { gdriveStack.pop(); renderTab(); loadGdriveList(); };
@@ -18988,6 +19133,517 @@
         render();
       }
 
+      /* =====================================================================
+         UNIFIED PHOTO LIBRARY INDEX (Google Drive 17k-116k+ & Local Folder)
+         ===================================================================== */
+      const GDRIVE_INDEX_META_KEY = 'gdrive_photo_index_meta_v1';
+      const GDRIVE_INDEX_CHUNK_PREFIX = 'gdrive_photo_index_chunk_';
+      const GDRIVE_INDEX_CHUNK_SIZE = 10000;
+      let _gdriveIndexRestoreStarted = false;
+
+      async function saveGdriveIndexToDb(records, folderName = 'My Drive') {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
+        try {
+          const prevMeta = await getMetaFromDb(GDRIVE_INDEX_META_KEY);
+          const prevChunks = (prevMeta && Number(prevMeta.chunkCount)) || 0;
+          const totalCount = Array.isArray(records) ? records.length : 0;
+          const chunkCount = Math.ceil(totalCount / GDRIVE_INDEX_CHUNK_SIZE);
+          for (let c = 0; c < chunkCount; c++) {
+            const slice = records.slice(c * GDRIVE_INDEX_CHUNK_SIZE, (c + 1) * GDRIVE_INDEX_CHUNK_SIZE);
+            const compact = slice.map((r) => [
+              r.cloudId || r.id || '',
+              r.name || '',
+              r.path || '',
+              Number(r.size) || 0,
+              Number(r.lastModified) || 0,
+              r.type || 'image/jpeg',
+              r.thumbnailLink || '',
+              r.description || ''
+            ]);
+            await setMetaInDb(`${GDRIVE_INDEX_CHUNK_PREFIX}${c}`, compact);
+          }
+          for (let c = chunkCount; c < prevChunks; c++) {
+            await setMetaInDb(`${GDRIVE_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(GDRIVE_INDEX_META_KEY, {
+            version: 1,
+            totalCount,
+            chunkCount,
+            scannedAt: Date.now(),
+            folderName: folderName || 'My Drive'
+          });
+          return true;
+        } catch (err) {
+          console.warn('Could not persist Google Drive photo index:', err);
+          return false;
+        }
+      }
+
+      async function restoreGdriveIndexFromDb() {
+        if (_gdriveIndexRestoreStarted) return;
+        _gdriveIndexRestoreStarted = true;
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(GDRIVE_INDEX_META_KEY);
+          if (!meta || !meta.totalCount || !meta.chunkCount) return;
+          const restored = [];
+          for (let c = 0; c < meta.chunkCount; c++) {
+            const chunk = await getMetaFromDb(`${GDRIVE_INDEX_CHUNK_PREFIX}${c}`);
+            if (!Array.isArray(chunk)) continue;
+            for (let i = 0; i < chunk.length; i++) {
+              const row = chunk[i];
+              if (!Array.isArray(row) || !row[0]) continue;
+              const cloudId = row[0];
+              const name = row[1] || '';
+              const path = row[2] || 'My Drive';
+              restored.push({
+                isCloudFile: true,
+                provider: 'gdrive',
+                source: 'gdrive',
+                cloudId,
+                id: cloudId,
+                name,
+                path,
+                webkitRelativePath: `${path}/${name}`,
+                size: Number(row[3]) || 0,
+                lastModified: Number(row[4]) || 0,
+                type: row[5] || 'image/jpeg',
+                thumbnailLink: row[6] || '',
+                description: row[7] || ''
+              });
+            }
+          }
+          if (restored.length > 0) {
+            photoLibraryIndex.gdrive = restored;
+            photoLibraryIndex.gdriveScannedAt = meta.scannedAt || Date.now();
+            photoLibraryIndex.gdriveFolderName = meta.folderName || 'My Drive';
+            photoLibraryIndex.indexVersion++;
+            if (window._activeGedcomData) {
+              await refreshGedcomIndexMatches();
+            } else if (mode === 'catalog' && layout === 'people') {
+              render();
+            }
+          }
+        } catch (err) {
+          console.warn('Could not restore Google Drive photo index:', err);
+        }
+      }
+
+      function getUnifiedSearchablePhotoRecords(options = {}) {
+        const out = [];
+        const loadedByCloudId = new Map();
+        const loadedByName = new Map();
+        const activePhotos = Array.isArray(items) ? items.filter((x) => x && !x.inReview) : [];
+
+        for (let i = 0; i < activePhotos.length; i++) {
+          const ph = activePhotos[i];
+          if (ph.cloudId) loadedByCloudId.set(ph.cloudId, ph.id);
+          const nm = String(ph.file || '').trim().toLowerCase();
+          if (nm) loadedByName.set(nm, ph.id);
+          if (options.includeLoaded !== false) {
+            out.push({
+              source: 'loaded',
+              id: `loaded:${ph.id}`,
+              photoItem: ph,
+              name: ph.file || ph.title || ph.id,
+              title: ph.title || '',
+              path: ph.subfolder || rootFolderName || '',
+              webkitRelativePath: `${ph.subfolder || rootFolderName || ''}/${ph.file || ''}`,
+              cloudId: ph.cloudId || '',
+              size: (ph.origKb || ph.kb || 0) * 1024
+            });
+          }
+        }
+
+        if (options.includeGdrive !== false && Array.isArray(photoLibraryIndex.gdrive)) {
+          for (let i = 0; i < photoLibraryIndex.gdrive.length; i++) {
+            const g = photoLibraryIndex.gdrive[i];
+            const loadedId = loadedByCloudId.get(g.cloudId) || '';
+            if (options.dedupeLoaded && loadedId) continue;
+            out.push({
+              ...g,
+              source: 'gdrive',
+              alreadyLoadedId: loadedId
+            });
+          }
+        }
+
+        if (options.includeLocal !== false && Array.isArray(photoLibraryIndex.local)) {
+          for (let i = 0; i < photoLibraryIndex.local.length; i++) {
+            const l = photoLibraryIndex.local[i];
+            const loadedId = loadedByName.get(String(l.name || '').trim().toLowerCase()) || '';
+            if (options.dedupeLoaded && loadedId) continue;
+            out.push({
+              ...l,
+              source: 'local',
+              alreadyLoadedId: loadedId
+            });
+          }
+        }
+
+        return out;
+      }
+
+      async function refreshGedcomIndexMatches(onProgress = null) {
+        const gd = window._activeGedcomData;
+        const gp = window.GedcomImporter;
+        if (!gd || !gp || typeof gp.batchMatchPhotosToGedcom !== 'function') {
+          gedcomIndexMatches = {
+            strongMatches: [],
+            possibleMatches: [],
+            byPersonId: new Map(),
+            scannedCount: 0,
+            indexVersion: photoLibraryIndex.indexVersion,
+            gedFileName: ''
+          };
+          return gedcomIndexMatches;
+        }
+        const myGen = ++_gedIndexMatchGen;
+        const records = getUnifiedSearchablePhotoRecords({ dedupeLoaded: false });
+        const result = await gp.batchMatchPhotosToGedcom(gd, records, onProgress, {
+          shouldStop: () => myGen !== _gedIndexMatchGen
+        });
+        if (myGen !== _gedIndexMatchGen) return gedcomIndexMatches;
+        gedcomIndexMatches = {
+          strongMatches: result.strongMatches || [],
+          possibleMatches: result.possibleMatches || [],
+          byPersonId: result.byPersonId || new Map(),
+          scannedCount: result.totalScanned || records.length,
+          indexVersion: photoLibraryIndex.indexVersion,
+          gedFileName: gd.fileName || ''
+        };
+        if (mode === 'catalog' && layout === 'people') {
+          const activeEl = document.activeElement;
+          if (!activeEl || (!activeEl.closest('#people-tree-list') && activeEl.id !== 'inp-people-search')) {
+            renderCatalogCenter();
+          }
+        }
+        return gedcomIndexMatches;
+      }
+
+      async function ensureGoogleDriveToken(forcePrompt = false) {
+        const hub = window.CloudImportHub;
+        if (!hub) throw new Error('Cloud module is still loading — please try again in a second.');
+        const scope = 'https://www.googleapis.com/auth/drive.readonly';
+        if (!forcePrompt && hub.getCachedGoogleToken) {
+          const cached = hub.getCachedGoogleToken(scope);
+          if (cached) return cached;
+        }
+        const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
+        let cid = (settings.googleClientId || '').trim();
+        if (!cid) {
+          cid = (window.prompt('Enter your Google OAuth Client ID to connect Google Drive:', '') || '').trim();
+          if (!cid) throw new Error('Google Drive sign-in cancelled (no Client ID).');
+          if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
+        }
+        return await hub.requestGoogleToken(cid, scope, { forcePrompt });
+      }
+
+      async function importAndLinkExternalPhotosToPerson(selectedEntries, gp, onProgress = null) {
+        if (!Array.isArray(selectedEntries) || selectedEntries.length === 0 || !gp) {
+          return { linkedCount: 0, newlyImportedCount: 0, firstPhotoId: null };
+        }
+        const hub = window.CloudImportHub;
+        const needDrive = selectedEntries.some((e) => e && e.source === 'gdrive' && !e.photoItem && !e.alreadyLoadedId);
+        let driveToken = '';
+        if (needDrive) {
+          driveToken = await ensureGoogleDriveToken(false);
+        }
+
+        const wasCustom = isCustomFolder;
+        isCustomFolder = true;
+        try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
+        await setMetaInDb('demoCleared', true);
+        await setMetaInDb('isCustom', true);
+        if (!wasCustom || !rootFolderName || rootFolderName === '(No folder opened)' || rootFolderName === 'Gill_Costello_Archive') {
+          rootFolderName = 'Family_Photos';
+        }
+
+        const baseItems = wasCustom && Array.isArray(items) ? items.slice() : [];
+        const usedIds = new Set(baseItems.map((x) => x.id));
+        const byId = new Map(baseItems.map((x) => [x.id, x]));
+        const byCloudId = new Map();
+        const byFileName = new Map();
+        baseItems.forEach((x) => {
+          if (x.cloudId) byCloudId.set(x.cloudId, x);
+          if (x.file) byFileName.set(String(x.file).toLowerCase(), x);
+        });
+
+        let nextNum = baseItems.length + 1;
+        const makeUniqueId = () => {
+          while (usedIds.has(`PH-${String(nextNum).padStart(4, '0')}`)) nextNum++;
+          const id = `PH-${String(nextNum).padStart(4, '0')}`;
+          usedIds.add(id);
+          return id;
+        };
+
+        const loadedOnly = [];
+        const driveQueue = [];
+        const localQueue = [];
+
+        for (let i = 0; i < selectedEntries.length; i++) {
+          const entry = selectedEntries[i];
+          if (!entry) continue;
+          if (entry.source === 'loaded' && entry.photoItem) {
+            loadedOnly.push(entry.photoItem);
+          } else if (entry.alreadyLoadedId && byId.has(entry.alreadyLoadedId)) {
+            loadedOnly.push(byId.get(entry.alreadyLoadedId));
+          } else if (entry.source === 'gdrive') {
+            const existing = (entry.cloudId && byCloudId.get(entry.cloudId)) || byFileName.get(String(entry.name || '').toLowerCase());
+            if (existing) loadedOnly.push(existing);
+            else driveQueue.push(entry);
+          } else if (entry.source === 'local' && entry.fileObj) {
+            const existing = byFileName.get(String(entry.name || '').toLowerCase());
+            if (existing) loadedOnly.push(existing);
+            else localQueue.push(entry);
+          }
+        }
+
+        const linkedPhotos = [];
+        const newlyCreated = [];
+
+        for (let i = 0; i < loadedOnly.length; i++) {
+          await linkGedcomPersonToPhoto(loadedOnly[i], gp, { persistArchive: false });
+          linkedPhotos.push(loadedOnly[i]);
+        }
+
+        for (let i = 0; i < localQueue.length; i++) {
+          const entry = localQueue[i];
+          const f = entry.fileObj;
+          const relParts = String(f.webkitRelativePath || entry.path || '').split(/[\\/]/).filter(Boolean);
+          const subFolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : (photoLibraryIndex.localFolderName || rootFolderName);
+          const rec = createLocalPhotoItem(f, makeUniqueId(), subFolder, {
+            fallbackTitle: gp.name,
+            birthDate: gp.birthDate,
+            branch: gp.surname || ''
+          });
+          await linkGedcomPersonToPhoto(rec, gp, { persistArchive: false });
+          baseItems.push(rec);
+          byId.set(rec.id, rec);
+          byFileName.set(String(rec.file || '').toLowerCase(), rec);
+          newlyCreated.push(rec);
+          linkedPhotos.push(rec);
+        }
+
+        if (driveQueue.length > 0 && hub) {
+          let done = 0;
+          let cursor = 0;
+          const downloaded = new Array(driveQueue.length);
+          const workers = Array.from({ length: Math.min(4, driveQueue.length) }, async () => {
+            while (cursor < driveQueue.length) {
+              const idx = cursor++;
+              const entry = driveQueue[idx];
+              try {
+                const file = await hub.downloadGoogleDriveFile(driveToken, entry);
+                downloaded[idx] = { entry, file };
+              } catch (dlErr) {
+                if (String(dlErr.message || '').includes('session expired')) {
+                  driveToken = await ensureGoogleDriveToken(true);
+                  const file = await hub.downloadGoogleDriveFile(driveToken, entry);
+                  downloaded[idx] = { entry, file };
+                } else {
+                  console.warn('Drive download failed:', entry.name, dlErr);
+                }
+              }
+              done++;
+              if (onProgress) onProgress({ done, total: driveQueue.length, currentName: entry.name });
+            }
+          });
+          await Promise.all(workers);
+
+          for (let i = 0; i < downloaded.length; i++) {
+            const pair = downloaded[i];
+            if (!pair || !pair.file) continue;
+            const { entry, file } = pair;
+            const subFolder = entry.path || photoLibraryIndex.gdriveFolderName || 'Google Drive';
+            const rec = createLocalPhotoItem(file, makeUniqueId(), subFolder, {
+              fallbackTitle: gp.name,
+              birthDate: gp.birthDate,
+              branch: gp.surname || ''
+            });
+            rec.cloudId = entry.cloudId || entry.id || '';
+            rec.cloudProvider = 'gdrive';
+            await linkGedcomPersonToPhoto(rec, gp, { persistArchive: false });
+            baseItems.push(rec);
+            byId.set(rec.id, rec);
+            if (rec.cloudId) byCloudId.set(rec.cloudId, rec);
+            byFileName.set(String(rec.file || '').toLowerCase(), rec);
+            newlyCreated.push(rec);
+            linkedPhotos.push(rec);
+          }
+        }
+
+        items = baseItems;
+        if (linkedPhotos[0]) selectedId = linkedPhotos[0].id;
+        if (typeof saveArchiveToDb === 'function') {
+          try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        }
+        reconcileGedcomSyncLedgerFromItems(items);
+        if (newlyCreated.length > 0) {
+          scheduleMetadataExtraction(newlyCreated);
+          scheduleBackgroundFaceScan(newlyCreated);
+        }
+        return {
+          linkedCount: linkedPhotos.length,
+          newlyImportedCount: newlyCreated.length,
+          firstPhotoId: linkedPhotos[0] ? linkedPhotos[0].id : null
+        };
+      }
+
+      async function importAndLinkMatchPairs(pairs, onProgress = null) {
+        if (!Array.isArray(pairs) || pairs.length === 0) {
+          return { linkedCount: 0, newlyImportedCount: 0, firstPhotoId: null };
+        }
+        const hub = window.CloudImportHub;
+        const needDrive = pairs.some((pr) => pr && pr.record && pr.record.source === 'gdrive' && !pr.record.photoItem && !pr.record.alreadyLoadedId);
+        let driveToken = '';
+        if (needDrive) {
+          driveToken = await ensureGoogleDriveToken(false);
+        }
+
+        const wasCustom = isCustomFolder;
+        isCustomFolder = true;
+        try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
+        await setMetaInDb('demoCleared', true);
+        await setMetaInDb('isCustom', true);
+        if (!wasCustom || !rootFolderName || rootFolderName === '(No folder opened)' || rootFolderName === 'Gill_Costello_Archive') {
+          rootFolderName = 'Family_Photos';
+        }
+
+        const baseItems = wasCustom && Array.isArray(items) ? items.slice() : [];
+        const usedIds = new Set(baseItems.map((x) => x.id));
+        const byId = new Map(baseItems.map((x) => [x.id, x]));
+        const byCloudId = new Map();
+        const byFileName = new Map();
+        baseItems.forEach((x) => {
+          if (x.cloudId) byCloudId.set(x.cloudId, x);
+          if (x.file) byFileName.set(String(x.file).toLowerCase(), x);
+        });
+
+        let nextNum = baseItems.length + 1;
+        const makeUniqueId = () => {
+          while (usedIds.has(`PH-${String(nextNum).padStart(4, '0')}`)) nextNum++;
+          const id = `PH-${String(nextNum).padStart(4, '0')}`;
+          usedIds.add(id);
+          return id;
+        };
+
+        const newlyCreated = [];
+        const linkedSet = new Set();
+        let firstPhotoId = null;
+        const driveTodo = [];
+
+        for (let i = 0; i < pairs.length; i++) {
+          const item = pairs[i];
+          if (!item || !item.record || !item.person) continue;
+          const rec = item.record;
+          const gp = item.person;
+
+          let target = null;
+          if (rec.source === 'loaded' && rec.photoItem) {
+            target = rec.photoItem;
+          } else if (rec.alreadyLoadedId && byId.has(rec.alreadyLoadedId)) {
+            target = byId.get(rec.alreadyLoadedId);
+          } else if (rec.cloudId && byCloudId.has(rec.cloudId)) {
+            target = byCloudId.get(rec.cloudId);
+          } else if (rec.name && byFileName.has(String(rec.name).toLowerCase())) {
+            target = byFileName.get(String(rec.name).toLowerCase());
+          }
+
+          if (target) {
+            await linkGedcomPersonToPhoto(target, gp, { persistArchive: false });
+            linkedSet.add(target.id);
+            if (!firstPhotoId) firstPhotoId = target.id;
+          } else if (rec.source === 'local' && rec.fileObj) {
+            const f = rec.fileObj;
+            const relParts = String(f.webkitRelativePath || rec.path || '').split(/[\\/]/).filter(Boolean);
+            const subFolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : (photoLibraryIndex.localFolderName || rootFolderName);
+            const created = createLocalPhotoItem(f, makeUniqueId(), subFolder, {
+              fallbackTitle: gp.name,
+              birthDate: gp.birthDate,
+              branch: gp.surname || ''
+            });
+            await linkGedcomPersonToPhoto(created, gp, { persistArchive: false });
+            baseItems.push(created);
+            byId.set(created.id, created);
+            byFileName.set(String(created.file || '').toLowerCase(), created);
+            newlyCreated.push(created);
+            linkedSet.add(created.id);
+            if (!firstPhotoId) firstPhotoId = created.id;
+          } else if (rec.source === 'gdrive') {
+            driveTodo.push(item);
+          }
+        }
+
+        if (driveTodo.length > 0 && hub) {
+          let done = 0;
+          let cursor = 0;
+          const downloaded = new Array(driveTodo.length);
+          const workers = Array.from({ length: Math.min(4, driveTodo.length) }, async () => {
+            while (cursor < driveTodo.length) {
+              const idx = cursor++;
+              const { record, person } = driveTodo[idx];
+              try {
+                const file = await hub.downloadGoogleDriveFile(driveToken, record);
+                downloaded[idx] = { record, person, file };
+              } catch (dlErr) {
+                if (String(dlErr.message || '').includes('session expired')) {
+                  driveToken = await ensureGoogleDriveToken(true);
+                  const file = await hub.downloadGoogleDriveFile(driveToken, record);
+                  downloaded[idx] = { record, person, file };
+                } else {
+                  console.warn('Drive download failed:', record.name, dlErr);
+                }
+              }
+              done++;
+              if (onProgress) onProgress({ done, total: driveTodo.length, currentName: record.name });
+            }
+          });
+          await Promise.all(workers);
+
+          for (let i = 0; i < downloaded.length; i++) {
+            const row = downloaded[i];
+            if (!row || !row.file) continue;
+            const { record, person, file } = row;
+            let created = (record.cloudId && byCloudId.get(record.cloudId)) || byFileName.get(String(record.name || '').toLowerCase());
+            if (!created) {
+              const subFolder = record.path || photoLibraryIndex.gdriveFolderName || 'Google Drive';
+              created = createLocalPhotoItem(file, makeUniqueId(), subFolder, {
+                fallbackTitle: person.name,
+                birthDate: person.birthDate,
+                branch: person.surname || ''
+              });
+              created.cloudId = record.cloudId || record.id || '';
+              created.cloudProvider = 'gdrive';
+              baseItems.push(created);
+              byId.set(created.id, created);
+              if (created.cloudId) byCloudId.set(created.cloudId, created);
+              byFileName.set(String(created.file || '').toLowerCase(), created);
+              newlyCreated.push(created);
+            }
+            await linkGedcomPersonToPhoto(created, person, { persistArchive: false });
+            linkedSet.add(created.id);
+            if (!firstPhotoId) firstPhotoId = created.id;
+          }
+        }
+
+        items = baseItems;
+        if (firstPhotoId) selectedId = firstPhotoId;
+        if (typeof saveArchiveToDb === 'function') {
+          try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        }
+        reconcileGedcomSyncLedgerFromItems(items);
+        if (newlyCreated.length > 0) {
+          scheduleMetadataExtraction(newlyCreated);
+          scheduleBackgroundFaceScan(newlyCreated);
+        }
+        return {
+          linkedCount: linkedSet.size,
+          newlyImportedCount: newlyCreated.length,
+          firstPhotoId
+        };
+      }
+
       async function relinkCurrentBatchToGedcom(onStatus = null) {
         const gd = window._activeGedcomData;
         const gp = window.GedcomImporter;
@@ -18998,9 +19654,16 @@
         }
         const res = gp.relinkPhotosWithGedcom(gd, items);
         await persistGedcomRelinkResult(res);
-        const msg = `✓ Checked <strong>${items.length}</strong> loaded photos against <strong>${gd.peopleList.length.toLocaleString()}</strong> people — matched <strong>${res.matchedPhotos}</strong> photo${res.matchedPhotos === 1 ? '' : 's'} (${res.newlyUpdatedPhotos} newly updated, ${res.totalLinksRestored} new PAF person links restored).`;
+        const loadedRecords = getUnifiedSearchablePhotoRecords({ includeGdrive: false, includeLocal: false });
+        const batchRes = gp.batchMatchPhotosToGedcom ? await gp.batchMatchPhotosToGedcom(gd, loadedRecords) : null;
+        await refreshGedcomIndexMatches();
+        const possCount = batchRes && batchRes.possibleMatches ? batchRes.possibleMatches.length : 0;
+        const msg = `✓ Checked <strong>${items.length}</strong> loaded photos against <strong>${gd.peopleList.length.toLocaleString()}</strong> people — linked <strong>${res.matchedPhotos}</strong> strong match${res.matchedPhotos === 1 ? '' : 'es'} (${res.totalLinksRestored} new links)${possCount > 0 ? ` and found <strong>${possCount}</strong> close / possible filename match${possCount === 1 ? '' : 'es'} to review!` : '.'}`;
         if (onStatus) onStatus(msg);
-        notify(`Matched ${res.matchedPhotos} photos (${res.totalLinksRestored} new PAF links restored).`);
+        notify(`Matched ${res.matchedPhotos} photos${possCount > 0 ? ` + ${possCount} possible matches to review` : ''}!`);
+        if (possCount > 0 && typeof openGedcomMatchReviewModal === 'function') {
+          openGedcomMatchReviewModal(batchRes, 'Loaded Photos');
+        }
         return res;
       }
 
@@ -19025,88 +19688,70 @@
           const fileCount = allFiles.length;
           if (!fileCount) return;
 
-          showImportProgress('Scanning Local Folder for PAF Matches', `Checking ${fileCount.toLocaleString()} files against ${gd.fileName}...`, 8, `0 / ${fileCount.toLocaleString()}`);
-          if (onStatus) onStatus(`Scanning ${fileCount.toLocaleString()} local files against <strong>${esc(gd.fileName)}</strong>...`);
+          showImportProgress('Indexing Local Folder', `Scanning ${fileCount.toLocaleString()} files for photos...`, 8, `0 / ${fileCount.toLocaleString()}`);
+          if (onStatus) onStatus(`Indexing ${fileCount.toLocaleString()} local files against <strong>${esc(gd.fileName)}</strong>...`);
 
           const firstRel = allFiles[0].webkitRelativePath || '';
           const relParts = firstRel.split('/').filter(Boolean);
           const scannedRootName = relParts.length > 1 ? relParts[0] : 'Local_PAF_Folder';
 
-          let totalImages = 0;
-          const matchedFiles = [];
-          const CHUNK_SIZE = 2500;
+          const localRecords = [];
+          const CHUNK_SIZE = 3000;
           for (let i = 0; i < fileCount; i += CHUNK_SIZE) {
             const end = Math.min(i + CHUNK_SIZE, fileCount);
             for (let j = i; j < end; j++) {
               const f = allFiles[j];
               if (!(/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')))) continue;
-              totalImages++;
-              const m = gp.matchFilenameToGedcom ? gp.matchFilenameToGedcom(gd, f.name) : null;
-              if (m && m.type) matchedFiles.push(f);
+              localRecords.push({
+                source: 'local',
+                id: `local:${localRecords.length}:${f.name}`,
+                name: f.name,
+                path: f.webkitRelativePath || scannedRootName,
+                webkitRelativePath: f.webkitRelativePath || `${scannedRootName}/${f.name}`,
+                size: f.size || 0,
+                lastModified: f.lastModified || Date.now(),
+                type: f.type || 'image/jpeg',
+                fileObj: f
+              });
             }
-            const pct = Math.min(72, Math.round(8 + (end / fileCount) * 64));
-            updateImportProgress(`Scanned ${totalImages.toLocaleString()} photos · ${matchedFiles.length} PAF matches found...`, pct, `${end.toLocaleString()} / ${fileCount.toLocaleString()}`);
+            const pct = Math.min(50, Math.round(8 + (end / fileCount) * 42));
+            updateImportProgress(`Indexed ${localRecords.length.toLocaleString()} photos...`, pct, `${end.toLocaleString()} / ${fileCount.toLocaleString()}`);
             await new Promise((r) => setTimeout(r, 0));
           }
 
-          if (matchedFiles.length === 0) {
+          photoLibraryIndex.local = localRecords;
+          photoLibraryIndex.localFolderName = scannedRootName;
+          photoLibraryIndex.indexVersion++;
+
+          if (localRecords.length === 0) {
             hideImportProgress();
-            const noneMsg = `Scanned <strong>${totalImages.toLocaleString()}</strong> local photo${totalImages === 1 ? '' : 's'} in <strong>${esc(scannedRootName)}</strong>, but none matched PAF filenames or names in <strong>${esc(gd.fileName)}</strong>. Tip: Click <strong>🧠 Recognize Faces Across Photos</strong> to match camera filenames like <code>IMG_1234.jpg</code>!`;
-            if (onStatus) onStatus(noneMsg);
-            notify(`No filename matches among ${totalImages.toLocaleString()} photos — try Facial Recognition for camera filenames!`);
+            if (onStatus) onStatus(`No image files were found in <strong>${esc(scannedRootName)}</strong>.`);
+            notify('No image files found in the selected folder.');
             return;
           }
 
-          const CAP = 250;
-          const toImport = matchedFiles.slice(0, CAP);
-          const truncatedCount = matchedFiles.length - toImport.length;
-          updateImportProgress(`Importing ${toImport.length} matching PAF photos...`, 80, `${toImport.length} / ${matchedFiles.length}`);
-
-          try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
-          await setMetaInDb('demoCleared', true);
-          await setMetaInDb('isCustom', true);
-
-          const wasCustom = isCustomFolder;
-          isCustomFolder = true;
-          if (!wasCustom || !rootFolderName || rootFolderName === '(No folder opened)' || rootFolderName === 'Gill_Costello_Archive') {
-            rootFolderName = scannedRootName;
-          }
-          const baseItems = wasCustom && Array.isArray(items) ? items.slice() : [];
-          const usedIds = new Set(baseItems.map((x) => x.id));
-          const byFileName = new Map(baseItems.map((x) => [String(x.file || '').toLowerCase(), x]));
-          let nextNum = baseItems.length + 1;
-          const makeUniqueId = () => {
-            while (usedIds.has(`PH-${String(nextNum).padStart(3, '0')}`)) nextNum++;
-            const id = `PH-${String(nextNum).padStart(3, '0')}`;
-            usedIds.add(id);
-            return id;
-          };
-
-          const newlyCreated = [];
-          for (let i = 0; i < toImport.length; i++) {
-            const file = toImport[i];
-            const lowerName = String(file.name || '').toLowerCase();
-            if (byFileName.has(lowerName)) continue;
-            const pathParts = String(file.webkitRelativePath || '').split('/').filter(Boolean);
-            const subFolder = pathParts.length > 2 ? pathParts.slice(1, -1).join(' / ') : scannedRootName;
-            const newRec = createLocalPhotoItem(file, makeUniqueId(), subFolder);
-            baseItems.push(newRec);
-            byFileName.set(lowerName, newRec);
-            newlyCreated.push(newRec);
-          }
-
-          items = baseItems;
-          const res = gp.relinkPhotosWithGedcom(gd, items);
-          updateImportProgress('Saving matched PAF links locally...', 94, '');
-          await persistGedcomRelinkResult(res);
+          const matchRes = await gp.batchMatchPhotosToGedcom(gd, localRecords, (p) => {
+            const pct = Math.min(96, Math.round(50 + (p.scanned / Math.max(1, p.total)) * 46));
+            updateImportProgress(
+              `Matching ${p.scanned.toLocaleString()} / ${p.total.toLocaleString()} photos · ${p.strongCount} strong, ${p.possibleCount} possible...`,
+              pct,
+              `${p.strongCount + p.possibleCount} matches`
+            );
+          });
+          await refreshGedcomIndexMatches();
           hideImportProgress();
 
-          const doneMsg = `✓ Scanned <strong>${totalImages.toLocaleString()}</strong> local photos → matched <strong>${matchedFiles.length}</strong> PAF file${matchedFiles.length === 1 ? '' : 's'} (<strong>${newlyCreated.length}</strong> newly imported, <strong>${res.totalLinksRestored}</strong> new person links restored)${truncatedCount > 0 ? ` — imported first ${CAP}; ${truncatedCount} more matched` : ''}!`;
+          const strongCnt = matchRes.strongMatches.length;
+          const possCnt = matchRes.possibleMatches.length;
+          const doneMsg = `✓ Indexed <strong>${localRecords.length.toLocaleString()}</strong> photos in <strong>${esc(scannedRootName)}</strong> — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}. All ${localRecords.length.toLocaleString()} photos are now searchable under <strong>🔍 Find &amp; Link Photo</strong>!`;
           if (onStatus) onStatus(doneMsg);
-          notify(`Imported ${newlyCreated.length} & matched ${matchedFiles.length} PAF photos from local folder!`);
-          if (newlyCreated.length > 0) {
-            scheduleMetadataExtraction(newlyCreated);
-            scheduleBackgroundFaceScan(newlyCreated);
+          notify(`Indexed ${localRecords.length.toLocaleString()} local photos (${strongCnt} strong, ${possCnt} possible matches)!`);
+          render();
+
+          if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
+            openGedcomMatchReviewModal(matchRes, `Local Folder: ${scannedRootName}`);
+          } else if (typeof openPhotoIndexBrowserModal === 'function') {
+            openPhotoIndexBrowserModal();
           }
         };
         input.click();
@@ -19125,51 +19770,268 @@
           notify('Cloud module is still loading — please try again in a second.');
           return;
         }
-        const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
-        let cid = (settings.googleClientId || '').trim();
-        if (!cid) {
-          cid = (window.prompt('Enter your Google OAuth Client ID to scan Google Drive:', '') || '').trim();
-          if (!cid) return;
-          if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
-        }
-        const setMsg = (html) => {
-          if (onStatus) onStatus(html);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17.5px;font-weight:700;margin:0;">☁️ Scan &amp; Index Google Drive Photos</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Fast-index 17k–116k+ photos by filename &amp; folder without downloading them, then match &amp; link to <strong>${esc(gd.fileName)}</strong>.</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="gd-scan-close">✕ Close</button>
+            </div>
+            <div style="padding:18px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;">
+                <div style="padding:14px;border:1.5px solid #93c5fd;border-radius:10px;background:#eff6ff;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+                  <div>
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;">⚡ Fast Scan All Google Drive Photos</div>
+                    <p style="font-size:13px;color:#1e3a8a;margin:5px 0 0;line-height:1.45;">Reads 1,000 image headers per request across your entire Drive (including Shared Drives). Ideal for 17,000–116,000+ photos, and saves the searchable list locally.</p>
+                  </div>
+                  <button type="button" class="btn primary" id="gd-scan-all-btn">⚡ Fast Scan Entire Google Drive</button>
+                </div>
+                <div style="padding:14px;border:1.5px solid #cbd5e1;border-radius:10px;background:#f8fafc;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+                  <div>
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;">📂 Scan One Specific Drive Folder</div>
+                    <p style="font-size:13px;color:#334155;margin:5px 0 0;line-height:1.45;">Browse your Google Drive folders and scan just one family album folder instead of your entire Drive.</p>
+                  </div>
+                  <button type="button" class="btn accent" id="gd-browse-folders-btn">📂 Choose Drive Folder...</button>
+                </div>
+              </div>
+
+              ${photoLibraryIndex.gdrive.length > 0 ? `
+                <div style="padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                  <span style="font-size:13px;color:#14532d;">
+                    ✓ Saved Drive index on device: <strong>${photoLibraryIndex.gdrive.length.toLocaleString()}</strong> photos (${esc(photoLibraryIndex.gdriveFolderName || 'My Drive')})
+                  </span>
+                  <button type="button" class="btn sm success" id="gd-rematch-saved-btn">🔗 Re-Match Saved ${photoLibraryIndex.gdrive.length.toLocaleString()} Photos</button>
+                </div>
+              ` : ''}
+
+              <div id="gd-scan-folder-browser" hidden style="border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;"></div>
+
+              <div id="gd-scan-progress-box" hidden style="padding:12px 14px;border:1.5px solid #93c5fd;border-radius:10px;background:#f8fafc;display:flex;flex-direction:column;gap:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                  <div id="gd-scan-status" style="font-size:13.5px;font-weight:600;color:#0f172a;">Connecting to Google Drive...</div>
+                  <button type="button" class="btn sm danger" id="gd-scan-stop">⏹ Stop &amp; Use What We Have</button>
+                </div>
+                <div style="height:8px;background:#dbeafe;border-radius:999px;overflow:hidden;">
+                  <div id="gd-scan-bar" style="height:100%;width:15%;background:#1d4ed8;transition:width 0.15s ease;"></div>
+                </div>
+              </div>
+              <div id="gd-scan-err" hidden style="padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;font-size:13px;"></div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        let closed = false;
+        let stopRequested = false;
+        const closeModal = () => {
+          closed = true;
+          stopRequested = true;
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         };
-        setMsg('Signing in to Google Drive...');
-        try {
-          const token = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive.readonly');
-          setMsg('Scanning Google Drive folders for photos matching your PAF / GEDCOM tree...');
-          const allDriveImages = await hub.scanGoogleDriveFolder(token, 'root', 'My Drive', (p) => {
-            setMsg(`Scanning Google Drive: <strong>${esc(p.currentFolder)}</strong> (${p.photosFound.toLocaleString()} images seen)...`);
-          });
-          const matchedDriveFiles = allDriveImages.filter((f) => {
-            if (!f || !f.name) return false;
-            if (gp.matchFilenameToGedcom) {
-              const m = gp.matchFilenameToGedcom(gd, f.name);
-              return Boolean(m && m.type);
-            }
-            const base = String(f.name || '').trim().toLowerCase();
-            if (!base) return false;
-            if (gd.fileIndexByName.has(base)) return true;
-            const stem = base.replace(/\.[^.]+$/, '').trim().toLowerCase();
-            return stem ? gd.fileIndexByStem.has(stem) : false;
-          });
-          if (matchedDriveFiles.length === 0) {
-            setMsg(`Scanned <strong>${allDriveImages.length.toLocaleString()}</strong> Google Drive images, but none matched filenames or names in <strong>${esc(gd.fileName)}</strong>. Tip: Click <strong>🧠 Recognize Faces Across Photos</strong> to match untagged portraits.`);
-            notify('No filename matches found in Google Drive.');
+        overlay.querySelector('#gd-scan-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const progressBox = overlay.querySelector('#gd-scan-progress-box');
+        const statusEl = overlay.querySelector('#gd-scan-status');
+        const barEl = overlay.querySelector('#gd-scan-bar');
+        const stopBtn = overlay.querySelector('#gd-scan-stop');
+        const errEl = overlay.querySelector('#gd-scan-err');
+        const browserEl = overlay.querySelector('#gd-scan-folder-browser');
+        const allBtn = overlay.querySelector('#gd-scan-all-btn');
+        const browseBtn = overlay.querySelector('#gd-browse-folders-btn');
+
+        stopBtn.onclick = () => {
+          stopRequested = true;
+          stopBtn.disabled = true;
+          stopBtn.textContent = 'Stopping...';
+        };
+
+        const finishDriveIndex = async (driveFiles, label) => {
+          if (!driveFiles || driveFiles.length === 0) {
+            progressBox.hidden = true;
+            errEl.hidden = false;
+            errEl.textContent = `No images were found in ${label}.`;
+            if (onStatus) onStatus(`No images found in <strong>${esc(label)}</strong>.`);
             return;
           }
-          setMsg(`Found <strong>${matchedDriveFiles.length}</strong> matching PAF photos in Google Drive! Importing &amp; linking metadata...`);
-          mode = 'catalog';
-          await loadCloudFilesIntoArchive(matchedDriveFiles, 'GDrive_GEDCOM_Matches');
-          const res = gp.relinkPhotosWithGedcom(gd, items);
-          await persistGedcomRelinkResult(res);
-          setMsg(`✓ Imported <strong>${matchedDriveFiles.length}</strong> matching photos from Google Drive and populated PAF/GEDCOM metadata on <strong>${res.matchedPhotos}</strong> photos!`);
-          notify(`Loaded ${matchedDriveFiles.length} PAF-matched photos from Google Drive!`);
-        } catch (err) {
-          setMsg(`Google Drive scan failed: ${esc(err.message)}`);
-          notify(`Google Drive scan failed: ${err.message}`);
+          statusEl.textContent = `Saving searchable index of ${driveFiles.length.toLocaleString()} photos locally...`;
+          barEl.style.width = '78%';
+          photoLibraryIndex.gdrive = driveFiles;
+          photoLibraryIndex.gdriveScannedAt = Date.now();
+          photoLibraryIndex.gdriveFolderName = label;
+          photoLibraryIndex.indexVersion++;
+          await saveGdriveIndexToDb(driveFiles, label);
+
+          statusEl.textContent = `Matching ${driveFiles.length.toLocaleString()} Drive photos against ${gd.peopleList.length.toLocaleString()} relatives...`;
+          const matchRes = await gp.batchMatchPhotosToGedcom(gd, driveFiles, (p) => {
+            barEl.style.width = `${Math.min(98, Math.round(78 + (p.scanned / Math.max(1, p.total)) * 20))}%`;
+            statusEl.textContent = `Matched ${p.scanned.toLocaleString()} / ${p.total.toLocaleString()} photos (${p.strongCount} strong, ${p.possibleCount} possible)...`;
+          });
+          await refreshGedcomIndexMatches();
+
+          const strongCnt = matchRes.strongMatches.length;
+          const possCnt = matchRes.possibleMatches.length;
+          const doneMsg = `✓ Indexed <strong>${driveFiles.length.toLocaleString()}</strong> Google Drive photos (${esc(label)}) — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}! Search all ${driveFiles.length.toLocaleString()} Drive photos anytime via <strong>🔍 Find &amp; Link Photo</strong>.`;
+          if (onStatus) onStatus(doneMsg);
+          notify(`Indexed ${driveFiles.length.toLocaleString()} Google Drive photos (${strongCnt} strong, ${possCnt} possible matches)!`);
+          closeModal();
+          render();
+          if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
+            openGedcomMatchReviewModal(matchRes, `Google Drive: ${label}`);
+          } else if (typeof openPhotoIndexBrowserModal === 'function') {
+            openPhotoIndexBrowserModal();
+          }
+        };
+
+        const rematchBtn = overlay.querySelector('#gd-rematch-saved-btn');
+        if (rematchBtn) {
+          rematchBtn.onclick = async () => {
+            rematchBtn.disabled = true;
+            progressBox.hidden = false;
+            errEl.hidden = true;
+            await finishDriveIndex(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
+          };
         }
+
+        allBtn.onclick = async () => {
+          allBtn.disabled = true;
+          browseBtn.disabled = true;
+          errEl.hidden = true;
+          progressBox.hidden = false;
+          statusEl.textContent = 'Signing in to Google Drive...';
+          barEl.style.width = '10%';
+          try {
+            let token = await ensureGoogleDriveToken(false);
+            let driveFiles = [];
+            try {
+              driveFiles = await hub.scanGoogleDriveAllImages(token, {
+                shouldStop: () => closed || stopRequested,
+                onProgress: (p) => {
+                  if (p.phase === 'folders') {
+                    statusEl.textContent = `Indexing Drive folders (${p.foldersFound.toLocaleString()} folders found)...`;
+                    barEl.style.width = '22%';
+                  } else {
+                    const estPct = Math.min(74, 25 + Math.min(49, Math.floor(p.pagesFetched * 1.5)));
+                    barEl.style.width = `${estPct}%`;
+                    statusEl.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos so far${p.sampleName ? ` (e.g. ${p.sampleName})` : ''}...`;
+                  }
+                }
+              });
+            } catch (scanErr) {
+              if (String(scanErr.message || '').includes('session expired')) {
+                token = await ensureGoogleDriveToken(true);
+                driveFiles = await hub.scanGoogleDriveAllImages(token, {
+                  shouldStop: () => closed || stopRequested,
+                  onProgress: (p) => {
+                    statusEl.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos...`;
+                  }
+                });
+              } else {
+                throw scanErr;
+              }
+            }
+            if (closed) return;
+            await finishDriveIndex(driveFiles, stopRequested ? 'My Drive (Partial Scan)' : 'My Drive');
+          } catch (err) {
+            progressBox.hidden = true;
+            errEl.hidden = false;
+            errEl.textContent = err.message || 'Google Drive scan failed.';
+            if (onStatus) onStatus(`Google Drive scan failed: ${esc(err.message)}`);
+            allBtn.disabled = false;
+            browseBtn.disabled = false;
+          }
+        };
+
+        let driveStack = [{ id: 'root', name: 'My Drive' }];
+        let folderToken = '';
+        const loadFolderPicker = async () => {
+          const cur = driveStack[driveStack.length - 1];
+          browserEl.hidden = false;
+          browserEl.innerHTML = `<div class="muted" style="padding:12px;font-size:13px;">Loading folders in ${esc(cur.name)}...</div>`;
+          try {
+            const folders = cur.id === '__shared_with_me__'
+              ? (hub.listSharedWithMeDriveFolders ? await hub.listSharedWithMeDriveFolders(folderToken) : [])
+              : await hub.listGoogleDriveFolders(folderToken, cur.id);
+            const sharedRow = (driveStack.length === 1 && hub.listSharedWithMeDriveFolders)
+              ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--rule);gap:8px;background:#eff6ff;">
+                   <button type="button" class="link-btn gd-fp-open" data-id="__shared_with_me__" data-name="Shared with me" style="font-size:13px;font-weight:700;color:#1e3a8a;">👥 Shared with me (folders shared by family)</button>
+                   <span class="muted" style="font-size:11.5px;">Open →</span>
+                 </div>`
+              : '';
+            browserEl.innerHTML = `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--raised);border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;">
+                <span style="font-size:12.5px;font-weight:600;">${esc(driveStack.map((x) => x.name).join(' / '))}</span>
+                <div style="display:flex;gap:6px;">
+                  ${driveStack.length > 1 ? '<button type="button" class="btn sm" id="gd-fp-up">⬅️ Up</button>' : ''}
+                  ${cur.id !== '__shared_with_me__' ? `<button type="button" class="btn sm primary" id="gd-fp-scan-cur">✓ Scan "${esc(cur.name)}"</button>` : ''}
+                </div>
+              </div>
+              ${sharedRow}
+              ${folders.length === 0 ? '<div class="muted" style="padding:12px;font-size:12.5px;">No subfolders — click Scan above to index this folder.</div>' : folders.map((f) => {
+                const ownerLabel = f.owners && f.owners[0] && f.owners[0].displayName ? ` <span class="muted" style="font-size:11px;">(${esc(f.owners[0].displayName)})</span>` : '';
+                return `
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--rule);gap:8px;">
+                    <button type="button" class="link-btn gd-fp-open" data-id="${esc(f.id)}" data-name="${esc(f.name)}" style="font-size:13px;font-weight:600;">📁 ${esc(f.name)}${ownerLabel}</button>
+                    <button type="button" class="btn sm gd-fp-scan" data-id="${esc(f.id)}" data-name="${esc(f.name)}">Scan Folder</button>
+                  </div>
+                `;
+              }).join('')}
+            `;
+            const up = browserEl.querySelector('#gd-fp-up');
+            if (up) up.onclick = () => { driveStack.pop(); loadFolderPicker(); };
+            const scanFolder = async (fid, fname) => {
+              allBtn.disabled = true;
+              browseBtn.disabled = true;
+              errEl.hidden = true;
+              progressBox.hidden = false;
+              barEl.style.width = '30%';
+              statusEl.textContent = `Scanning "${fname}"...`;
+              try {
+                const files = await hub.scanGoogleDriveFolder(folderToken, fid, fname, (p) => {
+                  statusEl.textContent = `Scanning ${p.currentFolder} — ${p.photosFound.toLocaleString()} photos found...`;
+                });
+                if (closed) return;
+                await finishDriveIndex(files, fname);
+              } catch (e) {
+                progressBox.hidden = true;
+                errEl.hidden = false;
+                errEl.textContent = e.message;
+                allBtn.disabled = false;
+                browseBtn.disabled = false;
+              }
+            };
+            const scanCurBtn = browserEl.querySelector('#gd-fp-scan-cur');
+            if (scanCurBtn) scanCurBtn.onclick = () => scanFolder(cur.id, cur.name);
+            browserEl.querySelectorAll('.gd-fp-open').forEach((b) => {
+              b.onclick = () => {
+                driveStack.push({ id: b.getAttribute('data-id'), name: b.getAttribute('data-name') });
+                loadFolderPicker();
+              };
+            });
+            browserEl.querySelectorAll('.gd-fp-scan').forEach((b) => {
+              b.onclick = () => scanFolder(b.getAttribute('data-id'), b.getAttribute('data-name'));
+            });
+          } catch (err) {
+            browserEl.innerHTML = `<div style="padding:12px;color:#991b1b;font-size:13px;">${esc(err.message)}</div>`;
+          }
+        };
+
+        browseBtn.onclick = async () => {
+          errEl.hidden = true;
+          try {
+            folderToken = await ensureGoogleDriveToken(false);
+            await loadFolderPicker();
+          } catch (err) {
+            errEl.hidden = false;
+            errEl.textContent = err.message;
+          }
+        };
       }
 
       async function openBatchFaceRecognitionModal() {
@@ -19183,26 +20045,31 @@
           notify('Load some family photos first in Step 1, then run Facial Recognition in Step 2.');
           return;
         }
+        const engInfo = eng.getEngineInfo ? eng.getEngineInfo() : { neural: false, modelName: 'Standard Face Engine' };
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-backdrop';
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
         overlay.innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
-                <h2 style="font-size:18px;font-weight:700;margin:0;">🧠 Step 2: Facial Recognition &amp; PAF Auto-Matcher</h2>
-                <p class="muted" style="font-size:13.5px;margin:3px 0 0;">Learns from faces you already tagged, finds matching unnamed faces across your loaded photos, and asks you to confirm before saving or linking to PAF.</p>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <h2 style="font-size:18px;font-weight:700;margin:0;">🧠 Step 2: Facial Recognition &amp; PAF Auto-Matcher</h2>
+                  <span class="pill info" style="font-size:11.5px;">⚡ ${esc(engInfo.modelName || 'Neural ResNet-34 (128-D)')}</span>
+                </div>
+                <p class="muted" style="font-size:13.5px;margin:3px 0 0;">Uses real neural human face embeddings (rejects pets &amp; documents) to match unnamed faces and asks you to confirm before saving.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="bfr-close">✕ Close</button>
             </div>
             <div id="bfr-controls" style="padding:12px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;flex-direction:column;gap:10px;">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                <div id="bfr-status" style="font-size:14px;font-weight:600;color:#0f172a;flex:1;min-width:240px;">Preparing learned face library...</div>
+                <div id="bfr-status" style="font-size:14px;font-weight:600;color:#0f172a;flex:1;min-width:240px;">Preparing neural face recognition engine...</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button type="button" class="btn sm accent" id="bfr-scan-external" title="Scan Google Drive or a computer folder 5 photos at a time for any learned relative">🔍 Scan Folder / Drive (5 at a time)</button>
                   <button type="button" class="btn sm primary" id="bfr-rescan">🔄 Scan Photos Again</button>
                   <button type="button" class="btn sm danger" id="bfr-stop" hidden>⏹ Stop</button>
-                  <button type="button" class="btn sm success" id="bfr-confirm-strong" hidden>✓ Confirm All Strong Matches (≥75%)</button>
+                  <button type="button" class="btn sm success" id="bfr-confirm-strong" hidden>✓ Confirm All Strong Matches (≥72%)</button>
                 </div>
               </div>
               <div id="bfr-progress-wrap" hidden style="width:100%;">
@@ -19212,8 +20079,8 @@
               </div>
               <div id="bfr-learned-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:#334155;"></div>
               <div id="bfr-filter-row" hidden style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <button type="button" class="btn sm ged-filter-pill" data-bfr-filter="all" aria-pressed="true">All Suggestions (≥48%)</button>
-                <button type="button" class="btn sm ged-filter-pill" data-bfr-filter="strong" aria-pressed="false">Strong Matches Only (≥75%)</button>
+                <button type="button" class="btn sm ged-filter-pill" data-bfr-filter="all" aria-pressed="true">All Suggestions (≥60%)</button>
+                <button type="button" class="btn sm ged-filter-pill" data-bfr-filter="strong" aria-pressed="false">Strong Matches Only (≥72%)</button>
                 <span class="muted" style="font-size:12.5px;margin-left:auto;">Review side-by-side to prevent lookalike sibling mix-ups</span>
               </div>
             </div>
@@ -19241,6 +20108,10 @@
         overlay.querySelector('#bfr-close').onclick = closeModal;
         overlay.querySelector('#bfr-done').onclick = closeModal;
         overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+        overlay.querySelector('#bfr-scan-external').onclick = () => {
+          closeModal();
+          openExternalFaceScanModal(null);
+        };
 
         const statusEl = overlay.querySelector('#bfr-status');
         const rescanBtn = overlay.querySelector('#bfr-rescan');
@@ -19255,7 +20126,7 @@
         const renderLearnedStrip = () => {
           const learned = eng.getLearnedPeople ? eng.getLearnedPeople() : [];
           if (!learned.length) {
-            learnedBar.innerHTML = '<strong>Learned Relatives (0):</strong> Tag at least 1 photo first so facial recognition knows what your relatives look like.';
+            learnedBar.innerHTML = '<strong>Learned Relatives (0):</strong> Tag at least 1 photo first so neural facial recognition knows what your relatives look like.';
             return learned;
           }
           const chips = learned.slice(0, 12).map((lp) => `
@@ -19284,7 +20155,7 @@
             return false;
           }
 
-          const confPct = chosen.confidence || Math.round((chosen.score || 0.5) * 100);
+          const confPct = chosen.confidence || Math.round((chosen.score || 0.6) * 100);
           fc.name = chosen.name;
           fc.confirmed = true;
           fc.recognized = true;
@@ -19349,12 +20220,12 @@
           const confirmedCount = matches.filter((m) => m.status === 'confirmed').length;
           const strongPending = pendingAll.filter((m) => {
             const c = m.candidates[m.chosenIdx] || m.candidates[0];
-            return c && (c.confidence || Math.round(c.score * 100)) >= 75;
+            return c && (c.confidence || Math.round(c.score * 100)) >= 72;
           });
 
           if (confirmStrongBtn) {
             confirmStrongBtn.hidden = strongPending.length === 0;
-            confirmStrongBtn.textContent = `✓ Confirm All Strong Matches (≥75%) (${strongPending.length})`;
+            confirmStrongBtn.textContent = `✓ Confirm All Strong Matches (≥72%) (${strongPending.length})`;
           }
 
           if (filterRow) {
@@ -19363,7 +20234,7 @@
               const modeVal = b.getAttribute('data-bfr-filter');
               b.setAttribute('aria-pressed', matchFilter === modeVal ? 'true' : 'false');
               if (modeVal === 'all') b.textContent = `All Suggestions (${pendingAll.length} pending · ${confirmedCount} confirmed)`;
-              else b.textContent = `Strong Matches ≥75% (${strongPending.length})`;
+              else b.textContent = `Strong Matches ≥72% (${strongPending.length})`;
             });
           }
 
@@ -19371,7 +20242,7 @@
             if (m.status === 'skipped') return false;
             if (matchFilter === 'strong' && m.status === 'pending') {
               const c = m.candidates[m.chosenIdx] || m.candidates[0];
-              return c && (c.confidence || Math.round(c.score * 100)) >= 75;
+              return c && (c.confidence || Math.round(c.score * 100)) >= 72;
             }
             return true;
           });
@@ -19383,21 +20254,31 @@
               <div style="padding:26px 20px;text-align:center;border:1.5px solid #cbd5e1;border-radius:12px;background:#f8fafc;">
                 <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px;">
                   ${learnedNow.length === 0
-                    ? 'Tag 1 Photo First to Teach Facial Recognition'
+                    ? 'Tag 1 Photo First to Teach Neural Facial Recognition'
                     : (totalUnnamedScanned === 0
-                      ? '✓ No Unnamed Faces Remaining in Active Photos!'
-                      : 'No Confident Face Matches Found Yet')}
+                      ? '✓ No Unnamed Human Faces Remaining in Loaded Photos!'
+                      : 'No Confident Face Matches Found in Loaded Photos')}
                 </div>
-                <p class="muted" style="font-size:14px;max-width:540px;margin:0 auto 14px;line-height:1.5;">
+                <p class="muted" style="font-size:14px;max-width:560px;margin:0 auto 14px;line-height:1.5;">
                   ${learnedNow.length === 0
-                    ? 'Open any photo in Blow Up &amp; Tag Faces (or tag a single portrait relative), and the app will immediately learn their face and match them across your other photos.'
+                    ? 'Open any photo in Blow Up &amp; Tag Faces (or tag a single portrait relative), and the neural AI will learn their 128-D face signature and match them across your other photos.'
                     : (totalUnnamedScanned === 0
-                      ? 'Every detected face in your currently loaded photos already has a name, or no unnamed faces were found.'
-                      : `Scanned ${totalUnnamedScanned} unnamed face${totalUnnamedScanned === 1 ? '' : 's'} against ${learnedNow.length} learned relative${learnedNow.length === 1 ? '' : 's'}, but none reached the confidence threshold yet. Tag 1–2 more examples of a person to improve recognition.`)}
+                      ? 'Every detected human face in your currently loaded photos already has a name, or try scanning your full Google Drive / Local Folder 5 photos at a time.'
+                      : `Checked ${totalUnnamedScanned} unnamed human face${totalUnnamedScanned === 1 ? '' : 's'} against ${learnedNow.length} learned relative${learnedNow.length === 1 ? '' : 's'} — non-matching faces &amp; pets were filtered out. Try scanning your Local Folder or Google Drive!`)}
                 </p>
-                ${firstUnnamedPhoto ? `<button type="button" class="btn primary" id="bfr-open-tagger-sample">👤 Open Face Tagger on "${esc(firstUnnamedPhoto.title || firstUnnamedPhoto.file || firstUnnamedPhoto.id)}"</button>` : ''}
+                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                  ${learnedNow.length > 0 ? '<button type="button" class="btn accent" id="bfr-open-ext-scan">🔍 Scan Folder / Google Drive (5 at a time)</button>' : ''}
+                  ${firstUnnamedPhoto ? `<button type="button" class="btn primary" id="bfr-open-tagger-sample">👤 Open Face Tagger on "${esc(firstUnnamedPhoto.title || firstUnnamedPhoto.file || firstUnnamedPhoto.id)}"</button>` : ''}
+                </div>
               </div>
             `;
+            const extBtn = resultsEl.querySelector('#bfr-open-ext-scan');
+            if (extBtn) {
+              extBtn.onclick = () => {
+                closeModal();
+                openExternalFaceScanModal(null);
+              };
+            }
             const openBtn = resultsEl.querySelector('#bfr-open-tagger-sample');
             if (openBtn && firstUnnamedPhoto) {
               openBtn.onclick = () => {
@@ -19413,8 +20294,8 @@
           resultsEl.innerHTML = visible.map((m, vIdx) => {
             const cand = m.candidates[m.chosenIdx] || m.candidates[0];
             const pct = cand.confidence || Math.round((cand.score || 0) * 100);
-            const pctColor = pct >= 75 ? '#166534' : (pct >= 62 ? '#1e40af' : '#92400e');
-            const pctBg = pct >= 75 ? '#dcfce7' : (pct >= 62 ? '#dbeafe' : '#fef3c7');
+            const pctColor = pct >= 72 ? '#166534' : (pct >= 62 ? '#1e40af' : '#92400e');
+            const pctBg = pct >= 72 ? '#dcfce7' : (pct >= 62 ? '#dbeafe' : '#fef3c7');
             const gedHit = findGedcomPersonByNameOrId(cand.name);
             const isConfirmed = m.status === 'confirmed';
 
@@ -19502,6 +20383,41 @@
           });
         };
 
+        const upgradePhotoToNeural = async (ph) => {
+          if (!ph || ph.neuralFacesScanned) return;
+          const priorConfirmed = Array.isArray(ph.faces)
+            ? ph.faces.filter((fc) => fc && fc.box && (fc.confirmed || (fc.name || '').trim()))
+            : [];
+          try {
+            const detected = await eng.detectFaces(afterSrc(ph));
+            const merged = Array.isArray(detected) ? detected.map((d) => ({ ...d, name: '', fsId: '' })) : [];
+            priorConfirmed.forEach((oldFc) => {
+              const ob = oldFc.box;
+              const ocx = ob.x + ob.width * 0.5;
+              const ocy = ob.y + ob.height * 0.5;
+              const matchIdx = merged.findIndex((nf) => {
+                const nb = nf.box;
+                const ncx = nb.x + nb.width * 0.5;
+                const ncy = nb.y + nb.height * 0.5;
+                return Math.abs(ocx - ncx) < Math.max(ob.width, nb.width) * 0.52
+                  && Math.abs(ocy - ncy) < Math.max(ob.height, nb.height) * 0.52;
+              });
+              if (matchIdx !== -1 && !merged[matchIdx].name) {
+                merged[matchIdx].name = oldFc.name;
+                merged[matchIdx].fsId = oldFc.fsId || '';
+                merged[matchIdx].confirmed = Boolean(oldFc.confirmed);
+              } else if (oldFc.confirmed && matchIdx === -1) {
+                merged.push({ ...oldFc });
+              }
+            });
+            ph.faces = merged;
+            ph.facesScanned = true;
+            ph.neuralFacesScanned = true;
+            ph.unnamedFaces = getUnnamedFaceCount(ph);
+            saveItemMetadata(ph);
+          } catch (_) {}
+        };
+
         const runScan = async () => {
           if (scanning) return;
           scanning = true;
@@ -19514,10 +20430,21 @@
           progressFill.style.width = '5%';
 
           try {
-            // Phase 1: Learn from every already-named face & unambiguous 1-person portrait in activePhotos
-            statusEl.textContent = 'Phase 1 of 2: Learning faces from your already-tagged photos...';
+            if (typeof eng.ensureNeuralModelsLoaded === 'function') {
+              await eng.ensureNeuralModelsLoaded((msg) => {
+                if (!closed) statusEl.textContent = msg;
+              });
+            }
+            if (closed) return;
+
+            // Phase 1: Re-verify faces with neural detector & learn all tagged faces into 128-D database
+            statusEl.textContent = 'Phase 1 of 2: Learning 128-D neural face signatures from your tagged photos...';
             for (let i = 0; i < activePhotos.length && !closed && !stopRequested; i++) {
               const ph = activePhotos[i];
+              if (!ph.neuralFacesScanned) {
+                statusEl.textContent = `Phase 1 of 2: Checking photo ${i + 1} of ${activePhotos.length} with neural detector...`;
+                await upgradePhotoToNeural(ph);
+              }
               if (Array.isArray(ph.faces)) {
                 for (let fi = 0; fi < ph.faces.length; fi++) {
                   const fc = ph.faces[fi];
@@ -19536,15 +20463,6 @@
                 }
               }
               if (Array.isArray(ph.people) && ph.people.length === 1 && ph.people[0] && ph.people[0].name) {
-                if (!ph.facesScanned && (!Array.isArray(ph.faces) || ph.faces.length === 0)) {
-                  try {
-                    const detected = await eng.detectFaces(afterSrc(ph));
-                    if (Array.isArray(detected)) {
-                      ph.faces = detected.map((d) => ({ ...d, name: '', fsId: '' }));
-                      ph.facesScanned = true;
-                    }
-                  } catch (_) {}
-                }
                 if (Array.isArray(ph.faces) && ph.faces.length === 1 && ph.faces[0] && ph.faces[0].box && !ph.faces[0].name) {
                   const singleRel = ph.people[0];
                   ph.faces[0].name = singleRel.name.trim();
@@ -19568,27 +20486,17 @@
             const learned = renderLearnedStrip();
             if (learned.length === 0 || closed) {
               progressWrap.hidden = true;
-              statusEl.textContent = 'Ready — tag at least 1 photo first so facial recognition has relatives to look for.';
+              statusEl.textContent = 'Ready — tag at least 1 photo first so neural facial recognition has relatives to look for.';
               renderMatchesList();
               return;
             }
 
-            // Phase 2: Detect & compare unnamed faces across active photos
+            // Phase 2: Compare unnamed human faces across active photos using 128-D embeddings
             for (let i = 0; i < activePhotos.length && !closed && !stopRequested; i++) {
               const ph = activePhotos[i];
               const pct = Math.min(98, Math.round(((i + 1) / activePhotos.length) * 100));
               progressFill.style.width = `${pct}%`;
-              statusEl.textContent = `Phase 2 of 2: Scanning photo ${i + 1} of ${activePhotos.length} — ${ph.title || ph.file || ph.id}...`;
-
-              if (!ph.facesScanned && (!Array.isArray(ph.faces) || ph.faces.length === 0)) {
-                try {
-                  const detected = await eng.detectFaces(afterSrc(ph));
-                  ph.faces = Array.isArray(detected) ? detected.map((d) => ({ ...d, name: '', fsId: '' })) : [];
-                  ph.facesScanned = true;
-                  ph.unnamedFaces = getUnnamedFaceCount(ph);
-                  saveItemMetadata(ph);
-                } catch (_) {}
-              }
+              statusEl.textContent = `Phase 2 of 2: Matching faces on photo ${i + 1} of ${activePhotos.length} — ${ph.title || ph.file || ph.id}...`;
 
               const allFaces = Array.isArray(ph.faces) ? ph.faces : [];
               const initiallyUnnamed = new Set();
@@ -19610,13 +20518,12 @@
               } catch (_) {}
 
               initiallyUnnamed.forEach((fc) => {
-                // Critical safety guard: never auto-assign unconfirmed faces silently in batch scan
                 if (fc.name && !fc.confirmed) {
                   fc.suggestedName = fc.suggestedName || fc.name;
                   fc.name = '';
                   fc.recognized = false;
                 }
-                const cands = Array.isArray(fc.candidates) ? fc.candidates.filter((c) => c && c.score >= 0.48).slice(0, 3) : [];
+                const cands = Array.isArray(fc.candidates) ? fc.candidates.filter((c) => c && c.score >= 0.60).slice(0, 3) : [];
                 if (cands.length > 0) {
                   matches.push({
                     photo: ph,
@@ -19637,8 +20544,10 @@
 
             matches.sort((a, b) => ((b.candidates[0] && b.candidates[0].score) || 0) - ((a.candidates[0] && a.candidates[0].score) || 0));
             statusEl.textContent = stopRequested
-              ? `Scan stopped early — found ${matches.length} suggested face match${matches.length === 1 ? '' : 'es'}.`
-              : `✓ Scan complete! Checked ${totalUnnamedScanned} unnamed face${totalUnnamedScanned === 1 ? '' : 's'} and found ${matches.length} possible match${matches.length === 1 ? '' : 'es'}.`;
+              ? `Scan stopped early — found ${matches.length} neural face match${matches.length === 1 ? '' : 'es'}.`
+              : `✓ Scan complete! Checked ${totalUnnamedScanned} human face${totalUnnamedScanned === 1 ? '' : 's'} and found ${matches.length} confident match${matches.length === 1 ? '' : 'es'}.`;
+          } catch (err) {
+            statusEl.textContent = `Face scan error: ${err && err.message ? err.message : 'Unknown error'}`;
           } finally {
             scanning = false;
             rescanBtn.disabled = false;
@@ -19664,7 +20573,7 @@
             if (m.status !== 'pending') continue;
             const c = m.candidates[m.chosenIdx] || m.candidates[0];
             const pct = c ? (c.confidence || Math.round((c.score || 0) * 100)) : 0;
-            if (pct >= 75) {
+            if (pct >= 72) {
               const ok = await confirmMatchEntry(m, { deferRender: true, silent: true });
               if (ok) applied++;
             }
@@ -19676,7 +20585,7 @@
             reconcileGedcomSyncLedgerFromItems(items);
             renderLearnedStrip();
             render();
-            notify(`✓ Confirmed ${applied} high-confidence face match${applied === 1 ? '' : 'es'} & linked matching PAF records!`);
+            notify(`✓ Confirmed ${applied} high-confidence neural face match${applied === 1 ? '' : 'es'} & linked matching PAF records!`);
           }
           confirmStrongBtn.disabled = false;
           renderMatchesList();
@@ -19686,114 +20595,1265 @@
         runScan();
       }
 
-      function openLinkExistingPhotoModal(gp) {
-        if (!gp) return;
-        const activePhotos = items.filter((x) => !x.inReview);
-        if (activePhotos.length === 0) {
-          notify('No photos are loaded yet — click "Add Photo from Computer" to pick photos for this relative!');
+      async function openExternalFaceScanModal(targetPerson = null) {
+        const eng = window.FaceDetectorEngine;
+        const hub = window.CloudImportHub;
+        if (!eng || typeof eng.matchPhotoAgainstLearned !== 'function') {
+          notify('Neural face engine is still loading — please try again in a second.');
           return;
         }
-        const selectedPhotoIds = new Set();
-        let showAllLoaded = !activePhotos.some((x) => !x.people || x.people.length === 0);
-        let qFilter = '';
+
+        // If targeting one person who isn't learned yet, try learning from their already-linked photos on the fly
+        if (targetPerson && targetPerson.name && (!eng.hasLearnedPerson || !eng.hasLearnedPerson(targetPerson.name))) {
+          const linked = findAllLinkedPhotosForGedPerson(targetPerson);
+          for (let li = 0; li < linked.length; li++) {
+            const lp = linked[li];
+            try {
+              if (typeof eng.ensureNeuralModelsLoaded === 'function') await eng.ensureNeuralModelsLoaded();
+              const dets = await eng.detectFaces(afterSrc(lp), { maxDim: 960 });
+              if (dets && dets.length === 1) {
+                const srcKey = eng.makeFaceSourceKey ? eng.makeFaceSourceKey(lp.id, dets[0].box) : '';
+                await eng.learnFace(afterSrc(lp), dets[0].box, {
+                  name: targetPerson.name,
+                  fsId: targetPerson.fsId || '',
+                  branch: targetPerson.surname || lp.branch || ''
+                }, srcKey);
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+
+        const learnedPeople = eng.getLearnedPeople ? eng.getLearnedPeople() : [];
+        const targetName = targetPerson && targetPerson.name ? targetPerson.name : '';
+        const targetLearned = targetName
+          ? learnedPeople.find((p) => normalizeSyncPersonName(p.name) === normalizeSyncPersonName(targetName))
+          : null;
+
+        const gdriveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+        const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const loadedCount = items.filter((x) => x && x.src && !x.inReview && !isScreenshotPhoto(x)).length;
+        let selectedSource = localCount > 0 ? 'local' : (gdriveCount > 0 ? 'gdrive' : 'loaded');
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-backdrop';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.58);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
         overlay.innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:920px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
-                <h2 style="font-size:17px;font-weight:700;margin:0;">🔗 Link Existing Photo(s) to ${esc(gp.name || 'Relative')}</h2>
-                <p class="muted" style="font-size:13px;margin:3px 0 0;">Click any photo below to attach this person's PAF / GEDCOM details (${esc(gp.id || 'Record')}) to it.</p>
+                <h2 style="font-size:17.5px;font-weight:700;margin:0;">
+                  🧠 ${targetName ? `Scan Photos for ${esc(targetName)}'s Face (5 at a time)` : 'Scan Folder or Google Drive by Face (5 at a time)'}
+                </h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Memory-safe neural scan: checks 5 photos at a time and frees each image right away so slow computers never freeze.</p>
               </div>
-              <button type="button" class="btn-close-prominent" id="link-ex-close">✕ Close</button>
+              <button type="button" class="btn-close-prominent" id="efs-close">✕ Close</button>
             </div>
-            <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-              <input type="search" id="link-ex-search" placeholder="Search photo filename or title..." style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--control);border-radius:7px;font-size:14px;">
-              <label style="font-size:13.5px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
-                <input type="checkbox" id="link-ex-all" ${showAllLoaded ? 'checked' : ''}> Show All Loaded Photos (${activePhotos.length})
-              </label>
+
+            <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;flex-direction:column;gap:10px;">
+              ${targetName && !targetLearned ? `
+                <div style="padding:10px 12px;border-radius:8px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;font-size:13.5px;">
+                  <strong>${esc(targetName)}</strong> hasn't been learned by Facial Recognition yet. Tag 1 clear photo of ${esc(targetName)} in <strong>Blow Up &amp; Tag Faces</strong> first so I know what they look like!
+                </div>
+              ` : (learnedPeople.length === 0 ? `
+                <div style="padding:10px 12px;border-radius:8px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;font-size:13.5px;">
+                  Tag at least 1 relative's face first so neural recognition knows who to look for.
+                </div>
+              ` : `
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;">
+                  ${targetLearned ? `
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#dcfce7;border:1px solid #86efac;font-weight:700;color:#14532d;">
+                      ${targetLearned.avatar ? `<img src="${esc(targetLearned.avatar)}" alt="" style="width:22px;height:22px;border-radius:999px;object-fit:cover;">` : '👤'}
+                      Looking specifically for: ${esc(targetLearned.name)} (${targetLearned.sampleCount} sample${targetLearned.sampleCount === 1 ? '' : 's'})
+                    </span>
+                  ` : `<strong>Looking for any of ${learnedPeople.length} learned relatives</strong>`}
+                </div>
+              `)}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn sm" data-efs-src="local">📁 Local Folder (${localCount.toLocaleString()})</button>
+                <button type="button" class="btn sm" data-efs-src="gdrive">☁️ Google Drive (${gdriveCount.toLocaleString()})</button>
+                <button type="button" class="btn sm" data-efs-src="loaded">🖼️ Loaded (${loadedCount})</button>
+                <button type="button" class="btn sm" id="efs-pick-local" title="Pick any local folder on your computer to scan 5 at a time">📂 Pick Local Folder...</button>
+              </div>
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="efs-path-filter" placeholder="Optional folder or filename filter (e.g. 2004, Family, Viola) to narrow 17k+ photos..." style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;background:#ffffff;">
+                <select id="efs-limit" style="padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;background:#ffffff;">
+                  <option value="50">Scan up to 50 photos</option>
+                  <option value="200" selected>Scan up to 200 photos</option>
+                  <option value="500">Scan up to 500 photos</option>
+                  <option value="0">Scan All matching filter</option>
+                </select>
+                <button type="button" class="btn sm success" id="efs-start">▶ Start 5-at-a-Time Scan</button>
+                <button type="button" class="btn sm" id="efs-pause" hidden>⏸ Pause</button>
+                <button type="button" class="btn sm danger" id="efs-stop" hidden>⏹ Stop</button>
+              </div>
+
+              <div id="efs-status" style="font-size:13px;font-weight:600;color:#1e3a8a;">Choose a source above and click Start to scan 5 photos at a time.</div>
+              <div id="efs-prog-wrap" hidden style="width:100%;">
+                <div style="height:8px;background:#dbeafe;border-radius:999px;overflow:hidden;">
+                  <div id="efs-prog-bar" style="height:100%;width:0%;background:#1d4ed8;transition:width 0.15s ease;"></div>
+                </div>
+              </div>
             </div>
-            <div id="link-ex-grid" style="padding:16px 20px;overflow-y:auto;flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-content:start;"></div>
+
+            <div id="efs-results" style="padding:14px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px;"></div>
+
             <div style="padding:12px 20px;border-top:1px solid var(--border);background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <span id="link-ex-count" style="font-size:13.5px;font-weight:600;color:#1e293b;">Select one or more photos above</span>
-              <button type="button" class="btn success" id="link-ex-apply" disabled>✓ Link Selected Photo(s)</button>
+              <span class="muted" style="font-size:12.5px;">Skips documents, screenshots, and tiny thumbnails automatically.</span>
+              <button type="button" class="btn primary" id="efs-done">✓ Done</button>
             </div>
           </div>
         `;
         document.body.appendChild(overlay);
 
-        const closeModal = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
-        overlay.querySelector('#link-ex-close').onclick = closeModal;
+        let closed = false;
+        let stopRequested = false;
+        let paused = false;
+        let scanning = false;
+        const foundHits = [];
+
+        const closeModal = () => {
+          closed = true;
+          stopRequested = true;
+          paused = false;
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#efs-close').onclick = closeModal;
+        overlay.querySelector('#efs-done').onclick = closeModal;
         overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
 
-        const gridEl = overlay.querySelector('#link-ex-grid');
-        const applyBtn = overlay.querySelector('#link-ex-apply');
-        const countEl = overlay.querySelector('#link-ex-count');
+        const statusEl = overlay.querySelector('#efs-status');
+        const progWrap = overlay.querySelector('#efs-prog-wrap');
+        const progBar = overlay.querySelector('#efs-prog-bar');
+        const resultsEl = overlay.querySelector('#efs-results');
+        const startBtn = overlay.querySelector('#efs-start');
+        const pauseBtn = overlay.querySelector('#efs-pause');
+        const stopBtn = overlay.querySelector('#efs-stop');
+        const pathFilterInp = overlay.querySelector('#efs-path-filter');
+        const limitSel = overlay.querySelector('#efs-limit');
+
+        const isSkippablePhotoRecord = (rec) => {
+          if (!rec) return true;
+          const nm = String(rec.name || '').toLowerCase();
+          const pt = String(rec.path || '').toLowerCase();
+          if (!nm) return true;
+          if (pt.includes('.@__thumb') || pt.includes('__macosx')) return true;
+          if (/^(s800|untitled document|screenshot|screen shot)/i.test(nm)) return true;
+          if (rec.size && rec.size > 0 && rec.size < 15 * 1024) return true;
+          if (rec.size && rec.size > 12 * 1024 * 1024 && rec.source === 'gdrive') return true;
+          return false;
+        };
+
+        const renderSourceBtns = () => {
+          const gCnt = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+          const lCnt = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+          overlay.querySelectorAll('[data-efs-src]').forEach((b) => {
+            const s = b.getAttribute('data-efs-src');
+            b.className = `btn sm ${selectedSource === s ? 'primary' : ''}`;
+            if (s === 'local') b.textContent = `📁 Local Folder (${lCnt.toLocaleString()})`;
+            else if (s === 'gdrive') b.textContent = `☁️ Google Drive (${gCnt.toLocaleString()})`;
+            else b.textContent = `🖼️ Loaded (${loadedCount})`;
+          });
+        };
+
+        const renderHits = () => {
+          const visible = foundHits.filter((h) => h.status !== 'skipped');
+          if (visible.length === 0) {
+            resultsEl.innerHTML = `<div class="muted" style="padding:26px;text-align:center;font-size:14px;">${scanning ? 'Scanning 5 photos at a time — matches will appear here live...' : 'No face matches shown yet.'}</div>`;
+            return;
+          }
+          resultsEl.innerHTML = visible.map((h, idx) => {
+            const isLinked = h.status === 'linked';
+            const thumb = h.previewThumb || h.record.thumbnailLink || '';
+            return `
+              <div style="border:1.5px solid ${isLinked ? '#86efac' : '#cbd5e1'};background:${isLinked ? '#f0fdf4' : '#ffffff'};border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:260px;">
+                  ${thumb ? `<img src="${esc(thumb)}" referrerpolicy="no-referrer" alt="" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;">` : ''}
+                  ${h.hit.cropUrl ? `<img src="${esc(h.hit.cropUrl)}" alt="" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:2px solid #93c5fd;">` : ''}
+                  <span class="pill info" style="font-size:12px;font-weight:800;">≈ ${h.hit.confidence}%</span>
+                  ${h.hit.avatar ? `<img src="${esc(h.hit.avatar)}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:2px solid #86efac;">` : ''}
+                  <div style="min-width:0;flex:1;">
+                    <div style="font-size:15px;font-weight:700;color:#0f172a;">${esc(h.hit.personName)}</div>
+                    <div style="font-size:12.5px;color:#334155;word-break:break-word;">${esc(h.record.name)}</div>
+                    <div class="muted" style="font-size:11.5px;">${esc(h.record.path || '')}</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0;">
+                  ${isLinked
+                    ? '<span class="pill pos" style="font-size:12px;">✓ Linked to Person</span>'
+                    : `<button type="button" class="btn sm success efs-link-one" data-hidx="${idx}">✓ Link to ${esc(h.hit.personName.split(' ')[0])}</button><button type="button" class="btn sm efs-skip-one" data-hidx="${idx}">✕ Not Them</button>`}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          resultsEl.querySelectorAll('.efs-link-one').forEach((btn) => {
+            btn.onclick = async () => {
+              const row = visible[Number(btn.getAttribute('data-hidx'))];
+              if (!row) return;
+              const gp = targetPerson && normalizeSyncPersonName(targetPerson.name) === normalizeSyncPersonName(row.hit.personName)
+                ? targetPerson
+                : (findGedcomPersonByNameOrId(row.hit.personName) || { name: row.hit.personName, id: '' });
+              btn.disabled = true;
+              btn.textContent = 'Linking...';
+              try {
+                await importAndLinkExternalPhotosToPerson([row.record], gp);
+                row.status = 'linked';
+                renderHits();
+                render();
+                notify(`✓ Imported & linked "${row.record.name}" to ${gp.name}!`);
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = `✓ Link to ${row.hit.personName.split(' ')[0]}`;
+                notify(`Link failed: ${err.message}`);
+              }
+            };
+          });
+          resultsEl.querySelectorAll('.efs-skip-one').forEach((btn) => {
+            btn.onclick = () => {
+              const row = visible[Number(btn.getAttribute('data-hidx'))];
+              if (row) {
+                row.status = 'skipped';
+                renderHits();
+              }
+            };
+          });
+        };
+
+        overlay.querySelectorAll('[data-efs-src]').forEach((b) => {
+          b.onclick = () => {
+            selectedSource = b.getAttribute('data-efs-src');
+            renderSourceBtns();
+          };
+        });
+        overlay.querySelector('#efs-pick-local').onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.multiple = true;
+          inp.accept = 'image/*';
+          if (!isMobile()) {
+            inp.setAttribute('webkitdirectory', '');
+            inp.setAttribute('directory', '');
+          }
+          inp.onchange = () => {
+            const all = Array.from(inp.files || []).filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+            if (!all.length) return;
+            const firstRel = all[0].webkitRelativePath || '';
+            const rootNm = (firstRel.split('/').filter(Boolean)[0]) || 'Local_Folder';
+            photoLibraryIndex.local = all.map((f, idx) => ({
+              source: 'local',
+              id: `local:${idx}:${f.name}`,
+              name: f.name,
+              path: f.webkitRelativePath || rootNm,
+              webkitRelativePath: f.webkitRelativePath || f.name,
+              size: f.size || 0,
+              lastModified: f.lastModified || Date.now(),
+              type: f.type || 'image/jpeg',
+              fileObj: f
+            }));
+            photoLibraryIndex.localFolderName = rootNm;
+            photoLibraryIndex.indexVersion++;
+            selectedSource = 'local';
+            renderSourceBtns();
+            statusEl.textContent = `Ready: ${photoLibraryIndex.local.length.toLocaleString()} photos in "${rootNm}". Click Start to scan 5 at a time.`;
+          };
+          inp.click();
+        };
+
+        pauseBtn.onclick = () => {
+          paused = !paused;
+          pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+          statusEl.textContent = paused ? 'Paused — click Resume to continue 5-at-a-time scan.' : 'Resuming scan...';
+        };
+        stopBtn.onclick = () => {
+          stopRequested = true;
+          paused = false;
+        };
+
+        startBtn.onclick = async () => {
+          if (scanning) return;
+          if (targetName && !targetLearned) {
+            notify(`Tag 1 photo of ${targetName} first so neural facial recognition knows what they look like.`);
+            return;
+          }
+          if (!targetName && learnedPeople.length === 0) {
+            notify('Tag at least 1 relative first.');
+            return;
+          }
+
+          let pool = [];
+          if (selectedSource === 'local') {
+            pool = getUnifiedSearchablePhotoRecords({ includeLoaded: false, includeGdrive: false, includeLocal: true });
+          } else if (selectedSource === 'gdrive') {
+            pool = getUnifiedSearchablePhotoRecords({ includeLoaded: false, includeGdrive: true, includeLocal: false });
+          } else {
+            pool = getUnifiedSearchablePhotoRecords({ includeLoaded: true, includeGdrive: false, includeLocal: false });
+          }
+
+          const pf = (pathFilterInp.value || '').trim().toLowerCase();
+          pool = pool.filter((r) => !isSkippablePhotoRecord(r));
+          if (pf) {
+            pool = pool.filter((r) => `${r.name || ''} ${r.path || ''}`.toLowerCase().includes(pf));
+          }
+          const maxCap = Number(limitSel.value) || 0;
+          if (maxCap > 0 && pool.length > maxCap) {
+            pool = pool.slice(0, maxCap);
+          }
+
+          if (pool.length === 0) {
+            statusEl.textContent = selectedSource === 'gdrive'
+              ? 'No Google Drive photos indexed yet (or none matched your filter). Use Scan Google Drive first, or Pick Local Folder.'
+              : 'No photos in this source matched your filter.';
+            return;
+          }
+
+          scanning = true;
+          stopRequested = false;
+          paused = false;
+          foundHits.length = 0;
+          startBtn.disabled = true;
+          pauseBtn.hidden = false;
+          stopBtn.hidden = false;
+          progWrap.hidden = false;
+          progBar.style.width = '3%';
+          renderHits();
+
+          try {
+            let driveToken = '';
+            if (selectedSource === 'gdrive' && hub) {
+              statusEl.textContent = 'Connecting to Google Drive...';
+              driveToken = await ensureGoogleDriveToken(false);
+            }
+            if (typeof eng.ensureNeuralModelsLoaded === 'function') {
+              await eng.ensureNeuralModelsLoaded((msg) => {
+                if (!closed) statusEl.textContent = msg;
+              });
+            }
+
+            const BATCH = 5;
+            for (let i = 0; i < pool.length && !closed && !stopRequested; i += BATCH) {
+              while (paused && !closed && !stopRequested) {
+                await new Promise((r) => setTimeout(r, 200));
+              }
+              if (closed || stopRequested) break;
+
+              const chunk = pool.slice(i, i + BATCH);
+              statusEl.textContent = `Scanning photos ${i + 1}–${Math.min(i + BATCH, pool.length)} of ${pool.length.toLocaleString()} (5 at a time) · ${foundHits.length} match${foundHits.length === 1 ? '' : 'es'} found...`;
+              progBar.style.width = `${Math.min(99, Math.round(((i + chunk.length) / pool.length) * 100))}%`;
+
+              for (let ci = 0; ci < chunk.length && !closed && !stopRequested; ci++) {
+                const rec = chunk[ci];
+                let tempUrl = '';
+                try {
+                  let scanSource = null;
+                  if (rec.source === 'loaded' && rec.photoItem) {
+                    scanSource = afterSrc(rec.photoItem);
+                  } else if (rec.source === 'local' && rec.fileObj) {
+                    tempUrl = URL.createObjectURL(rec.fileObj);
+                    scanSource = tempUrl;
+                  } else if (rec.source === 'gdrive' && hub) {
+                    let blobFile = null;
+                    try {
+                      blobFile = await hub.downloadGoogleDriveFile(driveToken, rec);
+                    } catch (dlErr) {
+                      if (String(dlErr.message || '').includes('session expired')) {
+                        driveToken = await ensureGoogleDriveToken(true);
+                        blobFile = await hub.downloadGoogleDriveFile(driveToken, rec);
+                      }
+                    }
+                    if (blobFile) {
+                      tempUrl = URL.createObjectURL(blobFile);
+                      scanSource = tempUrl;
+                    }
+                  }
+                  if (scanSource) {
+                    const hits = await eng.matchPhotoAgainstLearned(scanSource, targetName, { maxDim: 640 });
+                    if (hits && hits.length > 0) {
+                      foundHits.push({
+                        record: rec,
+                        hit: hits[0],
+                        previewThumb: rec.source === 'loaded' && rec.photoItem ? afterSrc(rec.photoItem) : (rec.thumbnailLink || hits[0].cropUrl || ''),
+                        status: 'pending'
+                      });
+                    }
+                  }
+                } catch (_) {}
+                if (tempUrl) {
+                  try { URL.revokeObjectURL(tempUrl); } catch (_) {}
+                }
+              }
+
+              renderHits();
+              await new Promise((r) => setTimeout(r, 40));
+            }
+
+            statusEl.textContent = stopRequested
+              ? `Scan stopped — found ${foundHits.length} neural face match${foundHits.length === 1 ? '' : 'es'}.`
+              : `✓ Finished scanning ${pool.length.toLocaleString()} photos (5 at a time) — found ${foundHits.length} neural face match${foundHits.length === 1 ? '' : 'es'}!`;
+          } catch (err) {
+            statusEl.textContent = `Face scan error: ${err && err.message ? err.message : 'Unknown error'}`;
+          } finally {
+            scanning = false;
+            startBtn.disabled = false;
+            pauseBtn.hidden = true;
+            stopBtn.hidden = true;
+            progWrap.hidden = true;
+            if (!closed) renderHits();
+          }
+        };
+
+        renderSourceBtns();
+        renderHits();
+      }
+
+      function openLinkExistingPhotoModal(gp) {
+        return openFindAndLinkPhotoModal(gp, 'auto');
+      }
+
+      function openFindAndLinkPhotoModal(gp, initialTab = 'auto') {
+        if (!gp) return;
+        const gd = window._activeGedcomData;
+        const gimp = window.GedcomImporter;
+        const hub = window.CloudImportHub;
+        const activePhotos = items.filter((x) => x && !x.inReview);
+
+        let allRecords = getUnifiedSearchablePhotoRecords({ dedupeLoaded: false });
+        let suggestions = (gimp && typeof gimp.scorePhotosForPerson === 'function')
+          ? gimp.scorePhotosForPerson(gd, gp, allRecords, { limit: 150 })
+          : [];
+        let liveDriveResults = [];
+
+        const firstName = String(gp.name || 'Relative').trim().split(/\s+/)[0] || 'Relative';
+        const surname = String(gp.surname || '').trim() || (String(gp.name || '').trim().split(/\s+/).slice(-1)[0] || '');
+
+        let activeTab = initialTab;
+        if (activeTab === 'auto') {
+          if (suggestions.length > 0) activeTab = 'suggested';
+          else if (photoLibraryIndex.gdrive.length > 0) activeTab = 'gdrive';
+          else if (photoLibraryIndex.local.length > 0) activeTab = 'local';
+          else activeTab = 'loaded';
+        }
+
+        const selectedMap = new Map(); // key -> entry
+        const entryKey = (r) => r.id || (r.source === 'gdrive' ? `gd:${r.cloudId}` : `${r.source}:${r.name}`);
+        let hideAlreadyTagged = false;
+        let qFilter = '';
+        let pageLimit = 60;
+        const tempLocalUrls = [];
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:920px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔍 Find &amp; Link Photo(s) to ${esc(gp.name || 'Relative')}</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across loaded photos, Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), and local folders (${photoLibraryIndex.local.length.toLocaleString()}) — ${esc(gp.id || 'Record')}${(gp.photoFileNames && gp.photoFileNames.length) ? ` · PAF clue: ${esc(gp.photoFileNames.slice(0, 2).join(', '))}` : ''}</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="flp-close">✕ Close</button>
+            </div>
+
+            <div style="display:flex;gap:6px;padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);flex-wrap:wrap;" id="flp-tabs">
+              <button type="button" class="btn sm" data-flp-tab="suggested">✨ Suggested (${suggestions.length})</button>
+              <button type="button" class="btn sm" data-flp-tab="loaded">🖼️ Loaded (${activePhotos.length})</button>
+              <button type="button" class="btn sm" data-flp-tab="gdrive">☁️ Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-flp-tab="local">📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-flp-tab="face">🧠 Find by Face</button>
+              <button type="button" class="btn sm" id="flp-pick-pc" style="margin-left:auto;">➕ Pick File from PC...</button>
+            </div>
+
+            <div style="padding:10px 20px;border-bottom:1px solid var(--border);background:#f8fafc;display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="search" id="flp-search" placeholder="Search photo filename, folder path, or title..." style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--control);border-radius:7px;font-size:14px;">
+                <button type="button" class="btn sm accent" id="flp-live-drive" title="Search Google Drive directly using Google's API for this search box or relative's name">☁️ Search Drive Live</button>
+                <label id="flp-hide-tagged-wrap" style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:600;">
+                  <input type="checkbox" id="flp-hide-tagged"> Hide already-tagged
+                </label>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;">
+                <span class="muted">Quick filters:</span>
+                ${surname ? `<button type="button" class="btn sm flp-chip" data-chip="${esc(surname)}" style="height:26px;font-size:12px;">${esc(surname)}</button>` : ''}
+                ${firstName && firstName !== surname ? `<button type="button" class="btn sm flp-chip" data-chip="${esc(firstName)}" style="height:26px;font-size:12px;">${esc(firstName)}</button>` : ''}
+                ${(gp.photoFileNames || []).slice(0, 2).map((fn) => `<button type="button" class="btn sm flp-chip" data-chip="${esc(fn.replace(/\.[^.]+$/, ''))}" style="height:26px;font-size:12px;">📎 ${esc(fn)}</button>`).join('')}
+                ${qFilter ? '' : '<button type="button" class="btn sm flp-chip" data-chip="" style="height:26px;font-size:12px;">Clear Filter</button>'}
+              </div>
+              <div id="flp-live-status" hidden style="font-size:12.5px;color:#1e3a8a;"></div>
+            </div>
+
+            <div id="flp-grid" style="padding:16px 20px;overflow-y:auto;flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;align-content:start;"></div>
+
+            <div style="padding:12px 20px;border-top:1px solid var(--border);background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <span id="flp-count" style="font-size:13.5px;font-weight:600;color:#1e293b;">Click photos above to select them</span>
+              <button type="button" class="btn success" id="flp-apply" disabled>✓ Link Selected Photo(s) to ${esc(gp.name || 'Relative')}</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cleanupUrls = () => {
+          while (tempLocalUrls.length) {
+            const u = tempLocalUrls.pop();
+            try { URL.revokeObjectURL(u); } catch (_) {}
+          }
+        };
+        const closeModal = () => {
+          cleanupUrls();
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#flp-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const gridEl = overlay.querySelector('#flp-grid');
+        const applyBtn = overlay.querySelector('#flp-apply');
+        const countEl = overlay.querySelector('#flp-count');
+        const searchEl = overlay.querySelector('#flp-search');
+        const hideTaggedChk = overlay.querySelector('#flp-hide-tagged');
+        const hideTaggedWrap = overlay.querySelector('#flp-hide-tagged-wrap');
+        const liveStatusEl = overlay.querySelector('#flp-live-status');
         const alreadySet = new Set(findAllLinkedPhotosForGedPerson(gp).map((x) => x.id));
 
+        const refreshSuggestions = () => {
+          allRecords = getUnifiedSearchablePhotoRecords({ dedupeLoaded: false });
+          if (liveDriveResults.length > 0) {
+            const seenCid = new Set(allRecords.map((r) => r.cloudId).filter(Boolean));
+            liveDriveResults.forEach((lr) => {
+              if (!lr.cloudId || !seenCid.has(lr.cloudId)) allRecords.push(lr);
+            });
+          }
+          suggestions = (gimp && typeof gimp.scorePhotosForPerson === 'function')
+            ? gimp.scorePhotosForPerson(gd, gp, allRecords, { limit: 150 })
+            : [];
+        };
+
+        const renderTabs = () => {
+          overlay.querySelectorAll('[data-flp-tab]').forEach((b) => {
+            const tab = b.getAttribute('data-flp-tab');
+            b.className = `btn sm ${activeTab === tab ? 'primary' : ''}`;
+            if (tab === 'suggested') b.textContent = `✨ Suggested for ${firstName} (${suggestions.length})`;
+            else if (tab === 'loaded') b.textContent = `🖼️ Loaded (${activePhotos.length})`;
+            else if (tab === 'gdrive') b.textContent = `☁️ Google Drive (${(photoLibraryIndex.gdrive.length || liveDriveResults.length).toLocaleString()})`;
+            else if (tab === 'local') b.textContent = `📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})`;
+            else if (tab === 'face') b.textContent = `🧠 Find by Face`;
+          });
+          if (hideTaggedWrap) hideTaggedWrap.style.display = activeTab === 'loaded' ? 'flex' : 'none';
+        };
+
         const renderGrid = () => {
-          const filtered = activePhotos.filter((ph) => {
-            if (!showAllLoaded && Array.isArray(ph.people) && ph.people.length > 0 && !alreadySet.has(ph.id)) return false;
+          cleanupUrls();
+          renderTabs();
+
+          if (activeTab === 'face') {
+            const eng = window.FaceDetectorEngine;
+            const isLearned = Boolean(eng && eng.hasLearnedPerson && eng.hasLearnedPerson(gp.name));
+            const linkedCount = findAllLinkedPhotosForGedPerson(gp).length;
+            gridEl.innerHTML = `
+              <div style="grid-column:1/-1;padding:24px 20px;text-align:center;border:1.5px solid #93c5fd;background:#eff6ff;border-radius:12px;">
+                <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px;">
+                  🧠 Find Photos of ${esc(gp.name)} Using Neural Facial Recognition
+                </div>
+                <p style="font-size:13.5px;color:#1e3a8a;max-width:560px;margin:0 auto 14px;line-height:1.5;">
+                  ${isLearned
+                    ? `The neural AI already knows what <strong>${esc(gp.name)}</strong> looks like! Scan your Local Folder, Google Drive, or Loaded photos <strong>5 at a time</strong> to find matching photos without slowing down your computer.`
+                    : (linkedCount > 0
+                      ? `<strong>${esc(gp.name)}</strong> has ${linkedCount} linked photo(s) — click below to learn their face and scan your Local Folder or Google Drive <strong>5 photos at a time</strong>!`
+                      : `Link &amp; tag 1 clear photo of <strong>${esc(gp.name)}</strong> first, and then I can scan your folders and Google Drive <strong>5 photos at a time</strong> to find more photos of them automatically.`)}
+                </p>
+                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                  <button type="button" class="btn primary" id="flp-launch-ext-face">🧠 Scan Folder / Google Drive for ${esc(firstName)}'s Face (5 at a time)</button>
+                </div>
+              </div>
+            `;
+            gridEl.querySelector('#flp-launch-ext-face').onclick = () => {
+              closeModal();
+              openExternalFaceScanModal(gp);
+            };
+            return;
+          }
+
+          let pool = [];
+          if (activeTab === 'suggested') {
+            pool = suggestions.map((s) => ({ ...s.record, _matchScore: s.score, _matchReason: s.reason }));
+          } else if (activeTab === 'loaded') {
+            pool = allRecords.filter((r) => r.source === 'loaded');
+          } else if (activeTab === 'gdrive') {
+            pool = photoLibraryIndex.gdrive.length > 0 ? allRecords.filter((r) => r.source === 'gdrive') : liveDriveResults;
+          } else {
+            pool = allRecords.filter((r) => r.source === 'local');
+          }
+
+          if (activeTab === 'gdrive' && pool.length === 0 && !qFilter) {
+            gridEl.innerHTML = `
+              <div style="grid-column:1/-1;padding:26px 20px;text-align:center;border:1.5px solid #93c5fd;background:#eff6ff;border-radius:12px;">
+                <div style="font-size:15.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">Google Drive Photo Index Not Built Yet</div>
+                <p style="font-size:13.5px;color:#1e3a8a;max-width:540px;margin:0 auto 14px;line-height:1.45;">
+                  Index your Google Drive once (handles 17,000–116,000+ photos fast without downloading them), or quick-search Google Drive right now for <strong>${esc(surname || gp.name)}</strong>.
+                </p>
+                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                  <button type="button" class="btn primary" id="flp-empty-scan-drive">⚡ Index Entire Google Drive</button>
+                  <button type="button" class="btn accent" id="flp-empty-search-drive">🔍 Quick-Search Drive for "${esc(surname || firstName)}"</button>
+                </div>
+              </div>
+            `;
+            gridEl.querySelector('#flp-empty-scan-drive').onclick = () => {
+              closeModal();
+              scanGoogleDriveForGedcomMatches();
+            };
+            gridEl.querySelector('#flp-empty-search-drive').onclick = () => {
+              searchEl.value = surname || firstName;
+              qFilter = searchEl.value.trim().toLowerCase();
+              overlay.querySelector('#flp-live-drive').click();
+            };
+            return;
+          }
+
+          if (activeTab === 'local' && pool.length === 0) {
+            gridEl.innerHTML = `
+              <div style="grid-column:1/-1;padding:26px 20px;text-align:center;border:1.5px solid #cbd5e1;background:#f8fafc;border-radius:12px;">
+                <div style="font-size:15.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">No Local Folder Indexed Yet</div>
+                <p class="muted" style="font-size:13.5px;max-width:520px;margin:0 auto 14px;">Scan a folder on your computer to search all its filenames here and find matches for ${esc(gp.name)}.</p>
+                <button type="button" class="btn primary" id="flp-empty-scan-local">📁 Scan Local Folder Now</button>
+              </div>
+            `;
+            gridEl.querySelector('#flp-empty-scan-local').onclick = () => {
+              closeModal();
+              scanLocalFolderForGedcomMatches();
+            };
+            return;
+          }
+
+          const filtered = pool.filter((rec) => {
+            if (activeTab === 'loaded' && hideAlreadyTagged && rec.photoItem) {
+              if (Array.isArray(rec.photoItem.people) && rec.photoItem.people.length > 0 && !alreadySet.has(rec.photoItem.id)) {
+                return false;
+              }
+            }
             if (qFilter) {
-              const hay = `${ph.id || ''} ${ph.file || ''} ${ph.title || ''} ${(ph.people || []).map((x) => x.name).join(' ')}`.toLowerCase();
+              const hay = `${rec.name || ''} ${rec.title || ''} ${rec.description || ''} ${rec.path || ''} ${(rec.photoItem && rec.photoItem.people ? rec.photoItem.people.map((x) => x.name).join(' ') : '')}`.toLowerCase();
               if (!hay.includes(qFilter)) return false;
             }
             return true;
           });
+
           if (filtered.length === 0) {
-            gridEl.innerHTML = '<div class="muted" style="grid-column:1/-1;padding:20px;text-align:center;font-size:14px;">No photos match this filter — check "Show All Loaded Photos" above to see every photo in your collection.</div>';
+            gridEl.innerHTML = `<div class="muted" style="grid-column:1/-1;padding:24px;text-align:center;font-size:14px;">No photos matched "${esc(qFilter)}" in this tab. Try clearing the search filter, checking another tab, or clicking <strong>☁️ Search Drive Live</strong>.</div>`;
           } else {
-            gridEl.innerHTML = filtered.slice(0, 80).map((ph) => {
-              const isLinked = alreadySet.has(ph.id);
-              const isSel = selectedPhotoIds.has(ph.id);
+            const slice = filtered.slice(0, pageLimit);
+            const cardsHtml = slice.map((rec, idx) => {
+              const key = entryKey(rec);
+              const isSel = selectedMap.has(key);
+              const isLinked = (rec.photoItem && alreadySet.has(rec.photoItem.id)) || (rec.alreadyLoadedId && alreadySet.has(rec.alreadyLoadedId));
+              let thumbHtml = '';
+              if (rec.source === 'loaded' && rec.photoItem) {
+                thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
+              } else if (rec.source === 'local' && rec.fileObj) {
+                const u = URL.createObjectURL(rec.fileObj);
+                tempLocalUrls.push(u);
+                thumbHtml = `<img src="${esc(u)}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
+              } else if (rec.thumbnailLink) {
+                thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:110px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:110px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:26px;">☁️</div>`;
+              } else {
+                thumbHtml = `<div style="width:100%;height:110px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:26px;">☁️</div>`;
+              }
+              const srcBadge = rec.source === 'gdrive' ? '☁️ Drive' : (rec.source === 'local' ? '📁 Local' : '🖼️ Loaded');
               return `
-                <button type="button" class="link-ex-card" data-pid="${esc(ph.id)}" style="text-align:left;padding:8px;border-radius:10px;border:2px solid ${isSel ? '#15803d' : (isLinked ? '#86efac' : '#cbd5e1')};background:${isSel ? '#dcfce7' : '#ffffff'};cursor:pointer;display:flex;flex-direction:column;gap:6px;">
-                  <img src="${esc(afterSrc(ph))}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">
-                  <div style="font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ph.title || ph.file || ph.id)}</div>
-                  <div style="font-size:11.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ph.file || ph.id)}</div>
+                <button type="button" class="flp-card" data-fidx="${idx}" style="text-align:left;padding:8px;border-radius:10px;border:2px solid ${isSel ? '#15803d' : (isLinked ? '#86efac' : '#cbd5e1')};background:${isSel ? '#dcfce7' : '#ffffff'};cursor:pointer;display:flex;flex-direction:column;gap:5px;">
+                  ${thumbHtml}
+                  <div style="font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(rec.name)}">${esc(rec.title || rec.name || rec.id)}</div>
+                  <div style="font-size:11px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(rec.path || '')}">${esc(srcBadge)} · ${esc(rec.path || rec.name)}</div>
+                  ${rec._matchReason ? `<span class="pill info" style="font-size:10.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;">${esc(rec._matchReason)}</span>` : ''}
                   ${isLinked ? '<span class="pill pos" style="font-size:11px;align-self:flex-start;">✓ Already Linked</span>' : (isSel ? '<span class="pill info" style="font-size:11px;align-self:flex-start;">✓ Selected</span>' : '<span class="muted" style="font-size:11px;">Click to select</span>')}
                 </button>
               `;
             }).join('');
-            gridEl.querySelectorAll('.link-ex-card').forEach((card) => {
+
+            const moreBtnHtml = filtered.length > slice.length
+              ? `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;">
+                   <span style="font-size:13px;font-weight:600;">Showing ${slice.length.toLocaleString()} of ${filtered.length.toLocaleString()} matching photos</span>
+                   <button type="button" class="btn sm primary" id="flp-more">Show 60 More →</button>
+                 </div>`
+              : '';
+
+            gridEl.innerHTML = cardsHtml + moreBtnHtml;
+            gridEl.querySelectorAll('.flp-card').forEach((card) => {
               card.onclick = () => {
-                const pid = card.getAttribute('data-pid');
-                if (selectedPhotoIds.has(pid)) selectedPhotoIds.delete(pid);
-                else selectedPhotoIds.add(pid);
+                const rec = slice[Number(card.getAttribute('data-fidx'))];
+                if (!rec) return;
+                const key = entryKey(rec);
+                if (selectedMap.has(key)) selectedMap.delete(key);
+                else selectedMap.set(key, rec);
                 renderGrid();
               };
             });
+            const moreBtn = gridEl.querySelector('#flp-more');
+            if (moreBtn) {
+              moreBtn.onclick = () => {
+                pageLimit += 60;
+                renderGrid();
+              };
+            }
           }
-          const selCnt = selectedPhotoIds.size;
-          countEl.textContent = selCnt > 0 ? `${selCnt} photo${selCnt === 1 ? '' : 's'} selected to link to ${gp.name}` : 'Click photos above to select them';
+
+          const selCnt = selectedMap.size;
+          countEl.textContent = selCnt > 0
+            ? `${selCnt} photo${selCnt === 1 ? '' : 's'} selected to link to ${gp.name}`
+            : 'Click any photo above to select and link it';
           applyBtn.disabled = selCnt === 0;
         };
 
-        overlay.querySelector('#link-ex-search').oninput = (e) => {
-          qFilter = (e.target.value || '').trim().toLowerCase();
+        overlay.querySelectorAll('[data-flp-tab]').forEach((b) => {
+          b.onclick = () => {
+            activeTab = b.getAttribute('data-flp-tab');
+            pageLimit = 60;
+            renderGrid();
+          };
+        });
+        overlay.querySelectorAll('.flp-chip').forEach((ch) => {
+          ch.onclick = () => {
+            const val = ch.getAttribute('data-chip') || '';
+            searchEl.value = val;
+            qFilter = val.trim().toLowerCase();
+            pageLimit = 60;
+            renderGrid();
+          };
+        });
+        searchEl.oninput = () => {
+          qFilter = (searchEl.value || '').trim().toLowerCase();
+          pageLimit = 60;
           renderGrid();
         };
-        overlay.querySelector('#link-ex-all').onchange = (e) => {
-          showAllLoaded = Boolean(e.target.checked);
+        hideTaggedChk.onchange = () => {
+          hideAlreadyTagged = Boolean(hideTaggedChk.checked);
+          pageLimit = 60;
           renderGrid();
+        };
+        overlay.querySelector('#flp-pick-pc').onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.multiple = true;
+          inp.accept = 'image/*';
+          inp.onchange = async () => {
+            if (inp.files && inp.files.length) {
+              closeModal();
+              await addLocalFilesAndLinkToPerson(inp.files, gp);
+            }
+          };
+          inp.click();
+        };
+
+        const liveDriveBtn = overlay.querySelector('#flp-live-drive');
+        if (liveDriveBtn) {
+          liveDriveBtn.onclick = async () => {
+            if (!hub || typeof hub.searchGoogleDriveImages !== 'function') return;
+            const queryTerms = [];
+            const typed = (searchEl.value || '').trim();
+            if (typed) queryTerms.push(typed);
+            else {
+              if (surname) queryTerms.push(surname);
+              if (firstName && firstName !== surname) queryTerms.push(firstName);
+              (gp.photoFileNames || []).slice(0, 2).forEach((fn) => {
+                const st = fn.replace(/\.[^.]+$/, '').trim();
+                if (st) queryTerms.push(st);
+              });
+            }
+            if (!queryTerms.length) return;
+            liveDriveBtn.disabled = true;
+            liveStatusEl.hidden = false;
+            liveStatusEl.textContent = `Searching Google Drive for ${queryTerms.join(', ')}...`;
+            try {
+              const token = await ensureGoogleDriveToken(false);
+              const hits = await hub.searchGoogleDriveImages(token, queryTerms, { limit: 80 });
+              liveDriveResults = hits;
+              refreshSuggestions();
+              liveStatusEl.textContent = `✓ Google Drive live search returned ${hits.length} photo${hits.length === 1 ? '' : 's'} for "${queryTerms.join(', ')}".`;
+              activeTab = 'gdrive';
+              pageLimit = 60;
+              renderGrid();
+            } catch (err) {
+              liveStatusEl.textContent = `Google Drive search failed: ${err.message}`;
+            } finally {
+              liveDriveBtn.disabled = false;
+            }
+          };
+        }
+
+        applyBtn.onclick = async () => {
+          const chosen = Array.from(selectedMap.values());
+          if (!chosen.length) return;
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Linking & importing...';
+          try {
+            const res = await importAndLinkExternalPhotosToPerson(chosen, gp, (p) => {
+              applyBtn.textContent = `Downloading Drive photos (${p.done}/${p.total})...`;
+            });
+            closeModal();
+            notify(`✓ Linked ${res.linkedCount} photo${res.linkedCount === 1 ? '' : 's'} to ${gp.name} (${gp.id || 'PAF'})!`);
+            render();
+          } catch (err) {
+            applyBtn.disabled = false;
+            applyBtn.textContent = `✓ Link Selected Photo(s) to ${gp.name || 'Relative'}`;
+            notify(`Could not link photos: ${err.message}`);
+          }
+        };
+
+        renderGrid();
+      }
+
+      function openGedcomMatchReviewModal(matchResult, sourceLabel = 'Photo Index') {
+        const gd = window._activeGedcomData;
+        if (!gd || !matchResult) return;
+        const strongRows = (matchResult.strongMatches || []).map((m, i) => ({
+          ...m,
+          kind: 'strong',
+          rowId: `s:${i}`,
+          chosenPersonIdx: 0,
+          status: 'pending'
+        }));
+        const possibleRows = (matchResult.possibleMatches || []).map((m, i) => ({
+          ...m,
+          kind: 'possible',
+          rowId: `p:${i}`,
+          chosenPersonIdx: 0,
+          status: 'pending'
+        }));
+
+        let activeTab = strongRows.length > 0 ? 'strong' : 'possible';
+        let qFilter = '';
+        let pageLimit = 50;
+        const tempUrls = [];
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:940px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔗 PAF / GEDCOM Photo Match Review (${esc(sourceLabel)})</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${strongRows.length.toLocaleString()}</strong> strong matches · <strong>${possibleRows.length.toLocaleString()}</strong> close / possible matches.</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="gmr-close">✕ Close</button>
+            </div>
+            <div style="padding:10px 20px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn sm" data-gmr-tab="strong">✓ Strong Matches (${strongRows.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-gmr-tab="possible">💡 Possible / Close Matches (${possibleRows.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-gmr-tab="all">All (${(strongRows.length + possibleRows.length).toLocaleString()})</button>
+              <input type="search" id="gmr-search" placeholder="Filter by filename or relative name..." style="flex:1;min-width:190px;padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;">
+              <button type="button" class="btn sm success" id="gmr-link-all-strong" ${strongRows.length ? '' : 'hidden'}>✓ Link All Strong Matches (${strongRows.length})</button>
+            </div>
+            <div id="gmr-progress" hidden style="padding:8px 20px;background:#eff6ff;border-bottom:1px solid #bfdbfe;font-size:13px;font-weight:600;color:#1e3a8a;"></div>
+            <div id="gmr-list" style="padding:14px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px;"></div>
+            <div style="padding:12px 20px;border-top:1px solid var(--border);background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <button type="button" class="btn sm" id="gmr-open-browser">🔍 Search All Indexed Photos</button>
+              <button type="button" class="btn primary" id="gmr-done">✓ Done</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cleanupUrls = () => {
+          while (tempUrls.length) {
+            try { URL.revokeObjectURL(tempUrls.pop()); } catch (_) {}
+          }
+        };
+        const closeModal = () => {
+          cleanupUrls();
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#gmr-close').onclick = closeModal;
+        overlay.querySelector('#gmr-done').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+        overlay.querySelector('#gmr-open-browser').onclick = () => {
+          closeModal();
+          openPhotoIndexBrowserModal();
+        };
+
+        const listEl = overlay.querySelector('#gmr-list');
+        const progEl = overlay.querySelector('#gmr-progress');
+        const bulkBtn = overlay.querySelector('#gmr-link-all-strong');
+
+        const renderRows = () => {
+          cleanupUrls();
+          const pendingStrong = strongRows.filter((r) => r.status === 'pending' && r.people && r.people.length > 0);
+          if (bulkBtn) {
+            bulkBtn.hidden = pendingStrong.length === 0;
+            bulkBtn.textContent = `✓ Link All Strong Matches (${pendingStrong.length.toLocaleString()})`;
+          }
+          overlay.querySelectorAll('[data-gmr-tab]').forEach((b) => {
+            const t = b.getAttribute('data-gmr-tab');
+            b.className = `btn sm ${activeTab === t ? 'primary' : ''}`;
+          });
+
+          const base = activeTab === 'strong'
+            ? strongRows
+            : (activeTab === 'possible' ? possibleRows : [...strongRows, ...possibleRows]);
+          const filtered = base.filter((row) => {
+            if (row.status === 'skipped') return false;
+            if (!qFilter) return true;
+            const hay = `${row.record.name || ''} ${row.record.path || ''} ${row.reason || ''} ${(row.people || []).map((p) => p.name).join(' ')}`.toLowerCase();
+            return hay.includes(qFilter);
+          });
+
+          if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="muted" style="padding:26px;text-align:center;font-size:14px;">No matches in this view. Try switching tabs or using <strong>🔍 Search All Indexed Photos</strong> below.</div>';
+            return;
+          }
+
+          const slice = filtered.slice(0, pageLimit);
+          const html = slice.map((row, idx) => {
+            const rec = row.record;
+            const people = row.people || [];
+            const chosen = people[row.chosenPersonIdx] || people[0];
+            let thumbHtml = '';
+            if (rec.source === 'loaded' && rec.photoItem) {
+              thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
+            } else if (rec.source === 'local' && rec.fileObj) {
+              const u = URL.createObjectURL(rec.fileObj);
+              tempUrls.push(u);
+              thumbHtml = `<img src="${esc(u)}" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
+            } else if (rec.thumbnailLink) {
+              thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;"><div style="display:none;width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
+            } else {
+              thumbHtml = `<div style="width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
+            }
+            const isLinked = row.status === 'linked';
+            return `
+              <div style="border:1.5px solid ${isLinked ? '#86efac' : '#cbd5e1'};background:${isLinked ? '#f0fdf4' : '#ffffff'};border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:260px;">
+                  ${thumbHtml}
+                  <div style="min-width:0;flex:1;">
+                    <div style="font-size:14px;font-weight:700;color:#0f172a;word-break:break-word;">${esc(rec.name)}</div>
+                    <div style="font-size:12px;color:#475569;margin-top:2px;">${esc(rec.path || '')} · <span class="pill ${row.kind === 'strong' ? 'pos' : 'info'}" style="font-size:11px;">${esc(row.reason || row.type)}</span></div>
+                    <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      ${people.length > 1 ? `
+                        <select class="gmr-person-sel" data-ridx="${idx}" style="padding:4px 8px;border:1px solid var(--control);border-radius:6px;font-size:13px;font-weight:600;max-width:340px;">
+                          ${people.map((p, pi) => `<option value="${pi}" ${pi === row.chosenPersonIdx ? 'selected' : ''}>${esc(p.name)} (${esc(p.id)})${p.birthDate ? ` · b. ${esc(p.birthDate)}` : ''}</option>`).join('')}
+                        </select>
+                      ` : (chosen ? `<strong style="font-size:13.5px;color:#1e3a8a;">→ ${esc(chosen.name)} <span class="mono muted" style="font-size:11.5px;">(${esc(chosen.id)})</span>${chosen.birthDate ? ` · b. ${esc(chosen.birthDate)}` : ''}</strong>` : '<span class="muted">No person record</span>')}
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0;">
+                  ${isLinked
+                    ? '<span class="pill pos" style="font-size:12px;">✓ Linked</span>'
+                    : (chosen ? `<button type="button" class="btn sm success gmr-link-one" data-ridx="${idx}">✓ Link</button><button type="button" class="btn sm gmr-skip-one" data-ridx="${idx}">✕ Skip</button>` : '')}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          const more = filtered.length > slice.length
+            ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;">
+                 <span style="font-size:13px;font-weight:600;">Showing ${slice.length.toLocaleString()} of ${filtered.length.toLocaleString()} matches</span>
+                 <button type="button" class="btn sm primary" id="gmr-more">Show 50 More →</button>
+               </div>`
+            : '';
+
+          listEl.innerHTML = html + more;
+          listEl.querySelectorAll('.gmr-person-sel').forEach((sel) => {
+            sel.onchange = () => {
+              const row = slice[Number(sel.getAttribute('data-ridx'))];
+              if (row) row.chosenPersonIdx = Number(sel.value) || 0;
+            };
+          });
+          listEl.querySelectorAll('.gmr-link-one').forEach((btn) => {
+            btn.onclick = async () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              if (!row) return;
+              const chosen = row.people[row.chosenPersonIdx] || row.people[0];
+              if (!chosen) return;
+              btn.disabled = true;
+              btn.textContent = 'Linking...';
+              try {
+                await importAndLinkMatchPairs([{ record: row.record, person: chosen }]);
+                row.status = 'linked';
+                renderRows();
+                render();
+                notify(`✓ Linked "${row.record.name}" to ${chosen.name}!`);
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = '✓ Link';
+                notify(`Failed to link: ${err.message}`);
+              }
+            };
+          });
+          listEl.querySelectorAll('.gmr-skip-one').forEach((btn) => {
+            btn.onclick = () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              if (row) {
+                row.status = 'skipped';
+                renderRows();
+              }
+            };
+          });
+          const moreBtn = listEl.querySelector('#gmr-more');
+          if (moreBtn) {
+            moreBtn.onclick = () => {
+              pageLimit += 50;
+              renderRows();
+            };
+          }
+        };
+
+        overlay.querySelectorAll('[data-gmr-tab]').forEach((b) => {
+          b.onclick = () => {
+            activeTab = b.getAttribute('data-gmr-tab');
+            pageLimit = 50;
+            renderRows();
+          };
+        });
+        overlay.querySelector('#gmr-search').oninput = (e) => {
+          qFilter = (e.target.value || '').trim().toLowerCase();
+          pageLimit = 50;
+          renderRows();
+        };
+
+        if (bulkBtn) {
+          bulkBtn.onclick = async () => {
+            const pendingStrong = strongRows.filter((r) => r.status === 'pending' && r.people && r.people.length > 0);
+            if (!pendingStrong.length) return;
+            const batchCap = 150;
+            const toProcess = pendingStrong.slice(0, batchCap);
+            bulkBtn.disabled = true;
+            progEl.hidden = false;
+            progEl.textContent = `Importing & linking ${toProcess.length} strong matches...`;
+            try {
+              const pairs = toProcess.map((r) => ({
+                record: r.record,
+                person: r.people[r.chosenPersonIdx] || r.people[0]
+              }));
+              const res = await importAndLinkMatchPairs(pairs, (p) => {
+                progEl.textContent = `Downloading Google Drive matches (${p.done} / ${p.total}): ${p.currentName}...`;
+              });
+              toProcess.forEach((r) => { r.status = 'linked'; });
+              progEl.textContent = `✓ Linked ${res.linkedCount} photo${res.linkedCount === 1 ? '' : 's'} (${res.newlyImportedCount} newly imported)!${pendingStrong.length > batchCap ? ` Click again to link the next ${batchCap}.` : ''}`;
+              renderRows();
+              render();
+              notify(`✓ Linked ${res.linkedCount} strong matches!`);
+            } catch (err) {
+              progEl.textContent = `Error linking batch: ${err.message}`;
+            } finally {
+              bulkBtn.disabled = false;
+            }
+          };
+        }
+
+        renderRows();
+      }
+
+      function openPhotoIndexBrowserModal(initialQuery = '') {
+        const gd = window._activeGedcomData;
+        const hub = window.CloudImportHub;
+        const activePhotos = items.filter((x) => x && !x.inReview);
+        let sourceFilter = photoLibraryIndex.gdrive.length > 0 ? 'all' : 'loaded';
+        let photoQuery = initialQuery || '';
+        let personQuery = '';
+        let selectedPhoto = null;
+        let selectedPerson = null;
+        let photoLimit = 60;
+        let liveResults = [];
+        const tempUrls = [];
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:1040px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔍 Search Photo Library &amp; Link to Family Tree</h2>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across all Loaded (${activePhotos.length}), Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), and Local Folder (${photoLibraryIndex.local.length.toLocaleString()}) photos and attach any photo to any relative.</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="pib-close">✕ Close</button>
+            </div>
+            <div style="padding:10px 20px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn sm" data-pib-src="all">All Sources</button>
+              <button type="button" class="btn sm" data-pib-src="gdrive">☁️ Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-pib-src="local">📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
+              <button type="button" class="btn sm" data-pib-src="loaded">🖼️ Loaded (${activePhotos.length})</button>
+              <input type="search" id="pib-photo-q" value="${esc(photoQuery)}" placeholder="Search photo filename or folder (e.g. Viola, wedding, 1977)..." style="flex:1;min-width:220px;padding:7px 10px;border:1.5px solid var(--control);border-radius:7px;font-size:13.5px;">
+              <button type="button" class="btn sm accent" id="pib-drive-live">☁️ Search Drive Live</button>
+            </div>
+            <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);flex:1;min-height:0;overflow:hidden;">
+              <div id="pib-photo-grid" style="padding:14px 16px;overflow-y:auto;border-right:1px solid var(--border);display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;align-content:start;"></div>
+              <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:hidden;background:#f8fafc;">
+                <div style="font-size:14px;font-weight:700;color:#0f172a;">Link Selected Photo to Relative:</div>
+                <div id="pib-sel-photo-box" style="padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#ffffff;font-size:12.5px;color:#334155;">1. Click a photo on the left</div>
+                <input type="search" id="pib-person-q" placeholder="2. Search relative by name or ID..." style="padding:7px 10px;border:1.5px solid var(--control);border-radius:7px;font-size:13.5px;background:#ffffff;">
+                <div id="pib-person-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+                <button type="button" class="btn success" id="pib-apply" disabled>✓ Link Photo to Selected Relative</button>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cleanupUrls = () => {
+          while (tempUrls.length) {
+            try { URL.revokeObjectURL(tempUrls.pop()); } catch (_) {}
+          }
+        };
+        const closeModal = () => {
+          cleanupUrls();
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#pib-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const gridEl = overlay.querySelector('#pib-photo-grid');
+        const personListEl = overlay.querySelector('#pib-person-list');
+        const selPhotoBox = overlay.querySelector('#pib-sel-photo-box');
+        const applyBtn = overlay.querySelector('#pib-apply');
+
+        const updateApplyState = () => {
+          applyBtn.disabled = !(selectedPhoto && selectedPerson);
+          if (selectedPhoto) {
+            selPhotoBox.innerHTML = `Selected photo: <strong>${esc(selectedPhoto.name)}</strong><div class="muted" style="font-size:11.5px;">${esc(selectedPhoto.path || '')}</div>`;
+          } else {
+            selPhotoBox.textContent = '1. Click a photo on the left';
+          }
+        };
+
+        const renderPhotos = () => {
+          cleanupUrls();
+          overlay.querySelectorAll('[data-pib-src]').forEach((b) => {
+            b.className = `btn sm ${sourceFilter === b.getAttribute('data-pib-src') ? 'primary' : ''}`;
+          });
+          let pool = getUnifiedSearchablePhotoRecords({ dedupeLoaded: false });
+          if (liveResults.length > 0) {
+            const seen = new Set(pool.map((r) => r.cloudId).filter(Boolean));
+            liveResults.forEach((lr) => { if (!lr.cloudId || !seen.has(lr.cloudId)) pool.push(lr); });
+          }
+          if (sourceFilter !== 'all') pool = pool.filter((r) => r.source === sourceFilter);
+          if (photoQuery) {
+            const q = photoQuery.toLowerCase();
+            pool = pool.filter((r) => `${r.name || ''} ${r.title || ''} ${r.description || ''} ${r.path || ''}`.toLowerCase().includes(q));
+          }
+          if (pool.length === 0) {
+            gridEl.innerHTML = '<div class="muted" style="grid-column:1/-1;padding:24px;text-align:center;font-size:13.5px;">No photos found. Scan Google Drive or a Local Folder in Step 2, or click <strong>☁️ Search Drive Live</strong> above.</div>';
+            return;
+          }
+          const slice = pool.slice(0, photoLimit);
+          gridEl.innerHTML = slice.map((rec, idx) => {
+            const isSel = selectedPhoto && selectedPhoto.id === rec.id && selectedPhoto.name === rec.name;
+            let thumb = '';
+            if (rec.source === 'loaded' && rec.photoItem) {
+              thumb = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
+            } else if (rec.source === 'local' && rec.fileObj) {
+              const u = URL.createObjectURL(rec.fileObj);
+              tempUrls.push(u);
+              thumb = `<img src="${esc(u)}" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
+            } else if (rec.thumbnailLink) {
+              thumb = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:96px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
+            } else {
+              thumb = `<div style="width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
+            }
+            return `
+              <button type="button" class="pib-card" data-pidx="${idx}" style="text-align:left;padding:6px;border-radius:8px;border:2px solid ${isSel ? '#1d4ed8' : '#cbd5e1'};background:${isSel ? '#dbeafe' : '#ffffff'};cursor:pointer;display:flex;flex-direction:column;gap:4px;">
+                ${thumb}
+                <div style="font-size:12px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(rec.name)}">${esc(rec.name)}</div>
+                <div style="font-size:10.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(rec.path || rec.source)}</div>
+              </button>
+            `;
+          }).join('') + (pool.length > slice.length ? `<div style="grid-column:1/-1;text-align:center;padding:8px;"><button type="button" class="btn sm primary" id="pib-more">Show 60 More (${(pool.length - slice.length).toLocaleString()} left)</button></div>` : '');
+
+          gridEl.querySelectorAll('.pib-card').forEach((card) => {
+            card.onclick = () => {
+              selectedPhoto = slice[Number(card.getAttribute('data-pidx'))] || null;
+              updateApplyState();
+              renderPhotos();
+            };
+          });
+          const more = gridEl.querySelector('#pib-more');
+          if (more) more.onclick = () => { photoLimit += 60; renderPhotos(); };
+        };
+
+        const renderPeople = () => {
+          const allPeople = (gd && Array.isArray(gd.peopleList)) ? gd.peopleList : [];
+          if (allPeople.length === 0) {
+            personListEl.innerHTML = '<div class="muted" style="font-size:13px;padding:12px;">Load a PAF / GEDCOM (.ged) tree in Step 1 to pick relatives here.</div>';
+            return;
+          }
+          const pq = personQuery.trim().toLowerCase();
+          const matched = pq
+            ? allPeople.filter((p) => `${p.name || ''} ${p.id || ''} ${p.birthPlace || ''}`.toLowerCase().includes(pq))
+            : allPeople;
+          const slice = matched.slice(0, 60);
+          personListEl.innerHTML = slice.map((p, idx) => {
+            const isSel = selectedPerson && selectedPerson.id === p.id;
+            return `
+              <button type="button" class="pib-person" data-gidx="${idx}" style="text-align:left;padding:8px 10px;border-radius:8px;border:1.5px solid ${isSel ? '#15803d' : '#cbd5e1'};background:${isSel ? '#dcfce7' : '#ffffff'};cursor:pointer;">
+                <div style="font-size:13.5px;font-weight:700;color:#0f172a;">${esc(p.name)} <span class="mono muted" style="font-size:11px;">(${esc(p.id)})</span></div>
+                ${(p.birthDate || p.birthPlace) ? `<div style="font-size:11.5px;color:#475569;">b. ${esc([p.birthDate, p.birthPlace].filter(Boolean).join(' · '))}</div>` : ''}
+              </button>
+            `;
+          }).join('');
+          personListEl.querySelectorAll('.pib-person').forEach((b) => {
+            b.onclick = () => {
+              selectedPerson = slice[Number(b.getAttribute('data-gidx'))] || null;
+              updateApplyState();
+              renderPeople();
+            };
+          });
+        };
+
+        overlay.querySelectorAll('[data-pib-src]').forEach((b) => {
+          b.onclick = () => {
+            sourceFilter = b.getAttribute('data-pib-src') || 'all';
+            photoLimit = 60;
+            renderPhotos();
+          };
+        });
+        overlay.querySelector('#pib-photo-q').oninput = (e) => {
+          photoQuery = (e.target.value || '').trim();
+          photoLimit = 60;
+          renderPhotos();
+        };
+        overlay.querySelector('#pib-person-q').oninput = (e) => {
+          personQuery = e.target.value || '';
+          renderPeople();
+        };
+        overlay.querySelector('#pib-drive-live').onclick = async () => {
+          if (!hub || typeof hub.searchGoogleDriveImages !== 'function') return;
+          const q = (overlay.querySelector('#pib-photo-q').value || '').trim();
+          if (!q) {
+            notify('Type a name or word in the search box first to search Google Drive.');
+            return;
+          }
+          try {
+            const token = await ensureGoogleDriveToken(false);
+            liveResults = await hub.searchGoogleDriveImages(token, [q], { limit: 80 });
+            sourceFilter = 'gdrive';
+            photoLimit = 60;
+            renderPhotos();
+            notify(`Found ${liveResults.length} Drive photo${liveResults.length === 1 ? '' : 's'} matching "${q}"`);
+          } catch (err) {
+            notify(`Google Drive search failed: ${err.message}`);
+          }
         };
         applyBtn.onclick = async () => {
-          const targets = activePhotos.filter((ph) => selectedPhotoIds.has(ph.id));
-          if (!targets.length) return;
-          for (const ph of targets) {
-            await linkGedcomPersonToPhoto(ph, gp, { persistArchive: false });
+          if (!selectedPhoto || !selectedPerson) return;
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Linking...';
+          try {
+            const res = await importAndLinkExternalPhotosToPerson([selectedPhoto], selectedPerson);
+            notify(`✓ Linked "${selectedPhoto.name}" to ${selectedPerson.name}!`);
+            if (res.firstPhotoId) selectedId = res.firstPhotoId;
+            render();
+            applyBtn.disabled = false;
+            applyBtn.textContent = '✓ Link Photo to Selected Relative';
+          } catch (err) {
+            applyBtn.disabled = false;
+            applyBtn.textContent = '✓ Link Photo to Selected Relative';
+            notify(`Link failed: ${err.message}`);
           }
-          selectedId = targets[0].id;
-          if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
-            await saveArchiveToDb(items, rootFolderName);
-          }
-          closeModal();
-          notify(`✓ Linked ${targets.length} photo${targets.length === 1 ? '' : 's'} to ${gp.name} (${gp.id || 'PAF'})!`);
-          render();
         };
-        renderGrid();
+
+        updateApplyState();
+        renderPhotos();
+        renderPeople();
       }
 
       async function saveActiveGedcomToDb(fileName, rawText) {
@@ -19832,6 +21892,9 @@
             gd.savedAt = saved.savedAt || Date.now();
             window._activeGedcomData = gd;
             reconcileGedcomSyncLedgerFromItems(items);
+            if (typeof refreshGedcomIndexMatches === 'function') {
+              refreshGedcomIndexMatches().catch(() => {});
+            }
             render();
             return;
           } catch (err) {
@@ -19992,6 +22055,9 @@
             } else {
               reconcileGedcomSyncLedgerFromItems(items);
               render();
+            }
+            if (typeof refreshGedcomIndexMatches === 'function') {
+              refreshGedcomIndexMatches().catch(() => {});
             }
             if (clearFileBtn) clearFileBtn.hidden = false;
             statusEl.innerHTML = buildGedcomLoadedSummaryHtml(gedData, res);

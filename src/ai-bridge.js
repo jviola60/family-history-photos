@@ -13,6 +13,7 @@ import {
 import * as CloudHub from './lib/cloudHub.js';
 import * as GedcomParser from './lib/gedcomParser.js';
 import * as DriveSync from './lib/driveSync.js';
+import { createNeuralFaceEngine } from './lib/neuralFaceEngine.js';
 
 if (typeof window !== 'undefined') {
   window.ArchivalAiBridge = {
@@ -28,5 +29,6 @@ if (typeof window !== 'undefined') {
   window.CloudImportHub = CloudHub;
   window.GedcomImporter = GedcomParser;
   window.DriveSyncUtil = DriveSync;
+  window.FaceDetectorEngine = createNeuralFaceEngine(window.FaceDetectorEngine || null);
   window.dispatchEvent(new CustomEvent('archival_ai_ready'));
 }
