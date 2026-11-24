@@ -341,6 +341,28 @@
         background: var(--active, #e4e3de);
         border-color: var(--control, #c8c7c2);
       }
+      #tutorial-btn-close,
+      #docked-close {
+        background: #dc2626 !important;
+        color: #ffffff !important;
+        border: 2px solid #991b1b !important;
+        font-weight: 700 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 6px rgba(185, 28, 28, 0.35) !important;
+      }
+      #tutorial-btn-close {
+        padding: 7px 14px !important;
+        font-size: 13.5px !important;
+      }
+      #docked-close {
+        padding: 3px 9px !important;
+        font-size: 12.5px !important;
+      }
+      #tutorial-btn-close:hover,
+      #docked-close:hover {
+        background: #b91c1c !important;
+        border-color: #7f1d1d !important;
+      }
       .tutorial-tabs {
         display: flex;
         gap: 8px;
@@ -776,7 +798,7 @@
         <span class="docked-badge">Step ${s.step} of 7 • ${s.shortTitle}</span>
         <div class="docked-actions">
           <button class="docked-btn" id="docked-expand" title="Expand full guide">⤢ Expand</button>
-          <button class="docked-btn" id="docked-close" title="Close tutorial">✕</button>
+          <button class="docked-btn" id="docked-close" title="Close tutorial">✕ Close</button>
         </div>
       </div>
       <p class="docked-desc">${s.desc.substring(0, 110)}...</p>

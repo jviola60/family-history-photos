@@ -25,15 +25,15 @@
       --active: #e4e3de;
       --border: #dfdeda;
       --rule: #ecebe7;
-      --control: #c8c7c2;
+      --control: #6b93c9;
       --text: #111110;
       --ink: #111110;
-      --muted: #575653;
-      --faint: #686763;
-      --axis-ink: #575653;
+      --muted: #3f3e3b;
+      --faint: #52504c;
+      --axis-ink: #3f3e3b;
       --grid: #e8e7e3;
       --accent: #1d5fbf;
-      --primary: #141413;
+      --primary: #1d4ed8;
       --primary-ink: #ffffff;
       --chart-1: #1d5fbf;
       --chart-muted: #c8c7c2;
@@ -61,7 +61,7 @@
       --radius-control: 6px;
       --sidebar-width: 240px;
       --gap: 16px;
-      --control-height: 32px;
+      --control-height: 38px;
       --font: "Geist", system-ui, -apple-system, sans-serif;
       --mono: "Geist Mono", ui-monospace, monospace;
     }
@@ -76,7 +76,7 @@
       margin: 0;
       background: var(--ground);
       color: var(--text);
-      font: 14px/20px var(--font);
+      font: 15px/1.45 var(--font);
       font-variant-numeric: tabular-nums;
       -webkit-font-smoothing: antialiased;
     }
@@ -173,39 +173,45 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      height: 32px;
-      padding: 0 8px;
+      height: 36px;
+      padding: 0 9px;
       border: 0;
-      border-radius: 6px;
+      border-radius: 7px;
       background: transparent;
-      color: var(--muted);
+      color: #1e293b;
       cursor: pointer;
       text-align: left;
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 500;
     }
 
     .nav-item svg {
-      width: 15px;
-      height: 15px;
+      width: 16px;
+      height: 16px;
       flex: none;
     }
 
     .nav-item:hover {
-      background: var(--active);
-      color: var(--text);
+      background: #e2e8f0;
+      color: #0f172a;
     }
 
     .nav-item[aria-current="page"] {
-      background: var(--active);
-      color: var(--text);
-      font-weight: 500;
+      background: #dbeafe;
+      color: #0f2952;
+      font-weight: 700;
+      border-left: 3px solid #1d4ed8;
     }
 
     .nav-count {
       margin-left: auto;
       font-family: var(--mono);
       font-size: 12px;
-      color: var(--text);
+      color: #0f172a;
+      background: #e2e8f0;
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-weight: 700;
     }
 
     /* Top utility bar in the L-frame */
@@ -303,58 +309,114 @@
       justify-content: center;
       gap: 6px;
       height: var(--control-height);
-      padding: 0 11px;
+      padding: 0 13px;
       border-radius: var(--radius-control);
-      border: 1px solid var(--control);
-      background: var(--surface);
-      font-size: 13px;
-      font-weight: 500;
+      border: 1.5px solid #6b93c9;
+      background: linear-gradient(180deg, #eff5fd 0%, #dce8f8 100%);
+      color: #102a52;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(16, 42, 82, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.75);
       cursor: pointer;
       white-space: nowrap;
+      transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
     }
 
     .btn svg {
-      width: 15px;
-      height: 15px;
+      width: 16px;
+      height: 16px;
       flex: none;
     }
 
     .btn:hover {
-      background: var(--raised);
+      background: #cde0f7;
+      border-color: #1d4ed8;
     }
 
     .btn.primary {
-      background: var(--primary);
-      color: var(--primary-ink);
-      border-color: transparent;
+      background: #1d4ed8;
+      color: #ffffff;
+      border: 1.5px solid #1e40af;
+      font-weight: 700;
+      box-shadow: 0 2px 4px rgba(29, 78, 216, 0.28);
     }
 
     .btn.primary:hover {
-      opacity: 0.92;
+      background: #1e40af;
+      opacity: 1;
     }
 
     .btn.accent {
-      background: var(--accent);
+      background: #1d5fbf;
       color: #ffffff;
-      border-color: transparent;
+      border: 1.5px solid #164388;
+      font-weight: 700;
+    }
+
+    .btn.accent:hover {
+      background: #164e9e;
+    }
+
+    .btn.success {
+      background: #15803d;
+      color: #ffffff;
+      border: 1.5px solid #166534;
+      font-weight: 700;
+      box-shadow: 0 2px 4px rgba(21, 128, 61, 0.28);
+    }
+
+    .btn.success:hover {
+      background: #166534;
     }
 
     .btn.sm {
-      height: 28px;
-      padding: 0 9px;
-      font-size: 12px;
+      height: 33px;
+      padding: 0 11px;
+      font-size: 13px;
+      font-weight: 600;
     }
 
     .btn.danger {
-      background: #fdf2f2;
-      color: var(--negative);
-      border-color: #f8c8c8;
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1.5px solid #dc2626;
+      font-weight: 700;
     }
 
     .btn.danger:hover {
-      background: #fee2e2;
-      color: #991b1b;
-      border-color: #fca5a5;
+      background: #fecaca;
+      color: #7f1d1d;
+      border-color: #b91c1c;
+    }
+
+    .btn-close-prominent {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 6px !important;
+      min-height: 36px !important;
+      padding: 6px 14px !important;
+      border-radius: 8px !important;
+      background: #dc2626 !important;
+      color: #ffffff !important;
+      border: 2px solid #991b1b !important;
+      font-size: 14px !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      box-shadow: 0 2px 6px rgba(185, 28, 28, 0.35) !important;
+      white-space: nowrap !important;
+      flex-shrink: 0 !important;
+    }
+
+    .btn-close-prominent:hover {
+      background: #b91c1c !important;
+      border-color: #7f1d1d !important;
+    }
+
+    .btn-close-prominent.sm {
+      min-height: 30px !important;
+      padding: 4px 10px !important;
+      font-size: 12.5px !important;
     }
 
     .btn.menu-toggle {
@@ -363,36 +425,154 @@
 
     .segmented {
       display: inline-flex;
-      padding: 2px;
-      border-radius: 6px;
-      background: var(--raised);
-      border: 1px solid var(--border);
+      padding: 3px;
+      border-radius: 8px;
+      background: #e6eef9;
+      border: 1.5px solid #6b93c9;
     }
 
     .segmented button {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      height: 28px;
-      padding: 0 11px;
+      height: 34px;
+      padding: 0 13px;
       border: 0;
-      border-radius: 4px;
+      border-radius: 6px;
       background: transparent;
-      color: var(--muted);
-      font-size: 13px;
+      color: #102a52;
+      font-size: 13.5px;
+      font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
     }
 
     .segmented button svg {
-      width: 14px;
-      height: 14px;
+      width: 15px;
+      height: 15px;
     }
 
     .segmented button[aria-pressed="true"] {
-      background: var(--surface);
-      color: var(--text);
-      font-weight: 500;
+      background: #1d4ed8;
+      color: #ffffff;
+      font-weight: 700;
+      box-shadow: 0 1px 3px rgba(29, 78, 216, 0.3);
+    }
+
+    /* Prominent 4-Stage Workflow Tabs & Stage Coach Banner */
+    .workflow-stage-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .workflow-tab {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 12px 14px;
+      border-radius: 11px;
+      border: 2px solid #8eb0df;
+      background: linear-gradient(180deg, #f0f6fe 0%, #e1ecf9 100%);
+      color: #0f2952;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(15, 41, 82, 0.12);
+      transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease;
+    }
+
+    .workflow-tab:hover {
+      background: #d2e4fa;
+      border-color: #1d4ed8;
+      transform: translateY(-1px);
+    }
+
+    .workflow-tab[aria-pressed="true"] {
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      border-color: #1e3a8a;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(29, 78, 216, 0.32);
+    }
+
+    .workflow-step-num {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      background: #1d4ed8;
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .workflow-tab[aria-pressed="true"] .workflow-step-num {
+      background: #ffffff;
+      color: #1d4ed8;
+    }
+
+    .workflow-tab-title {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .workflow-tab-sub {
+      font-size: 12px;
+      opacity: 0.88;
+      margin-top: 2px;
+      line-height: 1.25;
+    }
+
+    .stage-coach-banner {
+      background: #eff6ff;
+      border: 2px solid #93c5fd;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .gather-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .gather-card {
+      background: #f8fafc;
+      border: 2px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .workflow-stage-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 820px) {
+      .gather-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .workflow-stage-bar {
+        grid-template-columns: 1fr;
+      }
     }
 
     /* 4-cell KPI strip */
@@ -2496,7 +2676,7 @@
           <span class="brand-mark">FH</span>
           <span class="brand-title">Family History Photos</span>
         </div>
-        <button type="button" class="btn sm btn-close-sidebar" id="btn-close-sidebar" aria-label="Close sidebar">✕</button>
+        <button type="button" class="btn-close-prominent sm btn-close-sidebar" id="btn-close-sidebar" aria-label="Close sidebar">✕ Close</button>
       </div>
 
       <div class="brand desktop-only">
@@ -2634,6 +2814,40 @@
 
     <!-- INSET WHITE WORK SHEET -->
     <main class="sheet">
+      <!-- Prominent 4-Stage Workflow Tabs: Step 1 -> Step 2 -> Step 3 -> Step 4 -->
+      <div id="workflow-stage-bar" class="workflow-stage-bar" role="group" aria-label="Workspace stages">
+        <button type="button" class="workflow-tab" id="mode-gather" aria-pressed="false" title="Step 1: Pick photos, scan a folder, load a PAF/GEDCOM tree, or import from Cloud">
+          <span class="workflow-step-num">1</span>
+          <span>
+            <div class="workflow-tab-title">Gather Photos</div>
+            <div class="workflow-tab-sub">Load scans, folder, or PAF tree</div>
+          </span>
+        </button>
+        <button type="button" class="workflow-tab" id="mode-catalog" aria-pressed="true" title="Step 2: Identify relatives, tag faces, add dates, places &amp; stories">
+          <span class="workflow-step-num">2</span>
+          <span>
+            <div class="workflow-tab-title">Identify &amp; Tag</div>
+            <div class="workflow-tab-sub">Name faces, dates &amp; stories</div>
+          </span>
+        </button>
+        <button type="button" class="workflow-tab" id="mode-lab" aria-pressed="false" title="Step 3: 4K face restore, colorize, erase creases &amp; crop">
+          <span class="workflow-step-num">3</span>
+          <span>
+            <div class="workflow-tab-title">Restore Photos</div>
+            <div class="workflow-tab-sub">Fix fading, blur &amp; tears</div>
+          </span>
+        </button>
+        <button type="button" class="workflow-tab" id="mode-sync" aria-pressed="false" title="Step 4: Sync people &amp; memories to FamilySearch Beta or export JPEGs">
+          <span class="workflow-step-num">4</span>
+          <span>
+            <div class="workflow-tab-title">Save &amp; Share</div>
+            <div class="workflow-tab-sub">FamilySearch &amp; JPEG backups</div>
+          </span>
+        </button>
+      </div>
+
+      <div id="stage-coach-banner" class="stage-coach-banner" role="region" aria-label="Step instructions"></div>
+
       <div class="title-row">
         <div>
           <h1 id="page-heading">Family Photo Ledger</h1>
@@ -2641,22 +2855,6 @@
         </div>
 
         <div class="header-controls">
-          <!-- Primary 4-Step Workflow Switch: 1. Gather -> 2. Identify & Tag -> 3. Restore -> 4. Sync & Preserve -->
-          <div class="segmented" role="group" aria-label="Workspace mode">
-            <button type="button" id="mode-gather" aria-pressed="false" title="Step 1: Pick photos, scan a folder, load a PAF/GEDCOM tree, or import from Cloud">
-              <span data-icon="folder"></span><span>1. Gather</span>
-            </button>
-            <button type="button" id="mode-catalog" aria-pressed="true" title="Step 2: Identify relatives, tag faces, add dates, places &amp; stories">
-              <span data-icon="book"></span><span>2. Identify &amp; Tag</span>
-            </button>
-            <button type="button" id="mode-lab" aria-pressed="false" title="Step 3: 4K face restore, colorize, erase creases &amp; crop">
-              <span data-icon="sliders"></span><span>3. Restore</span>
-            </button>
-            <button type="button" id="mode-sync" aria-pressed="false" title="Step 4: Sync people &amp; memories to FamilySearch Beta or export JPEGs">
-              <span data-icon="tree"></span><span>4. Sync &amp; Preserve</span>
-            </button>
-          </div>
-
           <!-- View Switch inside Catalog: #4 Ledger vs #2 Contact Sheet -->
           <div class="segmented" id="catalog-view-switch" role="group" aria-label="Catalog layout">
             <button type="button" data-layout="ledger" aria-pressed="true">
@@ -2673,6 +2871,9 @@
           <button class="btn sm" type="button" id="btn-toggle-charts" aria-pressed="false">Charts</button>
         </div>
       </div>
+
+      <!-- STEP 1: DEDICATED GATHER STAGE TAB -->
+      <section id="section-gather" hidden></section>
 
       <!-- CATALOG MODE (#4 Genealogist's Ledger + #2 Light Table + Docked Inspector) -->
       <section id="section-catalog">
@@ -2744,8 +2945,8 @@
           <div class="lab-stage-card">
             <div class="lab-toolbar">
               <div class="lab-bar-left">
-                <button class="lab-btn" type="button" id="btn-back-catalog">
-                  <span data-icon="arrowLeft"></span><span>Back to catalog</span>
+                <button class="lab-btn" type="button" id="btn-back-catalog" style="background:#dc2626;border:2px solid #f87171;color:#ffffff;font-weight:700;padding:6px 13px;">
+                  <span>✕ Exit Photo Lab</span>
                 </button>
                 <span class="mono lab-muted-label" id="lab-photo-label">FH-002 · 640×480 px</span>
               </div>
@@ -2778,7 +2979,7 @@
                   title="Reset to untouched original">Reset</button>
                 <button class="lab-btn" type="button" id="btn-lab-next-sync"
                   style="background:#16a34a;border-color:#16a34a;color:#fff;font-weight:600;"
-                  title="Proceed to Step 4: Sync &amp; Preserve">Next: Sync &amp; Preserve →</button>
+                  title="Proceed to Step 4: Save &amp; Share">Next: Step 4 — Save &amp; Share →</button>
               </div>
             </div>
 
@@ -2842,7 +3043,7 @@
             <div id="lab-tool-body"></div>
 
             <div class="lab-save-bar">
-              <button class="btn primary flex-fill" type="button" id="btn-save-return">Save &amp; return to Ledger</button>
+              <button class="btn success flex-fill" type="button" id="btn-save-return">✓ Save &amp; Return to Photos</button>
               <button class="btn" type="button" id="btn-lab-share" title="Share restored photo to Messages, Mail, AirDrop, or copy image"><span data-icon="share"></span><span>Share</span></button>
             </div>
           </aside>
@@ -2920,7 +3121,7 @@
             <p class="muted share-modal-sub" id="share-modal-sub">Photo &amp; metadata ready</p>
           </div>
         </div>
-        <button type="button" class="btn sm" id="btn-share-modal-close" aria-label="Close share dialog">✕</button>
+        <button type="button" class="btn-close-prominent" id="btn-share-modal-close" aria-label="Close share dialog">✕ Close</button>
       </div>
       <div class="share-modal-preview">
         <img id="share-modal-img" src="sample.jpg" alt="Photo Preview">
@@ -2959,7 +3160,7 @@
             <p style="margin: 2px 0 0; font-size: 12px; color: #cbd5e1;">Reconstruct blurry faces with GPU AI models (CodeFormer / Clarity 4K)</p>
           </div>
         </div>
-        <button type="button" class="btn sm" id="btn-fal-modal-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close dialog">✕</button>
+        <button type="button" class="btn-close-prominent" id="btn-fal-modal-close" aria-label="Close dialog">✕ Close</button>
       </div>
       <div style="padding: 18px; display: flex; flex-direction: column; gap: 14px;">
         <div style="font-size: 12.5px; line-height: 1.5; color: #cbd5e1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 8px;">
@@ -3010,7 +3211,7 @@
             <p id="fs-modal-sub" style="margin: 2px 0 0; font-size: 12px; color: #9ca3af;">Memory artifact linked</p>
           </div>
         </div>
-        <button type="button" class="btn sm" id="btn-fs-modal-close" style="background: transparent; border: none; color: #9ca3af; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close dialog">✕</button>
+        <button type="button" class="btn-close-prominent" id="btn-fs-modal-close" aria-label="Close dialog">✕ Close</button>
       </div>
       <div style="padding: 18px; display: flex; flex-direction: column; gap: 12px;">
         <p id="fs-modal-message" style="margin: 0; font-size: 13.5px; line-height: 1.55; color: #e5e7eb;">
@@ -3218,7 +3419,7 @@
             <p id="ft-modal-sub" style="margin: 2px 0 0; font-size: 13px; color: #94a3b8;">Click any face box on the blown-up photo or draw a new box — then click a relative's name</p>
           </div>
         </div>
-        <button type="button" class="btn sm" id="btn-ft-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 4px 8px;" aria-label="Close face tagger">✕</button>
+        <button type="button" class="btn-close-prominent" id="btn-ft-close" aria-label="Close face tagger">✕ Exit Tagger</button>
       </div>
 
       <div class="ft-studio-grid">
@@ -3332,7 +3533,7 @@
               <button type="button" class="btn sm" id="btn-ft-unassign" style="background: rgba(255,255,255,0.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.16); padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;">Unassign</button>
               <button type="button" class="btn sm" id="btn-ft-delete" style="background: rgba(239,68,68,0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;">Delete Box</button>
             </div>
-            <button type="button" class="btn primary" id="btn-ft-done" style="background: #16a34a; color: #ffffff; font-weight: 600; border: none; padding: 8px 22px; border-radius: 7px; font-size: 14px; cursor: pointer;">Done</button>
+            <button type="button" class="btn success" id="btn-ft-done" style="padding: 10px 24px; border-radius: 8px; font-size: 15px;">✓ Done &amp; Close</button>
           </div>
         </div>
       </div>
@@ -3595,6 +3796,8 @@
       let inspFitMode = 'fit';     // 'fit' (shows whole uncropped photo & exact face boxes) | 'fill' (fills box)
       let labFitMode = 'fit';      // 'fit' (shows whole uncropped photo in Photo Lab) | 'fill' (16:10 stage fill)
       let showCharts = false;
+      let coachCollapsed = false;
+      try { coachCollapsed = localStorage.getItem('fhp_coach_collapsed') === '1'; } catch (_) {}
       let _bgFaceScanGen = 0;
       let _bgFaceScanState = { running: false, done: 0, total: 0 };
       let _metaRefreshTimer = null;
@@ -4284,7 +4487,7 @@
             <div style="margin-top:6px;padding:8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
                 <span class="muted" style="font-size:11px;">No tree matches found. Paste a PID or add them directly:</span>
-                <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:11px;color:var(--muted);cursor:pointer;">✕</button>
+                <button type="button" class="btn-close-prominent sm" id="btn-close-fs-matches">✕ Close</button>
               </div>
               ${unlinkedInEmpty.length ? `
                 <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
@@ -4307,7 +4510,7 @@
               <span style="font-weight:600;font-size:11px;color:var(--text);display:flex;align-items:center;gap:4px;">
                 <span data-icon="users"></span> FamilySearch Matches (${matchedCount} of ${resultsByPerson.length} ${resultsByPerson.length === 1 ? 'person' : 'relatives in photo'}):
               </span>
-              <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:12px;color:var(--muted);cursor:pointer;padding:0 4px;" title="Close suggestions">✕</button>
+              <button type="button" class="btn-close-prominent sm" id="btn-close-fs-matches" title="Close suggestions">✕ Close</button>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;max-height:480px;overflow-y:auto;padding-right:2px;">
               ${resultsByPerson.map(group => {
@@ -7298,7 +7501,7 @@
                   pidPickerEl.innerHTML = `
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
                       <span style="font-size:12.5px;font-weight:700;color:#e0f2fe;">Choose FamilySearch Person for ${esc(curName)}</span>
-                      <button type="button" id="btn-ft-pid-close" style="background:transparent;border:none;color:#94a3b8;font-size:14px;cursor:pointer;">✕</button>
+                      <button type="button" class="btn-close-prominent sm" id="btn-ft-pid-close">✕ Close</button>
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;">
                       <input type="text" id="ft-manual-pid-inp" value="${esc(activeFacePid)}" placeholder="Paste exact PID (e.g. L64Z-JJX)" style="flex:1;background:rgba(0,0,0,0.4);color:#fff;border:1px solid rgba(255,255,255,0.22);border-radius:6px;padding:5px 8px;font-size:12px;text-transform:uppercase;">
@@ -8471,7 +8674,7 @@
                   <div style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
                     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
                       <input type="search" id="inp-insp-ged-q" value="${esc(seedName)}" placeholder="Search GEDCOM people..." style="flex:1;padding:5px 8px;font-size:12px;border:1px solid var(--control);border-radius:5px;background:var(--surface);">
-                      <button type="button" class="link-btn" id="btn-insp-ged-close" style="font-size:12px;">✕</button>
+                      <button type="button" class="btn-close-prominent sm" id="btn-insp-ged-close">✕ Close</button>
                     </div>
                     <div id="insp-ged-list" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
                   </div>
@@ -13696,6 +13899,235 @@
                                   };
                                 }
 
+      function renderStageCoachBanner(p) {
+        const banner = document.getElementById('stage-coach-banner');
+        if (!banner) return;
+
+        const activePhotos = items.filter((x) => !x.inReview);
+        const activeCount = activePhotos.length;
+        const taggedPeopleTotal = activePhotos.reduce((sum, x) => sum + ((Array.isArray(x.people) && x.people.length) ? x.people.length : 0), 0);
+        const unnamedCount = activePhotos.filter((x) => getUnnamedFaceCount(x) > 0).length;
+        const restoredCount = activePhotos.filter((x) => x.restored4k).length;
+        const syncedCount = activePhotos.filter((x) => x.fsSynced).length;
+
+        let info;
+        if (mode === 'gather') {
+          info = {
+            badge: 'STEP 1 OF 4 — GATHER YOUR PHOTOS',
+            what: 'Choose how to load your family photos below (a few photos, a whole folder, Google Drive, or your PAF / GEDCOM family tree).',
+            why: 'Your photos stay privately on your computer — nothing is uploaded until you choose to in Step 4.',
+            progress: activeCount > 0 ? `${activeCount} photo${activeCount === 1 ? '' : 's'} currently loaded (${rootFolderName}).` : 'No photos loaded yet.',
+            nextLabel: `Continue to Step 2: Identify & Tag (${activeCount}) →`,
+            nextMode: 'catalog',
+            prevLabel: '',
+            prevMode: ''
+          };
+        } else if (mode === 'catalog') {
+          info = {
+            badge: 'STEP 2 OF 4 — IDENTIFY PEOPLE, DATES & STORIES',
+            what: '1) Click any photo in the list below. 2) Use the right panel to name the people, check the date & place, and write the story from the back of the print.',
+            why: 'Naming people and stories now keeps family history accurate and connects each photo to the right relative on FamilySearch.',
+            progress: `${activeCount} active print${activeCount === 1 ? '' : 's'} · ${taggedPeopleTotal} relative tag${taggedPeopleTotal === 1 ? '' : 's'}${unnamedCount > 0 ? ` · ${unnamedCount} print${unnamedCount === 1 ? '' : 's'} with unnamed faces` : ''}`,
+            nextLabel: 'Next: Step 3 — Restore Photos →',
+            nextMode: 'lab',
+            prevLabel: '← Step 1: Gather',
+            prevMode: 'gather'
+          };
+        } else if (mode === 'lab') {
+          info = {
+            badge: 'STEP 3 OF 4 — RESTORE & ENHANCE PHOTOS (OPTIONAL)',
+            what: 'Pick a repair tab on the right (4K Restore, Color, Light, Crop, Eraser, or Red-Eye). Drag the center line on the photo to compare Before and After.',
+            why: 'Your original photo is never overwritten — you can Undo or Reset at any time.',
+            progress: `${restoredCount} of ${activeCount} photo${activeCount === 1 ? '' : 's'} enhanced${p ? ` · Editing: ${p.title || p.id}` : ''}`,
+            nextLabel: 'Next: Step 4 — Save & Share →',
+            nextMode: 'sync',
+            prevLabel: '← Step 2: Identify & Tag',
+            prevMode: 'catalog'
+          };
+        } else {
+          info = {
+            badge: 'STEP 4 OF 4 — SAVE, SHARE & UPLOAD TO FAMILYSEARCH',
+            what: 'Upload tagged photos to FamilySearch Beta, download JPEG copies with names & stories saved inside the file, or copy citations for Ancestry / MyHeritage.',
+            why: 'Preserving your work here lets children, grandchildren, and relatives enjoy these photos for generations.',
+            progress: `${syncedCount} of ${activeCount} photo${activeCount === 1 ? '' : 's'} synced to FamilySearch Beta`,
+            nextLabel: '',
+            nextMode: '',
+            prevLabel: '← Step 3: Restore Photos',
+            prevMode: 'lab'
+          };
+        }
+
+        if (coachCollapsed) {
+          banner.style.padding = '10px 16px';
+          banner.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span class="pill info" style="font-size:12px;font-weight:700;padding:3px 10px;">${esc(info.badge)}</span>
+              <span style="font-size:13.5px;color:#1e3a8a;font-weight:600;">${esc(info.progress)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn sm" id="btn-toggle-coach">Show Step Instructions</button>
+              ${info.nextMode ? `<button type="button" class="btn sm success" id="coach-next-step">${esc(info.nextLabel)}</button>` : `<button type="button" class="btn sm primary" id="coach-all-photos">Back to Step 2: All Photos</button>`}
+            </div>
+          `;
+        } else {
+          banner.style.padding = '14px 18px';
+          banner.innerHTML = `
+            <div style="flex:1;min-width:260px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                <span class="pill info" style="font-size:12px;font-weight:800;padding:3px 10px;letter-spacing:0.02em;">${esc(info.badge)}</span>
+                <span style="font-size:13px;font-weight:600;color:#1e40af;">${esc(info.progress)}</span>
+              </div>
+              <div style="font-size:15px;line-height:1.45;color:#0f172a;font-weight:600;">
+                <strong>What to do:</strong> ${esc(info.what)}
+              </div>
+              <div style="font-size:14px;line-height:1.4;color:#334155;margin-top:4px;">
+                <strong>Why:</strong> ${esc(info.why)}
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+                <button type="button" class="btn sm" id="btn-toggle-coach" title="Minimize this instruction box">Hide Guide</button>
+                ${(mode === 'catalog' && p) ? `<button type="button" class="btn sm primary" id="coach-tag-faces">👤 Tag Faces on Selected Photo</button>` : ''}
+                ${info.prevMode ? `<button type="button" class="btn sm" id="coach-prev-step">${esc(info.prevLabel)}</button>` : ''}
+                ${info.nextMode ? `<button type="button" class="btn sm success" id="coach-next-step">${esc(info.nextLabel)}</button>` : ''}
+                ${mode === 'sync' ? `<button type="button" class="btn sm primary" id="coach-all-photos">Back to Step 2: All Photos</button>` : ''}
+              </div>
+            </div>
+          `;
+        }
+
+        const toggleBtn = banner.querySelector('#btn-toggle-coach');
+        if (toggleBtn) {
+          toggleBtn.onclick = () => {
+            coachCollapsed = !coachCollapsed;
+            try { localStorage.setItem('fhp_coach_collapsed', coachCollapsed ? '1' : '0'); } catch (_) {}
+            renderStageCoachBanner(currentPhoto());
+          };
+        }
+        const tagBtn = banner.querySelector('#coach-tag-faces');
+        if (tagBtn && p) {
+          tagBtn.onclick = () => openFaceTaggerModal(p);
+        }
+        const prevBtn = banner.querySelector('#coach-prev-step');
+        if (prevBtn && info.prevMode) {
+          prevBtn.onclick = () => {
+            commitInspectorInputs(currentPhoto(), false);
+            mode = info.prevMode;
+            render();
+          };
+        }
+        const nextBtn = banner.querySelector('#coach-next-step');
+        if (nextBtn && info.nextMode) {
+          nextBtn.onclick = () => {
+            commitInspectorInputs(currentPhoto(), false);
+            mode = info.nextMode;
+            render();
+          };
+        }
+        const allPhotosBtn = banner.querySelector('#coach-all-photos');
+        if (allPhotosBtn) {
+          allPhotosBtn.onclick = () => {
+            commitInspectorInputs(currentPhoto(), false);
+            mode = 'catalog';
+            render();
+          };
+        }
+      }
+
+      function renderGatherStage() {
+        const host = document.getElementById('section-gather');
+        if (!host) return;
+        const activeCount = items.filter((x) => !x.inReview).length;
+
+        host.innerHTML = `
+          <div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:#0f172a;">
+                Current Collection: <span>${esc(rootFolderName)}</span> (${activeCount} active photo${activeCount === 1 ? '' : 's'})
+              </div>
+              <div style="font-size:13.5px;color:#334155;margin-top:2px;">
+                ${items.length > 0 ? 'Your photos are ready! You can add more below, or move straight to Step 2.' : 'Pick one of the four big options below to begin.'}
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              ${items.length > 0 ? `
+                <button type="button" class="btn success" id="gather-continue-step2">Continue to Step 2: Identify &amp; Tag (${activeCount}) →</button>
+                <button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>
+              ` : `
+                <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
+              `}
+            </div>
+          </div>
+
+          <div class="gather-grid">
+            <div class="gather-card">
+              <div>
+                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">🖼️ Pick a Few Photos (1–5+)</h2>
+                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
+                  Best when you want to work on just a handful of favorite pictures from your computer, phone, or camera.
+                </p>
+              </div>
+              <button type="button" class="btn primary" id="gather-btn-pick" style="width:100%;height:44px;font-size:15px;">🖼️ Pick Photos from Device</button>
+            </div>
+
+            <div class="gather-card">
+              <div>
+                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">📁 Open an Entire Photo Folder</h2>
+                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
+                  Opens a whole folder on your computer (and its subfolders) so you can organize everything in one place.
+                </p>
+              </div>
+              <button type="button" class="btn primary" id="gather-btn-folder" style="width:100%;height:44px;font-size:15px;">📁 Scan a Whole Folder</button>
+            </div>
+
+            <div class="gather-card">
+              <div>
+                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">🌳 Load PAF / GEDCOM (.ged) Family Tree</h2>
+                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
+                  Loads your genealogy file so the app can pull exact names, birth dates, places, and long stories onto your photos.
+                </p>
+              </div>
+              <button type="button" class="btn" id="gather-btn-gedcom" style="width:100%;height:44px;font-size:15px;">🌳 Open PAF / GEDCOM Tree</button>
+            </div>
+
+            <div class="gather-card">
+              <div>
+                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">☁️ Import from Google Drive / Cloud</h2>
+                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
+                  Pull family albums straight from Google Drive, Google Photos, Microsoft OneDrive, or a downloaded iCloud ZIP.
+                </p>
+              </div>
+              <button type="button" class="btn" id="gather-btn-cloud" style="width:100%;height:44px;font-size:15px;">☁️ Connect Google Drive / Cloud</button>
+            </div>
+          </div>
+        `;
+
+        const contBtn = host.querySelector('#gather-continue-step2');
+        if (contBtn) {
+          contBtn.onclick = () => {
+            mode = 'catalog';
+            render();
+          };
+        }
+        const clearBtn = host.querySelector('#gather-clear-photos');
+        if (clearBtn) {
+          clearBtn.onclick = () => {
+            const btn = document.getElementById('btn-toggle-demo');
+            if (btn) btn.click();
+          };
+        }
+        const reloadDemoBtn = host.querySelector('#gather-reload-demo');
+        if (reloadDemoBtn) {
+          reloadDemoBtn.onclick = () => {
+            if (typeof resetToSampleArchive === 'function') resetToSampleArchive();
+          };
+        }
+        host.querySelector('#gather-btn-pick').onclick = () => document.getElementById('btn-pick-1-5').click();
+        host.querySelector('#gather-btn-folder').onclick = () => document.getElementById('btn-choose-folder').click();
+        host.querySelector('#gather-btn-gedcom').onclick = () => document.getElementById('btn-open-gedcom-hub').click();
+        host.querySelector('#gather-btn-cloud').onclick = () => document.getElementById('btn-open-cloud-hub').click();
+      }
+
       function render() {
         saveSessionState();
         renderSidebarCounts();
@@ -13721,14 +14153,19 @@
           topFalLabel.textContent = hasKey ? 'Fal.ai: Connected' : 'Fal.ai Setup';
         }
 
+        const isGather = mode === 'gather';
         const isCatalog = mode === 'catalog';
         const isLab = mode === 'lab';
         const isSync = mode === 'sync';
 
+        const gatherSection = document.getElementById('section-gather');
+        if (gatherSection) gatherSection.hidden = !isGather;
         document.getElementById('section-catalog').hidden = !isCatalog;
         document.getElementById('section-lab').hidden = !isLab;
         document.getElementById('section-sync').hidden = !isSync;
 
+        const modeGatherBtn = document.getElementById('mode-gather');
+        if (modeGatherBtn) modeGatherBtn.setAttribute('aria-pressed', isGather ? 'true' : 'false');
         document.getElementById('mode-catalog').setAttribute('aria-pressed', isCatalog ? 'true' : 'false');
         document.getElementById('mode-lab').setAttribute('aria-pressed', isLab ? 'true' : 'false');
         document.getElementById('mode-sync').setAttribute('aria-pressed', isSync ? 'true' : 'false');
@@ -13745,7 +14182,13 @@
         });
 
         const p = currentPhoto();
-        if (isCatalog) {
+        renderStageCoachBanner(p);
+
+        if (isGather) {
+          document.getElementById('page-heading').textContent = 'Step 1: Gather Your Family Photos';
+          document.getElementById('page-sub').textContent = 'Load photos from your device, a folder, Cloud storage, or match them with your PAF / GEDCOM family tree.';
+          renderGatherStage();
+        } else if (isCatalog) {
           if (layout === 'ledger') {
             document.getElementById('page-heading').textContent = "Family Photo Ledger";
             document.getElementById('page-sub').textContent = "Review and organize your family photos. Select any photo to tag relatives and edit details on the right, or open Photo Lab to restore and enhance.";
@@ -13761,7 +14204,7 @@
           renderCatalogCenter();
           renderInspector();
         } else if (isLab) {
-          document.getElementById('page-heading').textContent = `Photo Lab — ${p.title}`;
+          document.getElementById('page-heading').textContent = `Photo Lab — ${p ? p.title : 'Select a Photo'}`;
           document.getElementById('page-sub').textContent = 'Unified non-destructive studio: 4K Restore, B&W Colorize & Cast Fix, Light & Histogram, Crop & Straighten, Magic Eraser, and Red-Eye.';
           renderPhotoLab();
         } else {
@@ -13773,7 +14216,7 @@
         if (typeof updateMobileNav === 'function') {
           if (mode === 'lab') updateMobileNav('lab');
           else if (mode === 'sync') updateMobileNav('sync');
-          else if (mode === 'catalog') updateMobileNav(layout === 'map' ? 'map' : 'photos');
+          else updateMobileNav(layout === 'map' ? 'map' : 'photos');
         }
       }
 
@@ -13790,36 +14233,9 @@
       });
 
       document.getElementById('mode-gather').onclick = () => {
-        const existing = document.getElementById('gather-quick-modal');
-        if (existing) existing.remove();
-        const ov = document.createElement('div');
-        ov.id = 'gather-quick-modal';
-        ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.5);z-index:99990;display:flex;align-items:center;justify-content:center;padding:16px;';
-        ov.innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,0.28);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-              <div>
-                <h2 style="font-size:16px;font-weight:700;margin:0;">Step 1: Gather Photos &amp; Family Tree</h2>
-                <p class="muted" style="font-size:12px;margin:2px 0 0;">Start from local scans or load your PAF/GEDCOM file first.</p>
-              </div>
-              <button type="button" class="btn sm" id="gq-close">✕</button>
-            </div>
-            <div style="display:grid;gap:9px;">
-              <button type="button" class="btn primary" id="gq-pick" style="justify-content:flex-start;padding:10px 14px;">🖼️ Pick Photo(s) (1–5) from Computer / Phone</button>
-              <button type="button" class="btn" id="gq-folder" style="justify-content:flex-start;padding:10px 14px;">📁 Scan Entire Photo Folder (All Subfolders)</button>
-              <button type="button" class="btn" id="gq-gedcom" style="justify-content:flex-start;padding:10px 14px;">🌳 Load PAF / GEDCOM (.ged) Tree &amp; Photo Re-Linker</button>
-              <button type="button" class="btn" id="gq-cloud" style="justify-content:flex-start;padding:10px 14px;">☁️ Import from Cloud (Google Drive, Google Photos, OneDrive)</button>
-            </div>
-          </div>
-        `;
-        document.body.appendChild(ov);
-        const closeGq = () => ov.remove();
-        ov.querySelector('#gq-close').onclick = closeGq;
-        ov.onclick = (e) => { if (e.target === ov) closeGq(); };
-        ov.querySelector('#gq-pick').onclick = () => { closeGq(); document.getElementById('btn-pick-1-5').click(); };
-        ov.querySelector('#gq-folder').onclick = () => { closeGq(); document.getElementById('btn-choose-folder').click(); };
-        ov.querySelector('#gq-gedcom').onclick = () => { closeGq(); document.getElementById('btn-open-gedcom-hub').click(); };
-        ov.querySelector('#gq-cloud').onclick = () => { closeGq(); document.getElementById('btn-open-cloud-hub').click(); };
+        commitInspectorInputs(currentPhoto(), false);
+        mode = 'gather';
+        render();
       };
       document.getElementById('mode-catalog').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'catalog'; render(); };
       document.getElementById('mode-lab').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'lab'; render(); };
@@ -15568,7 +15984,7 @@
                 <h2 style="font-size:17px;font-weight:700;margin:0;">☁️ Import from Cloud (Zero Hard Drive Space)</h2>
                 <p class="muted" style="font-size:12px;margin:2px 0 0;">Connect Google Drive, Google Photos, OneDrive, or drop an iCloud / Takeout ZIP.</p>
               </div>
-              <button type="button" class="btn sm" id="cloud-modal-close">✕</button>
+              <button type="button" class="btn-close-prominent" id="cloud-modal-close">✕ Close</button>
             </div>
             <div style="display:flex;gap:6px;padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);flex-wrap:wrap;">
               <button type="button" class="btn sm primary" data-ctab="gdrive">Google Drive (Folder Scan)</button>
@@ -15998,7 +16414,7 @@
                 <h2 style="font-size:16px;font-weight:700;margin:0;">Add Relative to FamilySearch Beta</h2>
                 <p class="muted" style="font-size:12px;margin:2px 0 0;">Create their FamilySearch record and connect them to your tree as spouse, child, parent, or sibling.</p>
               </div>
-              <button type="button" class="btn sm" id="create-fs-close">✕</button>
+              <button type="button" class="btn-close-prominent" id="create-fs-close">✕ Close</button>
             </div>
             <div id="create-fs-body" style="padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:11px;">
               <div>
@@ -16521,7 +16937,7 @@
                 <h2 style="font-size:16px;font-weight:700;margin:0;">Compare &amp; Update FamilySearch Beta — ${esc(live.displayName)} (${esc(activePid)})</h2>
                 <p class="muted" style="font-size:12px;margin:2px 0 0;">Check the items from your PAF / GEDCOM record to add or replace on FamilySearch Beta.</p>
               </div>
-              <button type="button" class="btn sm" id="fs-cmp-close">✕</button>
+              <button type="button" class="btn-close-prominent" id="fs-cmp-close">✕ Close</button>
             </div>
             <div style="padding:10px 20px;background:var(--raised);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;">
               ${candOptions ? `<label style="font-weight:600;">Match:</label><select id="fs-cmp-cand" style="max-width:320px;padding:4px 8px;border:1px solid var(--control);border-radius:6px;font-size:12px;">${candOptions}</select>` : ''}
@@ -16871,7 +17287,7 @@
                 <h2 style="font-size:17px;font-weight:700;margin:0;">🌳 PAF / GEDCOM (.ged) Importer &amp; Photo Re-Linker</h2>
                 <p class="muted" style="font-size:12px;margin:2px 0 0;">Reconnect broken PAF photo links by filename, browse 100K+ people, and sync missing people/fields to FamilySearch Beta.</p>
               </div>
-              <button type="button" class="btn sm" id="ged-modal-close">✕</button>
+              <button type="button" class="btn-close-prominent" id="ged-modal-close">✕ Close</button>
             </div>
             <div style="padding:18px 20px;overflow-y:auto;flex:1;" id="ged-modal-body">
               <div style="padding:12px;border-radius:8px;background:var(--raised);border:1px solid var(--border);margin-bottom:14px;font-size:12.5px;line-height:1.5;">
