@@ -2511,18 +2511,23 @@
         <button class="btn folder-pick-btn desktop-only" type="button" id="btn-choose-folder" title="Open an entire folder of scans from your computer">
           <span data-icon="folder"></span><span>Scan Entire Folder...</span>
         </button>
-        <button class="btn folder-pick-btn" type="button" id="btn-open-cloud-hub" title="Connect Google Drive, Google Photos, OneDrive, or iCloud / ZIP without using hard drive space">
-          <span data-icon="spark"></span><span>Import from Cloud...</span>
-        </button>
         <button class="btn folder-pick-btn" type="button" id="btn-open-gedcom-hub" title="Import a .ged (PAF export) to re-link broken photo paths & sync people to FamilySearch Beta">
           <span data-icon="tree"></span><span>PAF / GEDCOM (.ged)...</span>
         </button>
-        <button class="btn folder-pick-btn desktop-only" type="button" id="btn-open-drive-sync" title="Compare a local folder against Google Drive using MD5 checksums, upload missing files, or trash cloud-only files">
-          <span data-icon="copy"></span><span>Drive Verify &amp; Sync...</span>
-        </button>
-        <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
-          ✕ Clear Demo Photos
-        </button>
+        <details id="sidebar-utilities" style="margin-top:4px;">
+          <summary style="font-size:11.5px;color:var(--muted);cursor:pointer;padding:4px 2px;font-weight:600;user-select:none;">⚙️ Cloud &amp; Drive Utilities</summary>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+            <button class="btn folder-pick-btn" type="button" id="btn-open-cloud-hub" title="Connect Google Drive, Google Photos, OneDrive, or iCloud / ZIP without using hard drive space">
+              <span data-icon="spark"></span><span>Import from Cloud...</span>
+            </button>
+            <button class="btn folder-pick-btn desktop-only" type="button" id="btn-open-drive-sync" title="Compare a local folder against Google Drive using MD5 checksums, upload missing files, or trash cloud-only files">
+              <span data-icon="copy"></span><span>Drive Verify &amp; Sync...</span>
+            </button>
+            <button class="btn sm demo-toggle-btn" type="button" id="btn-toggle-demo" title="Remove sample photos to work with your own real scans">
+              ✕ Clear Demo Photos
+            </button>
+          </div>
+        </details>
         <div class="folder-current">
           <span class="mono muted folder-current-name" id="sidebar-folder-name"
             title="Active photo source">Gill_Costello_Archive</span>
@@ -2636,16 +2641,19 @@
         </div>
 
         <div class="header-controls">
-          <!-- Primary Mode Switch: Catalog vs Unified Photo Lab vs Genealogy Sync -->
+          <!-- Primary 4-Step Workflow Switch: 1. Gather -> 2. Identify & Tag -> 3. Restore -> 4. Sync & Preserve -->
           <div class="segmented" role="group" aria-label="Workspace mode">
-            <button type="button" id="mode-catalog" aria-pressed="true">
-              <span data-icon="book"></span><span>Catalog</span>
+            <button type="button" id="mode-gather" aria-pressed="false" title="Step 1: Pick photos, scan a folder, load a PAF/GEDCOM tree, or import from Cloud">
+              <span data-icon="folder"></span><span>1. Gather</span>
             </button>
-            <button type="button" id="mode-lab" aria-pressed="false">
-              <span data-icon="sliders"></span><span>Photo Lab</span>
+            <button type="button" id="mode-catalog" aria-pressed="true" title="Step 2: Identify relatives, tag faces, add dates, places &amp; stories">
+              <span data-icon="book"></span><span>2. Identify &amp; Tag</span>
             </button>
-            <button type="button" id="mode-sync" aria-pressed="false">
-              <span data-icon="tree"></span><span>Sync &amp; Export</span>
+            <button type="button" id="mode-lab" aria-pressed="false" title="Step 3: 4K face restore, colorize, erase creases &amp; crop">
+              <span data-icon="sliders"></span><span>3. Restore</span>
+            </button>
+            <button type="button" id="mode-sync" aria-pressed="false" title="Step 4: Sync people &amp; memories to FamilySearch Beta or export JPEGs">
+              <span data-icon="tree"></span><span>4. Sync &amp; Preserve</span>
             </button>
           </div>
 
@@ -2768,6 +2776,9 @@
                 <button class="lab-btn" type="button" id="btn-lab-undo" title="Undo last repair">Undo</button>
                 <button class="lab-btn" type="button" id="btn-lab-reset"
                   title="Reset to untouched original">Reset</button>
+                <button class="lab-btn" type="button" id="btn-lab-next-sync"
+                  style="background:#16a34a;border-color:#16a34a;color:#fff;font-weight:600;"
+                  title="Proceed to Step 4: Sync &amp; Preserve">Next: Sync &amp; Preserve →</button>
               </div>
             </div>
 
@@ -3263,10 +3274,13 @@
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                   <span id="ft-face-counter" style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #38bdf8;">Face #1</span>
                   <span id="ft-current-badge" style="font-size: 14px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: rgba(251,191,36,0.18); color: #fbbf24;">Needs Name</span>
+                  <button type="button" id="btn-ft-untag-inline" style="display: none; background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 600; cursor: pointer;" title="Clear tag from this face box">✕ Untag</button>
                 </div>
+                <div id="ft-pid-row" style="margin-top: 6px; display: none; align-items: center; gap: 6px; flex-wrap: wrap;"></div>
                 <div id="ft-recog-banner" style="margin-top: 7px;"></div>
               </div>
             </div>
+            <div id="ft-pid-picker" style="display: none; background: rgba(15,23,42,0.94); border: 1px solid rgba(56,189,248,0.45); border-radius: 10px; padding: 10px;"></div>
 
             <!-- Empty state when 0 faces exist yet -->
             <div id="ft-empty-banner" style="display: none; padding: 14px; border-radius: 10px; background: rgba(56,189,248,0.1); border: 1px dashed rgba(56,189,248,0.45); color: #e0f2fe; font-size: 13.5px; line-height: 1.5;">
@@ -3276,6 +3290,12 @@
             <!-- All faces done banner -->
             <div id="ft-all-done-banner" style="display: none; padding: 9px 12px; border-radius: 8px; background: rgba(34,197,94,0.16); border: 1px solid rgba(34,197,94,0.4); color: #86efac; font-size: 13.5px; font-weight: 600;">
               ✓ Every face box in this photo is tagged! Click Done when ready, or click any box on the photo to adjust.
+            </div>
+
+            <!-- Live Relative Search across Photo, Directory, and Loaded GEDCOM -->
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <input type="search" id="ft-person-search" placeholder="🔍 Search people in photo, directory, or loaded GEDCOM..." style="width: 100%; background: rgba(0,0,0,0.38); color: #ffffff; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; padding: 8px 11px; font-size: 13.5px;">
+              <div id="ft-search-quick-add" style="display: none;"></div>
             </div>
 
             <!-- 1-Click Section: People Listed on This Photo -->
@@ -6338,6 +6358,8 @@
         let ftPanY = 0;
         let drawMode = Boolean(opts && opts.startInDrawMode);
         let compactLabels = p.faces.length >= 3;
+        let ftSearchQuery = '';
+        let ftPidPickerOpen = false;
 
         const stageEl = document.getElementById('ft-photo-stage');
         const innerEl = document.getElementById('ft-photo-inner');
@@ -6347,8 +6369,37 @@
         const quickBoxBtn = document.getElementById('btn-ft-quick-box');
         const rescanBtn = document.getElementById('btn-ft-rescan');
         const toggleLabelsBtn = document.getElementById('btn-ft-toggle-labels');
+        const personSearchInp = document.getElementById('ft-person-search');
+        const pidPickerEl = document.getElementById('ft-pid-picker');
+        if (personSearchInp) {
+          personSearchInp.value = '';
+          personSearchInp.oninput = () => {
+            ftSearchQuery = personSearchInp.value.trim();
+            renderModalState();
+          };
+        }
+        if (pidPickerEl) {
+          pidPickerEl.style.display = 'none';
+          pidPickerEl.innerHTML = '';
+        }
 
+        const fitStageImage = () => {
+          if (!stageImg || !stageImg.naturalWidth || !stageImg.naturalHeight || !stageEl) return;
+          const stageW = Math.max(360, stageEl.clientWidth - 28);
+          const stageH = Math.max(320, Math.min(stageEl.clientHeight - 28, Math.round(window.innerHeight * 0.68)));
+          const scale = Math.min(4, stageW / stageImg.naturalWidth, stageH / stageImg.naturalHeight);
+          stageImg.style.maxWidth = 'none';
+          stageImg.style.maxHeight = 'none';
+          stageImg.style.width = `${Math.round(stageImg.naturalWidth * scale)}px`;
+          stageImg.style.height = `${Math.round(stageImg.naturalHeight * scale)}px`;
+        };
+        stageImg.onload = fitStageImage;
+        stageImg.style.width = '';
+        stageImg.style.height = '';
+        stageImg.style.maxWidth = '';
+        stageImg.style.maxHeight = '';
         stageImg.src = afterSrc(p);
+        if (stageImg.complete && stageImg.naturalWidth > 0) fitStageImage();
 
         const refreshHostViews = () => {
           render();
@@ -6812,7 +6863,8 @@
 
           if (!resolvedPid && window.FamilySearchClient && window.FamilySearchClient.searchPersons) {
             window.FamilySearchClient.searchPersons(chosenName).then((matches) => {
-              if (matches && matches.length > 0 && matches[0].id) {
+              // Only auto-bind when FamilySearch returns a single unambiguous match
+              if (matches && matches.length === 1 && matches[0].id) {
                 const foundId = matches[0].id.toUpperCase();
                 if (isPidValidForPersonName(foundId, chosenName)) {
                   targetFace.fsId = foundId;
@@ -6821,6 +6873,7 @@
                   sanitizePhotoPersonPids(p);
                   saveItemMetadata(p);
                   refreshHostViews();
+                  renderModalState();
                 }
               }
             }).catch(() => {});
@@ -6961,14 +7014,169 @@
 
           document.getElementById('ft-face-counter').textContent = `Face #${activeIdx + 1} of ${p.faces.length}`;
           const badgeEl = document.getElementById('ft-current-badge');
+          const inlineUntagBtn = document.getElementById('btn-ft-untag-inline');
           if (curName) {
             badgeEl.style.background = 'rgba(34,197,94,0.2)';
             badgeEl.style.color = '#86efac';
             badgeEl.textContent = `✓ ${curName}`;
+            if (inlineUntagBtn) inlineUntagBtn.style.display = 'inline-flex';
           } else {
             badgeEl.style.background = 'rgba(251,191,36,0.18)';
             badgeEl.style.color = '#fbbf24';
             badgeEl.textContent = 'Needs Name — Click a person below';
+            if (inlineUntagBtn) inlineUntagBtn.style.display = 'none';
+          }
+
+          const unassignActiveFace = () => {
+            if (!p.faces[activeIdx]) return;
+            const targetFace = p.faces[activeIdx];
+            if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+              window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, targetFace.box));
+            }
+            targetFace.name = '';
+            targetFace.fsId = '';
+            targetFace.confirmed = false;
+            targetFace.recognized = false;
+            ftPidPickerOpen = false;
+            p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+            sanitizePhotoPersonPids(p);
+            saveItemMetadata(p);
+            notify(`Cleared tag from Face #${activeIdx + 1}.`);
+            refreshHostViews();
+            renderModalState();
+          };
+          if (inlineUntagBtn) inlineUntagBtn.onclick = unassignActiveFace;
+
+          // FamilySearch PID row + interactive picker for the tagged face
+          const pidRowEl = document.getElementById('ft-pid-row');
+          const curRelObj = curName && Array.isArray(p.people)
+            ? p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === curName.toLowerCase())
+            : null;
+          const activeFacePid = curName
+            ? (f.fsId || (curRelObj && curRelObj.fsId) || '').trim().toUpperCase()
+            : '';
+
+          const setFacePid = (newPid) => {
+            const cleanPid = String(newPid || '').trim().toUpperCase();
+            f.fsId = cleanPid;
+            if (curRelObj) {
+              if (cleanPid) curRelObj.fsId = cleanPid;
+              else delete curRelObj.fsId;
+            }
+            sanitizePhotoPersonPids(p);
+            saveItemMetadata(p);
+            refreshHostViews();
+            ftPidPickerOpen = false;
+            renderModalState();
+          };
+
+          if (pidRowEl) {
+            if (curName) {
+              pidRowEl.style.display = 'flex';
+              pidRowEl.innerHTML = `
+                <span style="font-size:11.5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.08);color:${activeFacePid ? '#7dd3fc' : '#cbd5e1'};border:1px solid rgba(255,255,255,0.14);">
+                  ${activeFacePid ? `FamilySearch PID: <strong>${esc(activeFacePid)}</strong>` : 'No FamilySearch PID linked'}
+                </span>
+                <button type="button" id="btn-ft-pick-pid" style="background:rgba(56,189,248,0.16);color:#7dd3fc;border:1px solid rgba(56,189,248,0.4);border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;">🔍 ${activeFacePid ? 'Change PID' : 'Pick / Set PID'}</button>
+                ${activeFacePid ? '<button type="button" id="btn-ft-clear-pid" style="background:rgba(239,68,68,0.14);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;">✕ Clear PID</button>' : ''}
+              `;
+              const clearPidBtn = document.getElementById('btn-ft-clear-pid');
+              if (clearPidBtn) {
+                clearPidBtn.onclick = () => {
+                  setFacePid('');
+                  notify(`Cleared FamilySearch PID for ${curName}.`);
+                };
+              }
+              const pickPidBtn = document.getElementById('btn-ft-pick-pid');
+              if (pickPidBtn && pidPickerEl) {
+                pickPidBtn.onclick = async () => {
+                  ftPidPickerOpen = !ftPidPickerOpen;
+                  if (!ftPidPickerOpen) {
+                    pidPickerEl.style.display = 'none';
+                    return;
+                  }
+                  pidPickerEl.style.display = 'block';
+                  pidPickerEl.innerHTML = `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                      <span style="font-size:12.5px;font-weight:700;color:#e0f2fe;">Choose FamilySearch Person for ${esc(curName)}</span>
+                      <button type="button" id="btn-ft-pid-close" style="background:transparent;border:none;color:#94a3b8;font-size:14px;cursor:pointer;">✕</button>
+                    </div>
+                    <div style="display:flex;gap:6px;margin-bottom:8px;">
+                      <input type="text" id="ft-manual-pid-inp" value="${esc(activeFacePid)}" placeholder="Paste exact PID (e.g. L64Z-JJX)" style="flex:1;background:rgba(0,0,0,0.4);color:#fff;border:1px solid rgba(255,255,255,0.22);border-radius:6px;padding:5px 8px;font-size:12px;text-transform:uppercase;">
+                      <button type="button" id="btn-ft-manual-pid-set" style="background:#2563eb;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">Set PID</button>
+                    </div>
+                    <div id="ft-pid-candidates" style="font-size:12px;color:#94a3b8;max-height:170px;overflow-y:auto;">Searching FamilySearch for "${esc(curName)}"...</div>
+                  `;
+                  document.getElementById('btn-ft-pid-close').onclick = () => {
+                    ftPidPickerOpen = false;
+                    pidPickerEl.style.display = 'none';
+                  };
+                  const manualInp = document.getElementById('ft-manual-pid-inp');
+                  const applyManual = () => {
+                    const v = (manualInp.value || '').trim().toUpperCase();
+                    if (!v) return;
+                    setFacePid(v);
+                    notify(`Linked PID ${v} to ${curName}.`);
+                  };
+                  document.getElementById('btn-ft-manual-pid-set').onclick = applyManual;
+                  manualInp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); applyManual(); } };
+
+                  const candListEl = document.getElementById('ft-pid-candidates');
+                  const fsClient = window.FamilySearchClient;
+                  if (!fsClient || !fsClient.getStoredToken || !fsClient.getStoredToken()) {
+                    candListEl.innerHTML = 'Sign in to FamilySearch Beta (top bar) to search candidates by name &amp; dates, or paste a PID above.';
+                    return;
+                  }
+                  try {
+                    const gedMatch = window._activeGedcomData && Array.isArray(window._activeGedcomData.peopleList)
+                      ? window._activeGedcomData.peopleList.find(gp => (gp.name || '').toLowerCase() === curName.toLowerCase())
+                      : null;
+                    const searchOpts = gedMatch ? {
+                      birthDate: gedMatch.birthDate,
+                      birthPlace: gedMatch.birthPlace,
+                      deathDate: gedMatch.deathDate,
+                      deathPlace: gedMatch.deathPlace
+                    } : undefined;
+                    const fsMatches = await fsClient.searchPersons(curName, searchOpts);
+                    const topMatches = (fsMatches || []).slice(0, 8);
+                    if (topMatches.length === 0) {
+                      candListEl.innerHTML = `No FamilySearch matches found for "${esc(curName)}". Paste a PID above.`;
+                      return;
+                    }
+                    candListEl.innerHTML = topMatches.map((m, mIdx) => {
+                      const lifeTxt = [m.lifespan || [m.birthDate, m.deathDate].filter(Boolean).join('–'), m.birthPlace].filter(Boolean).join(' · ');
+                      return `
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 4px;border-top:1px solid rgba(255,255,255,0.08);">
+                          <div style="min-width:0;">
+                            <div style="color:#f8fafc;font-weight:600;font-size:12.5px;">${esc(m.name || curName)} <span style="color:#7dd3fc;">(${esc(m.id)})</span></div>
+                            ${lifeTxt ? `<div style="color:#94a3b8;font-size:11px;">${esc(lifeTxt)}</div>` : ''}
+                          </div>
+                          <button type="button" class="ft-pick-fs-cand" data-cand-idx="${mIdx}" style="background:#16a34a;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:11.5px;font-weight:600;cursor:pointer;flex-shrink:0;">Use PID</button>
+                        </div>
+                      `;
+                    }).join('');
+                    candListEl.querySelectorAll('.ft-pick-fs-cand').forEach((cbtn) => {
+                      cbtn.onclick = () => {
+                        const chosen = topMatches[Number(cbtn.getAttribute('data-cand-idx'))];
+                        if (chosen && chosen.id) {
+                          setFacePid(chosen.id);
+                          notify(`Linked ${chosen.id} to ${curName}.`);
+                        }
+                      };
+                    });
+                  } catch (searchErr) {
+                    candListEl.textContent = `Search failed: ${searchErr.message || searchErr}`;
+                  }
+                };
+              }
+            } else {
+              pidRowEl.style.display = 'none';
+              pidRowEl.innerHTML = '';
+              if (pidPickerEl && !ftPidPickerOpen) pidPickerEl.style.display = 'none';
+            }
+          }
+          if (pidPickerEl && !ftPidPickerOpen) {
+            pidPickerEl.style.display = 'none';
           }
 
           // 3. Render Face Recognition banner
@@ -6990,11 +7198,15 @@
 
           allDoneEl.style.display = (taggedCount === p.faces.length) ? 'block' : 'none';
 
-          // 4. People in This Photo (1-Click buttons)
+          // 4. Filter + Quick-Add for People in This Photo & Family Directory
+          const qLower = ftSearchQuery.toLowerCase();
           const photoPeopleSec = document.getElementById('ft-photo-people-section');
           const photoPeopleList = document.getElementById('ft-photo-people-list');
-          const photoPeopleArr = (p.people || []).map(pr => (typeof pr === 'string' ? { name: pr, rel: 'Relative' } : pr)).filter(pr => pr && pr.name);
-          const photoNamesLower = new Set(photoPeopleArr.map(pr => pr.name.trim().toLowerCase()));
+          const allPhotoPeopleArr = (p.people || []).map(pr => (typeof pr === 'string' ? { name: pr, rel: 'Relative' } : pr)).filter(pr => pr && pr.name);
+          const photoNamesLower = new Set(allPhotoPeopleArr.map(pr => pr.name.trim().toLowerCase()));
+          const photoPeopleArr = qLower
+            ? allPhotoPeopleArr.filter(pr => pr.name.trim().toLowerCase().includes(qLower))
+            : allPhotoPeopleArr;
 
           if (photoPeopleArr.length > 0) {
             photoPeopleSec.style.display = 'block';
@@ -7009,13 +7221,16 @@
                     ? `<span style="color:#94a3b8;font-size:12px;">Face #${otherIdx + 1}</span>`
                     : '<span style="color:#38bdf8;font-size:12.5px;font-weight:700;">Select →</span>');
               return `
-                <button type="button" class="ft-person-choice ${isSelectedHere ? 'selected' : ''}" data-photo-person-idx="${pIdx}">
-                  <div style="min-width:0;overflow:hidden;">
-                    <div style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(prName)}</div>
-                    <div style="font-size:12px;color:#cbd5e1;margin-top:1px;">${esc(pr.rel || 'Relative')}${pidBadge ? ` · ${esc(pidBadge)}` : ''}</div>
-                  </div>
-                  ${rightLabel}
-                </button>
+                <div class="ft-person-choice ${isSelectedHere ? 'selected' : ''}" style="padding:0;overflow:hidden;">
+                  <button type="button" data-photo-person-idx="${pIdx}" style="flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 10px 10px 13px;background:transparent;border:none;color:inherit;text-align:left;cursor:pointer;">
+                    <div style="min-width:0;overflow:hidden;">
+                      <div style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(prName)}</div>
+                      <div style="font-size:12px;color:#cbd5e1;margin-top:1px;">${esc(pr.rel || 'Relative')}${pidBadge ? ` · ${esc(pidBadge)}` : ''}</div>
+                    </div>
+                    ${rightLabel}
+                  </button>
+                  <button type="button" data-remove-photo-person-idx="${pIdx}" title="Remove ${esc(prName)} from this photo" style="background:rgba(239,68,68,0.12);color:#fca5a5;border:none;border-left:1px solid rgba(255,255,255,0.12);padding:0 11px;align-self:stretch;cursor:pointer;font-size:14px;font-weight:700;">×</button>
+                </div>
               `;
             }).join('');
 
@@ -7025,14 +7240,89 @@
                 if (photoPeopleArr[idx]) assignPerson(photoPeopleArr[idx], true);
               };
             });
+            photoPeopleList.querySelectorAll('[data-remove-photo-person-idx]').forEach((rmBtn) => {
+              rmBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                const idx = parseInt(rmBtn.getAttribute('data-remove-photo-person-idx'), 10);
+                const targetPr = photoPeopleArr[idx];
+                if (!targetPr || !targetPr.name) return;
+                const rmLow = targetPr.name.trim().toLowerCase();
+                p.people = (p.people || []).filter(item => {
+                  const n = typeof item === 'string' ? item : (item && item.name);
+                  return !n || n.trim().toLowerCase() !== rmLow;
+                });
+                p.faces.forEach((fc) => {
+                  if ((fc.name || '').trim().toLowerCase() === rmLow) {
+                    if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
+                      window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, fc.box));
+                    }
+                    fc.name = '';
+                    fc.fsId = '';
+                    fc.confirmed = false;
+                    fc.recognized = false;
+                  }
+                });
+                p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
+                sanitizePhotoPersonPids(p);
+                saveItemMetadata(p);
+                notify(`Removed ${targetPr.name} from this photo.`);
+                refreshHostViews();
+                renderModalState();
+              };
+            });
           } else {
             photoPeopleSec.style.display = 'none';
           }
 
-          // 5. Family Directory & Learned Relatives (1-Click buttons)
+          // 5. Family Directory & Learned Relatives (+ Loaded GEDCOM matches when searching)
           const dirSec = document.getElementById('ft-directory-section');
           const dirList = document.getElementById('ft-directory-list');
-          const dirPeople = buildDirectoryPeople(photoNamesLower);
+          const baseDirPeople = buildDirectoryPeople(photoNamesLower);
+          let dirPeople = qLower
+            ? baseDirPeople.filter(dp => dp.name.toLowerCase().includes(qLower))
+            : baseDirPeople;
+
+          const dirSeenLower = new Set(dirPeople.map(d => d.name.toLowerCase()));
+          if (qLower.length >= 2 && window._activeGedcomData && Array.isArray(window._activeGedcomData.peopleList)) {
+            let addedGed = 0;
+            for (let gi = 0; gi < window._activeGedcomData.peopleList.length && addedGed < 15; gi++) {
+              const gp = window._activeGedcomData.peopleList[gi];
+              if (!gp || !gp.name) continue;
+              const gLow = gp.name.trim().toLowerCase();
+              if (!gLow.includes(qLower) || photoNamesLower.has(gLow) || dirSeenLower.has(gLow)) continue;
+              dirSeenLower.add(gLow);
+              const lifeLbl = [
+                gp.birthDate ? `b. ${gp.birthDate}` : '',
+                gp.deathDate ? `d. ${gp.deathDate}` : ''
+              ].filter(Boolean).join(' · ');
+              dirPeople = [...dirPeople, {
+                name: gp.name.trim(),
+                rel: lifeLbl ? `GEDCOM (${lifeLbl})` : 'GEDCOM Tree',
+                branch: gp.surname || p.branch || '',
+                gedId: gp.id,
+                fsId: ''
+              }];
+              addedGed++;
+            }
+          }
+
+          const quickAddEl = document.getElementById('ft-search-quick-add');
+          if (quickAddEl) {
+            const exactExists = qLower && (photoNamesLower.has(qLower) || dirSeenLower.has(qLower));
+            if (ftSearchQuery && !exactExists) {
+              quickAddEl.style.display = 'block';
+              quickAddEl.innerHTML = `<button type="button" id="btn-ft-search-add" style="width:100%;text-align:left;background:rgba(37,99,235,0.22);border:1px dashed rgba(96,165,250,0.65);color:#dbeafe;border-radius:8px;padding:7px 11px;font-size:13px;font-weight:600;cursor:pointer;">+ Tag &amp; Learn "${esc(ftSearchQuery)}" on Face #${activeIdx + 1}</button>`;
+              document.getElementById('btn-ft-search-add').onclick = () => {
+                const nm = ftSearchQuery;
+                ftSearchQuery = '';
+                if (personSearchInp) personSearchInp.value = '';
+                assignPerson({ name: nm, rel: 'Relative', branch: p.branch || '' }, true);
+              };
+            } else {
+              quickAddEl.style.display = 'none';
+              quickAddEl.innerHTML = '';
+            }
+          }
 
           if (dirPeople.length > 0) {
             dirSec.style.display = 'block';
@@ -7081,22 +7371,7 @@
             }
           };
 
-          document.getElementById('btn-ft-unassign').onclick = () => {
-            if (!p.faces[activeIdx]) return;
-            const targetFace = p.faces[activeIdx];
-            if (window.FaceDetectorEngine && window.FaceDetectorEngine.forgetFace && window.FaceDetectorEngine.makeFaceSourceKey) {
-              window.FaceDetectorEngine.forgetFace(window.FaceDetectorEngine.makeFaceSourceKey(p.id, targetFace.box));
-            }
-            targetFace.name = '';
-            targetFace.fsId = '';
-            targetFace.confirmed = false;
-            targetFace.recognized = false;
-            p.unnamedFaces = p.faces.filter(fc => !(fc.name || '').trim()).length;
-            saveItemMetadata(p);
-            notify(`Face #${activeIdx + 1} unassigned.`);
-            refreshHostViews();
-            renderModalState();
-          };
+          document.getElementById('btn-ft-unassign').onclick = unassignActiveFace;
 
           document.getElementById('btn-ft-delete').onclick = () => {
             if (!p.faces[activeIdx]) return;
@@ -7115,6 +7390,7 @@
         }
 
         modal.removeAttribute('hidden');
+        fitStageImage();
         renderModalState();
 
         // Populate face portrait crops & recognition candidates if any box lacks a crop
@@ -12992,9 +13268,45 @@
         });
       });
 
+      document.getElementById('mode-gather').onclick = () => {
+        const existing = document.getElementById('gather-quick-modal');
+        if (existing) existing.remove();
+        const ov = document.createElement('div');
+        ov.id = 'gather-quick-modal';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.5);z-index:99990;display:flex;align-items:center;justify-content:center;padding:16px;';
+        ov.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,0.28);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div>
+                <h2 style="font-size:16px;font-weight:700;margin:0;">Step 1: Gather Photos &amp; Family Tree</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Start from local scans or load your PAF/GEDCOM file first.</p>
+              </div>
+              <button type="button" class="btn sm" id="gq-close">✕</button>
+            </div>
+            <div style="display:grid;gap:9px;">
+              <button type="button" class="btn primary" id="gq-pick" style="justify-content:flex-start;padding:10px 14px;">🖼️ Pick Photo(s) (1–5) from Computer / Phone</button>
+              <button type="button" class="btn" id="gq-folder" style="justify-content:flex-start;padding:10px 14px;">📁 Scan Entire Photo Folder (All Subfolders)</button>
+              <button type="button" class="btn" id="gq-gedcom" style="justify-content:flex-start;padding:10px 14px;">🌳 Load PAF / GEDCOM (.ged) Tree &amp; Photo Re-Linker</button>
+              <button type="button" class="btn" id="gq-cloud" style="justify-content:flex-start;padding:10px 14px;">☁️ Import from Cloud (Google Drive, Google Photos, OneDrive)</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(ov);
+        const closeGq = () => ov.remove();
+        ov.querySelector('#gq-close').onclick = closeGq;
+        ov.onclick = (e) => { if (e.target === ov) closeGq(); };
+        ov.querySelector('#gq-pick').onclick = () => { closeGq(); document.getElementById('btn-pick-1-5').click(); };
+        ov.querySelector('#gq-folder').onclick = () => { closeGq(); document.getElementById('btn-choose-folder').click(); };
+        ov.querySelector('#gq-gedcom').onclick = () => { closeGq(); document.getElementById('btn-open-gedcom-hub').click(); };
+        ov.querySelector('#gq-cloud').onclick = () => { closeGq(); document.getElementById('btn-open-cloud-hub').click(); };
+      };
       document.getElementById('mode-catalog').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'catalog'; render(); };
       document.getElementById('mode-lab').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'lab'; render(); };
       document.getElementById('mode-sync').onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'sync'; render(); };
+      const labNextSyncBtn = document.getElementById('btn-lab-next-sync');
+      if (labNextSyncBtn) {
+        labNextSyncBtn.onclick = () => { commitInspectorInputs(currentPhoto(), false); mode = 'sync'; render(); };
+      }
       document.getElementById('btn-fs-auth').onclick = () => {
         if (!fsUser) {
           signInFamilySearch();
@@ -14645,10 +14957,11 @@
           if (activeTab === 'gdrive') {
             body.innerHTML = `
               <p style="font-size:13px;margin:0 0 10px;">Choose a folder in <strong>Google Drive</strong> and the app will recursively scan it for photos and load them in batches of 50 without filling your hard drive.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
                 <button type="button" class="btn primary sm" id="btn-gdrive-connect">${gdriveToken ? '✓ Connected — Refresh Folders' : '🔗 Connect Google Drive'}</button>
                 ${gdriveToken ? `<button type="button" class="btn accent sm" id="btn-gdrive-scan-cur">📂 Scan "${esc(gdriveStack[gdriveStack.length - 1].name)}"</button>` : ''}
               </div>
+              <div class="muted" style="font-size:11px;margin-bottom:10px;">🔒 Runs 100% in your browser — your files stay between your computer and Google Drive (nothing is sent to GitHub).</div>
               <details style="margin-bottom:10px;font-size:11.5px;">
                 <summary class="muted" style="cursor:pointer;">Advanced: Custom Google OAuth Client ID</summary>
                 <div class="field" style="margin-top:6px;">
@@ -14931,7 +15244,7 @@
         renderTab();
       }
 
-      async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = [], linkedPhoto = null) {
+      async function openFamilySearchCompareModal(person, pid, sourceBtn, candidates = [], linkedPhoto = null, bannerMsg = '') {
         const fs = window.FamilySearchClient;
         if (!fs || !fs.getPersonForCompare || !fs.extractStructuredPafData || !fs.applyPersonCompareUpdates) {
           return false;
@@ -15177,6 +15490,11 @@
               <button type="button" class="btn sm" id="fs-cmp-create-new" style="margin-left:auto;">+ Not a Match? Create New Person</button>
             </div>
             <div style="padding:14px 20px;overflow-y:auto;flex:1;">
+              ${bannerMsg ? `
+                <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:#dcfce7;border:1px solid #86efac;color:#166534;font-size:12.5px;line-height:1.45;">
+                  <strong>${esc(bannerMsg)}</strong>${rows.every((r) => r.status === 'match') ? ' — Everything now matches FamilySearch Beta (nothing left to add).' : ''}
+                </div>
+              ` : ''}
               ${vitalConflict ? `
                 <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:12.5px;line-height:1.45;">
                   <strong>⚠️ Possible Wrong Person:</strong> FamilySearch <strong>${esc(activePid)}</strong> has a different Birth/Death than the GEDCOM record. All checkboxes were unchecked for safety — pick the right person in <strong>Match</strong> above, paste their exact <strong>PID</strong>, or click <strong>+ Not a Match? Create New Person</strong>.
@@ -15209,9 +15527,9 @@
               <div id="fs-cmp-status" class="muted" style="margin-top:12px;font-size:12px;"></div>
             </div>
             <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-              <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(activePid)}" target="_blank" rel="noopener" class="btn sm">Open ${esc(activePid)} on FamilySearch Beta ↗</a>
+              <a href="${fs.WEB_BASE}/tree/person/details/${encodeURIComponent(activePid)}" target="_blank" rel="noopener" class="btn sm accent">Open ${esc(activePid)} on FamilySearch Beta ↗</a>
               <div style="display:flex;gap:8px;">
-                <button type="button" class="btn sm" id="fs-cmp-cancel">Cancel</button>
+                <button type="button" class="btn sm" id="fs-cmp-cancel">← Back to List</button>
                 <button type="button" class="btn sm primary" id="fs-cmp-apply">Apply Checked Updates</button>
               </div>
             </div>
@@ -15366,13 +15684,15 @@
             }
             const msg = summary.length
               ? `✓ Updated ${activePid}: ${summary.join(', ')}.`
-              : 'Finished (no changes applied).';
+              : 'No new changes needed.';
             notify(msg);
             if (sourceBtn) {
               sourceBtn.textContent = `✓ Synced ${activePid}`;
               sourceBtn.disabled = false;
             }
+            // Refresh the same individual in place so updated rows flip to green Matches-FS and user can open FS
             closeCmp();
+            await openFamilySearchCompareModal(person, activePid, sourceBtn, candidates, linkedPhoto, msg);
           } catch (err) {
             cmpStatus.style.color = '#991b1b';
             cmpStatus.textContent = err.message || 'Update failed.';
@@ -15839,7 +16159,8 @@
                 <div style="padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);">
                   <div style="font-weight:600;font-size:13px;margin-bottom:6px;">2. Google Drive Folder (Cloud)</div>
                   <button type="button" class="btn sm primary" id="ds-connect-drive">${driveToken ? '✓ Connected' : '🔗 Connect Google Drive (Read + Write)'}</button>
-                  <div id="ds-drive-selected" class="muted" style="font-size:12px;margin-top:8px;">Not connected yet.</div>
+                  <div class="muted" style="font-size:11px;margin-top:6px;">🔒 Runs 100% in your browser — your files stay between your computer and Google Drive (nothing is sent to GitHub).</div>
+                  <div id="ds-drive-selected" class="muted" style="font-size:12px;margin-top:6px;">Not connected yet.</div>
                   <details style="margin-top:8px;font-size:11px;">
                     <summary class="muted" style="cursor:pointer;">Advanced: Custom Google OAuth Client ID</summary>
                     <input type="text" id="ds-google-cid" placeholder="Google OAuth Client ID" value="${esc(saved.googleClientId || '')}" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:11.5px;margin-top:6px;">
