@@ -145,13 +145,16 @@
   function stats(list = ITEMS) {
     const active = list.filter((p) => !p.inReview);
     const inReview = list.filter((p) => p.inReview);
-    const unnamedPhotos = active.filter((p) => p.unnamedFaces > 0);
-    const unnamedFacesTotal = active.reduce((s, p) => s + p.unnamedFaces, 0);
+    const getUnnamed = (p) => (Array.isArray(p.faces) && p.faces.length > 0)
+      ? p.faces.filter((fc) => fc && !(fc.name || '').trim()).length
+      : Math.max(0, Number(p.unnamedFaces) || 0);
+    const unnamedPhotos = active.filter((p) => getUnnamed(p) > 0);
+    const unnamedFacesTotal = active.reduce((s, p) => s + getUnnamed(p), 0);
     const lowRes = active.filter((p) => !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75));
     const restored = active.filter((p) => p.restored4k);
     const withStory = active.filter((p) => p.story && p.story.trim().length > 0);
-    const namedOnly = active.filter((p) => (!p.story || !p.story.trim()) && p.people.length > 0 && p.unnamedFaces === 0);
-    const untagged = active.filter((p) => (!p.story || !p.story.trim()) && (p.people.length === 0 || p.unnamedFaces > 0));
+    const namedOnly = active.filter((p) => (!p.story || !p.story.trim()) && p.people.length > 0 && getUnnamed(p) === 0);
+    const untagged = active.filter((p) => (!p.story || !p.story.trim()) && (p.people.length === 0 || getUnnamed(p) > 0));
     const fsSynced = active.filter((p) => p.fsSynced);
     const undated = active.filter((p) => !p.decade);
 

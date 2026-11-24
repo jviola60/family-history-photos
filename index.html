@@ -2704,7 +2704,7 @@
           <div class="panel">
             <div class="panel-head">
               <h2>Prints by decade</h2>
-              <span class="mono muted">1960s + 1970s peak</span>
+              <span class="mono muted" id="chart-decades-subtitle">1960s + 1970s peak</span>
             </div>
             <div id="chart-decades"></div>
           </div>
@@ -3595,6 +3595,9 @@
       let inspFitMode = 'fit';     // 'fit' (shows whole uncropped photo & exact face boxes) | 'fill' (fills box)
       let labFitMode = 'fit';      // 'fit' (shows whole uncropped photo in Photo Lab) | 'fill' (16:10 stage fill)
       let showCharts = false;
+      let _bgFaceScanGen = 0;
+      let _bgFaceScanState = { running: false, done: 0, total: 0 };
+      let _metaRefreshTimer = null;
       let selectedId = 'FH-002';   // Start on a vintage 640x480 scan ready for repairs
       let fsUser = null;           // null when signed out, { name, pid } when signed in via FamilySearch OAuth2
       let pendingFsUploadPhoto = null;
@@ -3665,6 +3668,7 @@
           const cleanFaces = Array.isArray(p.faces) ? p.faces.map((f) => ({
             id: f.id,
             name: f.name,
+            fsId: f.fsId || '',
             rel: f.rel,
             branch: f.branch,
             confirmed: f.confirmed,
@@ -3683,7 +3687,12 @@
             branch: p.branch,
             people: p.people,
             faces: cleanFaces,
+            facesScanned: Boolean(p.facesScanned),
+            hasPeopleOverride: p.hasPeopleOverride,
             unnamedFaces: p.unnamedFaces,
+            inReview: Boolean(p.inReview),
+            screenshot: Boolean(p.screenshot),
+            isScreenshotManual: p.isScreenshotManual,
             story: p.story,
             fsId: p.fsId,
             fsSynced: p.fsSynced,
@@ -3870,7 +3879,12 @@
               if (Array.isArray(saved.faces) && saved.faces.length > 0) {
                 p.faces = saved.faces;
               }
+              if (typeof saved.facesScanned === 'boolean') p.facesScanned = saved.facesScanned;
+              if (typeof saved.hasPeopleOverride === 'boolean') p.hasPeopleOverride = saved.hasPeopleOverride;
               if (typeof saved.unnamedFaces === 'number') p.unnamedFaces = saved.unnamedFaces;
+              if (typeof saved.inReview === 'boolean') p.inReview = saved.inReview;
+              if (typeof saved.screenshot === 'boolean') p.screenshot = saved.screenshot;
+              if (typeof saved.isScreenshotManual === 'boolean') p.isScreenshotManual = saved.isScreenshotManual;
               if (saved.story) p.story = saved.story;
               if (saved.fsId) p.fsId = saved.fsId;
               if (typeof saved.fsSynced === 'boolean') p.fsSynced = saved.fsSynced;
@@ -3889,6 +3903,7 @@
               if (Array.isArray(saved.edits)) p.edits = saved.edits;
             }
             sanitizePhotoPersonPids(p);
+            p.unnamedFaces = getUnnamedFaceCount(p);
           });
 
           // Restore persisted edited image blobs for items that have saved edits (e.g. after folder re-open or restart)
@@ -4021,6 +4036,7 @@
           entry.faces = entry.faces.map((f) => ({
             id: f.id,
             name: f.name,
+            fsId: f.fsId || '',
             rel: f.rel,
             branch: f.branch,
             confirmed: f.confirmed,
@@ -4746,14 +4762,33 @@
         return !p.restored4k && (p.width < 800 || p.height < 800 || p.kb < 75);
       }
 
+      function getUnnamedFaceCount(p) {
+        if (!p) return 0;
+        if (Array.isArray(p.faces) && p.faces.length > 0) {
+          return p.faces.filter((fc) => fc && !(fc.name || '').trim()).length;
+        }
+        return Math.max(0, Number(p.unnamedFaces) || 0);
+      }
+
+      function isPhotoFaceScanned(p) {
+        return Boolean(p && (p.facesScanned === true || (Array.isArray(p.faces) && p.faces.length > 0) || typeof p.hasPeopleOverride === 'boolean' || !isCustomFolder));
+      }
+
       function hasPeople(p) {
         if (!p) return false;
         if (p.hasPeopleOverride === true) return true;
         if (p.hasPeopleOverride === false) return false;
         if (Array.isArray(p.people) && p.people.length > 0) return true;
         if (Array.isArray(p.faces) && p.faces.length > 0) return true;
-        if (typeof p.unnamedFaces === 'number' && p.unnamedFaces > 0) return true;
+        if (getUnnamedFaceCount(p) > 0) return true;
         return false;
+      }
+
+      function isNoPeoplePhoto(p) {
+        if (!p) return false;
+        if (p.hasPeopleOverride === false) return true;
+        if (hasPeople(p)) return false;
+        return Boolean(p.facesScanned === true || !isCustomFolder || isScreenshotPhoto(p));
       }
 
       function isScreenshotPhoto(p) {
@@ -4862,14 +4897,14 @@
       function filteredItems() {
         return items.filter((p) => {
           if (activeFolder) {
-            if (p.subfolder !== activeFolder) return false;
+            if (p.inReview || p.subfolder !== activeFolder) return false;
           } else {
             if (activeQueue === 'review') return p.inReview;
             if (p.inReview && activeQueue !== 'duplicates') return false;
             if (activeQueue === 'screenshots') return isScreenshotPhoto(p);
             if (activeQueue === 'with_people') return hasPeople(p);
-            if (activeQueue === 'no_people') return !hasPeople(p);
-            if (activeQueue === 'unnamed' && p.unnamedFaces === 0) return false;
+            if (activeQueue === 'no_people') return isNoPeoplePhoto(p);
+            if (activeQueue === 'unnamed' && getUnnamedFaceCount(p) === 0) return false;
             if (activeQueue === 'unsynced' && p.fsSynced) return false;
             if (activeQueue === 'lowres' && !isLowRes(p)) return false;
           }
@@ -4912,7 +4947,8 @@
         const s = stats(items);
         const activePhotos = items.filter((p) => !p.inReview);
         const withPeopleCount = activePhotos.filter((p) => hasPeople(p)).length;
-        const noPeopleCount = activePhotos.filter((p) => !hasPeople(p)).length;
+        const noPeopleCount = activePhotos.filter((p) => isNoPeoplePhoto(p)).length;
+        const unscannedCount = activePhotos.filter((p) => !isPhotoFaceScanned(p) && !hasPeople(p) && !isScreenshotPhoto(p)).length;
         const screenshotCount = activePhotos.filter((p) => isScreenshotPhoto(p)).length;
 
         document.getElementById('q-all').textContent = s.activeCount;
@@ -4930,7 +4966,11 @@
             document.getElementById('kpi-active').textContent = s.activeCount;
             document.getElementById('kpi-review-note').textContent = `${s.reviewCount} staged in Review & Cleanup`;
             document.getElementById('kpi-faces').textContent = s.unnamedFacesTotal;
-            document.getElementById('kpi-faces-note').textContent = `Across ${s.unnamedPhotoCount} prints`;
+            document.getElementById('kpi-faces-note').textContent = _bgFaceScanState.running
+              ? `Scanning faces… ${_bgFaceScanState.done}/${_bgFaceScanState.total} · ${s.unnamedPhotoCount} prints`
+              : (unscannedCount > 0
+                ? `Across ${s.unnamedPhotoCount} prints (${unscannedCount} unscanned)`
+                : `Across ${s.unnamedPhotoCount} prints`);
             const totalNeedOrDone = s.restoredCount + s.lowResCount;
             document.getElementById('kpi-repairs').textContent = `${s.restoredCount} / ${totalNeedOrDone}`;
             document.getElementById('kpi-repairs-note').textContent = `${s.lowResCount} small scans ready for Lab`;
@@ -4972,12 +5012,24 @@
             if (!showCharts) return;
 
             const active = items.filter((p) => !p.inReview);
-            const order = ['1950s', '1960s', '1970s', '1980s', '1990s', '2000s'];
+            const rawDecades = Array.from(new Set(active.map((p) => p.decade).filter(Boolean))).sort();
+            const order = rawDecades.length > 0 ? rawDecades : ['1950s', '1960s', '1970s', '1980s', '1990s', '2000s'];
             const values = order.map((d) => active.filter((p) => p.decade === d).length);
+            const sortedIdx = values
+              .map((v, i) => ({ v, i }))
+              .filter((x) => x.v > 0)
+              .sort((a, b) => b.v - a.v);
+            const highlightIdxs = sortedIdx.slice(0, 2).map((x) => x.i);
+            const decSub = document.getElementById('chart-decades-subtitle');
+            if (decSub) {
+              decSub.textContent = sortedIdx.length > 0
+                ? `${highlightIdxs.map((i) => order[i]).join(' + ')} peak`
+                : 'No dated prints yet';
+            }
             window.Charts.bars(document.getElementById('chart-decades'), {
               labels: order,
               values,
-              highlight: [1, 2],
+              highlight: highlightIdxs,
               height: 156
             });
 
@@ -5283,6 +5335,21 @@
             if (!list.find((p) => p.id === selectedId) && list[0]) {
               selectedId = list[0].id;
             }
+            const unscannedActiveCount = items.filter((p) => !p.inReview && !isPhotoFaceScanned(p) && !hasPeople(p) && !isScreenshotPhoto(p)).length;
+            const wireScanButtons = () => {
+              host.querySelectorAll('.btn-scan-all-faces').forEach((btn) => {
+                btn.onclick = () => {
+                  notify('Scanning photos for faces in background...');
+                  scheduleBackgroundFaceScan(items, false);
+                };
+              });
+              host.querySelectorAll('.btn-rescan-all-faces').forEach((btn) => {
+                btn.onclick = () => {
+                  notify('Re-scanning active album photos for faces...');
+                  scheduleBackgroundFaceScan(items, true);
+                };
+              });
+            };
 
             if (list.length === 0) {
               if (activeQueue === 'screenshots') {
@@ -5322,12 +5389,16 @@
                 host.innerHTML = `
                   <div class="panel" style="padding:32px 20px;text-align:center;">
                     <div style="font-size:32px;margin-bottom:8px;">👥</div>
-                    <p style="font-weight:600;font-size:16px;">No Photos With People Detected</p>
-                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
-                      No relatives or faces are currently tagged in active photos. Tag individuals in any photo to populate this queue.
+                    <p style="font-weight:600;font-size:16px;">${_bgFaceScanState.running ? `Scanning Photos for People (${_bgFaceScanState.done}/${_bgFaceScanState.total})…` : 'No Photos With People Tagged Yet'}</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:460px;margin-left:auto;margin-right:auto;">
+                      ${unscannedActiveCount > 0 ? `${unscannedActiveCount} active photo(s) haven't been scanned for faces yet.` : 'No relatives or faces are currently detected in active photos.'}
                     </p>
-                    <button class="btn sm" type="button" style="margin-top:16px;" id="btn-people-see-all">Return to all prints</button>
+                    <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                      ${unscannedActiveCount > 0 ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>` : ''}
+                      <button class="btn sm" type="button" id="btn-people-see-all">Return to all prints</button>
+                    </div>
                   </div>`;
+                wireScanButtons();
                 const seeAllBtn = host.querySelector('#btn-people-see-all');
                 if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
                 return;
@@ -5336,13 +5407,35 @@
                 host.innerHTML = `
                   <div class="panel" style="padding:32px 20px;text-align:center;">
                     <div style="font-size:32px;margin-bottom:8px;">🏞️</div>
-                    <p style="font-weight:600;font-size:16px;">No Scenery or Document Photos</p>
-                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:440px;margin-left:auto;margin-right:auto;">
-                      All current photos have relatives or faces tagged. Scenery, certificates, buildings, and objects will appear here.
+                    <p style="font-weight:600;font-size:16px;">${_bgFaceScanState.running ? `Scanning Photos (${_bgFaceScanState.done}/${_bgFaceScanState.total})…` : 'No Scenery or Document Photos'}</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:460px;margin-left:auto;margin-right:auto;">
+                      ${unscannedActiveCount > 0 ? `${unscannedActiveCount} active photo(s) are still unscanned, so they aren't falsely marked as scenery yet.` : 'All scanned active photos have relatives or faces tagged. Scenery, certificates, buildings, and objects will appear here.'}
                     </p>
-                    <button class="btn sm" type="button" style="margin-top:16px;" id="btn-no-people-see-all">Return to all prints</button>
+                    <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                      ${unscannedActiveCount > 0 ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>` : ''}
+                      <button class="btn sm" type="button" id="btn-no-people-see-all">Return to all prints</button>
+                    </div>
                   </div>`;
+                wireScanButtons();
                 const seeAllBtn = host.querySelector('#btn-no-people-see-all');
+                if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
+                return;
+              }
+              if (activeQueue === 'unnamed') {
+                host.innerHTML = `
+                  <div class="panel" style="padding:32px 20px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:8px;">🙂</div>
+                    <p style="font-weight:600;font-size:16px;">${_bgFaceScanState.running ? `Scanning Faces Across Album (${_bgFaceScanState.done}/${_bgFaceScanState.total})…` : (unscannedActiveCount > 0 ? `${unscannedActiveCount} Photos Not Scanned for Faces Yet` : 'No Unnamed Faces Left')}</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px;max-width:460px;margin-left:auto;margin-right:auto;">
+                      ${_bgFaceScanState.running ? 'Looking for faces in your active photos so unnamed portraits appear here automatically.' : (unscannedActiveCount > 0 ? 'Run a quick background face scan to detect unnamed faces across your imported photos.' : 'All detected faces in your scanned photos already have names.')}
+                    </p>
+                    <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                      ${unscannedActiveCount > 0 ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>` : `<button class="btn sm btn-rescan-all-faces" type="button">🔄 Rescan All Photos for Faces</button>`}
+                      <button class="btn sm" type="button" id="btn-unnamed-see-all">Return to all prints</button>
+                    </div>
+                  </div>`;
+                wireScanButtons();
+                const seeAllBtn = host.querySelector('#btn-unnamed-see-all');
                 if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
                 return;
               }
@@ -5405,8 +5498,15 @@
                   <span style="font-size:20px;">👥</span>
                   <div>
                     <div style="font-weight:600;font-size:14px;color:var(--text);">Photos With People (${list.length})</div>
-                    <div class="muted" style="font-size:12px;margin-top:2px;">Portraits, family reunions, and photos with tagged or recognized relatives.</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Portraits, family reunions, and photos with tagged or detected faces.${unscannedActiveCount > 0 ? ` (${unscannedActiveCount} unscanned photo(s) left)` : ''}</div>
                   </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  ${_bgFaceScanState.running
+                    ? `<span class="pill info">Scanning ${_bgFaceScanState.done}/${_bgFaceScanState.total}…</span>`
+                    : (unscannedActiveCount > 0
+                      ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>`
+                      : `<button class="btn sm btn-rescan-all-faces" type="button">🔄 Rescan Faces</button>`)}
                 </div>
               </div>` : (activeQueue === 'no_people') ? `
               <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -5414,8 +5514,31 @@
                   <span style="font-size:20px;">🏞️</span>
                   <div>
                     <div style="font-weight:600;font-size:14px;color:var(--text);">Photos With No People (${list.length})</div>
-                    <div class="muted" style="font-size:12px;margin-top:2px;">Scenery, historical homes, cemetery markers, documents, certificates, and heirlooms.</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Scanned scenery, historical homes, cemetery markers, documents, and heirlooms.${unscannedActiveCount > 0 ? ` (${unscannedActiveCount} unscanned photo(s) excluded until scanned)` : ''}</div>
                   </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  ${_bgFaceScanState.running
+                    ? `<span class="pill info">Scanning ${_bgFaceScanState.done}/${_bgFaceScanState.total}…</span>`
+                    : (unscannedActiveCount > 0
+                      ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>`
+                      : '')}
+                </div>
+              </div>` : (activeQueue === 'unnamed') ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:20px;">🙂</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Unnamed Faces (${list.length} print${list.length === 1 ? '' : 's'} · ${list.reduce((s, p) => s + getUnnamedFaceCount(p), 0)} face(s))</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Click a photo to tag its detected face boxes in the Inspector or Blow-Up Face Tagger.</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  ${_bgFaceScanState.running
+                    ? `<span class="pill info">Scanning ${_bgFaceScanState.done}/${_bgFaceScanState.total}…</span>`
+                    : (unscannedActiveCount > 0
+                      ? `<button class="btn sm primary btn-scan-all-faces" type="button">🔍 Scan All Faces Now</button>`
+                      : `<button class="btn sm btn-rescan-all-faces" type="button">🔄 Rescan All Photos</button>`)}
                 </div>
               </div>` : '';
 
@@ -5483,8 +5606,9 @@
                 const peopleLine = p.people.length
                   ? p.people.map((x) => `${esc(x.name)}${x.rel ? ` <span class="pill neu" style="font-size:11px;padding:1px 5px;font-weight:600;background:var(--raised);border:1px solid var(--border);border-radius:4px;">${esc(x.rel)}</span>` : ''}`).join(', ')
                   : `<span class="muted">Unidentified</span>`;
-                const faceNote = p.unnamedFaces > 0
-                  ? ` <span class="pill warn" style="margin-left:4px;">${p.unnamedFaces} unnamed</span>`
+                const unnamedCnt = getUnnamedFaceCount(p);
+                const faceNote = unnamedCnt > 0
+                  ? ` <span class="pill warn" style="margin-left:4px;">${unnamedCnt} unnamed</span>`
                   : '';
 
                 return `
@@ -5505,7 +5629,11 @@
                         <td class="mono" style="white-space:nowrap;">${p.isoDate ? esc(p.isoDate) : '<span class="muted">Undated</span>'}</td>
                         <td style="white-space:nowrap;">${statusPill}${extraEdits}</td>
                         <td class="mono" style="white-space:nowrap;">
-                          ${p.fsSynced ? `<span class="pill pos">${esc(p.fsId)}</span>` : `<span class="pill neu">Pending</span>`}
+                          ${p.fsSynced
+                            ? `<span class="pill pos">${esc(p.fsId || (p.fsMemoryId ? `Mem #${p.fsMemoryId}` : 'Synced'))}</span>`
+                            : (p.fsId
+                              ? `<span class="pill info" title="PID linked locally — not yet uploaded to FamilySearch">${esc(p.fsId)} · Local</span>`
+                              : `<span class="pill neu">Pending</span>`)}
                         </td>
                         <td class="n" style="white-space:nowrap;">
                           ${p.inReview ? `
@@ -5655,6 +5783,7 @@
             const emptyReviewBtn = host.querySelector('#btn-empty-review');
             if (emptyReviewBtn) emptyReviewBtn.onclick = emptyReviewQueue;
 
+            wireScanButtons();
             mountIcons(host);
 
             const btnPrev = host.querySelector('#btn-page-prev');
@@ -7701,13 +7830,16 @@
             </div>
           </div>
 
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--raised);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;flex-wrap:wrap;">
             ${isScreenshotPhoto(p) ? `
               <span style="font-size:12px;color:var(--text);font-weight:500;">📱 Flagged as screenshot</span>
               <button class="link-btn" type="button" id="btn-unflag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">Keep as family photo</button>
             ` : `
-              <span style="font-size:12px;color:var(--muted);">${hasPeople(p) ? '👥 Category: Photo with people' : '🏞️ Category: Scenery / Document'}</span>
-              <button class="link-btn" type="button" id="btn-flag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">📱 Flag as screenshot</button>
+              <span style="font-size:12px;color:var(--muted);">${hasPeople(p) ? '👥 Category: Photo with people' : (isNoPeoplePhoto(p) ? '🏞️ Category: Scenery / Document' : '⏳ Category: Scanning / Unscanned')}</span>
+              <span style="display:inline-flex;gap:8px;align-items:center;">
+                <button class="link-btn" type="button" id="btn-toggle-has-people" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">${hasPeople(p) ? 'Mark as Scenery' : 'Mark as Has People'}</button>
+                <button class="link-btn" type="button" id="btn-flag-screenshot" style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer;">📱 Flag as screenshot</button>
+              </span>
             `}
           </div>
 
@@ -8838,6 +8970,18 @@
                 saveItemMetadata(p);
                 try { saveArchiveToDb(items, rootFolderName); } catch (e) {}
                 notify(`Flagged ${p.id} as screenshot; moved to Clean screenshots queue.`);
+                render();
+              };
+            }
+            const togglePeopleBtn = box.querySelector('#btn-toggle-has-people');
+            if (togglePeopleBtn) {
+              togglePeopleBtn.onclick = () => {
+                p.hasPeopleOverride = !hasPeople(p);
+                saveItemMetadata(p);
+                if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                  saveArchiveToDb(items, rootFolderName).catch(() => {});
+                }
+                notify(`${p.id} marked as ${p.hasPeopleOverride ? 'Photo with people' : 'Scenery / Document'}.`);
                 render();
               };
             }
@@ -13589,8 +13733,16 @@
         document.getElementById('mode-lab').setAttribute('aria-pressed', isLab ? 'true' : 'false');
         document.getElementById('mode-sync').setAttribute('aria-pressed', isSync ? 'true' : 'false');
 
-        document.getElementById('catalog-view-switch').style.display = isCatalog ? 'inline-flex' : 'none';
-        document.getElementById('btn-toggle-charts').style.display = isCatalog ? 'inline-flex' : 'none';
+        const viewSwitchEl = document.getElementById('catalog-view-switch');
+        if (viewSwitchEl) viewSwitchEl.style.display = 'inline-flex';
+        const toggleChartsBtn = document.getElementById('btn-toggle-charts');
+        if (toggleChartsBtn) {
+          toggleChartsBtn.style.display = 'inline-flex';
+          toggleChartsBtn.setAttribute('aria-pressed', (isCatalog && showCharts) ? 'true' : 'false');
+        }
+        document.querySelectorAll('[data-layout]').forEach((b) => {
+          b.setAttribute('aria-pressed', (isCatalog && b.getAttribute('data-layout') === layout) ? 'true' : 'false');
+        });
 
         const p = currentPhoto();
         if (isCatalog) {
@@ -13699,6 +13851,9 @@
 
       document.querySelectorAll('[data-layout]').forEach((btn) => {
         btn.onclick = () => {
+          commitInspectorInputs(currentPhoto(), false);
+          mode = 'catalog';
+          if (activeQueue === 'duplicates') activeQueue = 'all';
           layout = btn.getAttribute('data-layout');
           document.querySelectorAll('[data-layout]').forEach((x) => x.setAttribute('aria-pressed', x === btn ? 'true' : 'false'));
           render();
@@ -13706,6 +13861,13 @@
       });
 
       document.getElementById('btn-toggle-charts').onclick = (e) => {
+        if (mode !== 'catalog') {
+          commitInspectorInputs(currentPhoto(), false);
+          mode = 'catalog';
+          showCharts = true;
+          render();
+          return;
+        }
         showCharts = !showCharts;
         e.currentTarget.setAttribute('aria-pressed', showCharts ? 'true' : 'false');
         renderCharts();
@@ -14157,13 +14319,29 @@
         const batchSize = 4;
         let index = 0;
 
+        const scheduleMetaUiRefresh = () => {
+          clearTimeout(_metaRefreshTimer);
+          _metaRefreshTimer = setTimeout(() => {
+            renderSidebarCounts();
+            if (mode === 'lab') {
+              renderPhotoLab();
+            } else if (mode === 'catalog' && layout !== 'map') {
+              const activeEl = document.activeElement;
+              if (!activeEl || !activeEl.closest('#catalog-inspector')) {
+                renderCatalogCenter();
+                renderInspector();
+              }
+            }
+          }, 180);
+        };
+
         function processNextBatch() {
           if (index >= list.length) return;
           const currentBatch = list.slice(index, index + batchSize);
           index += batchSize;
 
           currentBatch.forEach((rec) => {
-            if (!rec.src || !rec._file) return;
+            if (!rec.src) return;
 
             const probe = new Image();
             probe.onload = () => {
@@ -14174,15 +14352,11 @@
                 rec.height = rec.origHeight;
               }
               rec.screenshot = isScreenshotPhoto(rec);
-              if (rec.id === selectedId) {
-                renderSidebarCounts();
-                if (mode === 'catalog') renderInspector();
-                if (mode === 'lab') renderPhotoLab();
-              }
+              scheduleMetaUiRefresh();
             };
             probe.src = rec.src;
 
-            if (window.exifr) {
+            if (rec._file && window.exifr) {
               window.exifr.parse(rec._file, {
                 tiff: true,
                 xmp: true,
@@ -14251,12 +14425,7 @@
                 }
 
                 if (changed) {
-                  renderSidebarCounts();
-                  if (rec.id === selectedId) renderInspector();
-                  if (mode === 'catalog') {
-                    if (layout === 'ledger' || layout === 'sheet') renderCatalogCenter();
-                    if (layout === 'map') renderGlobalMap();
-                  }
+                  scheduleMetaUiRefresh();
                 }
               }).catch(() => {});
             }
@@ -14272,6 +14441,104 @@
         }
 
         processNextBatch();
+      }
+
+      /* Non-blocking background face detection (boxes only — no cross-person auto-guessing) */
+      async function scheduleBackgroundFaceScan(list, forceAll = false) {
+        if (!window.FaceDetectorEngine || typeof window.FaceDetectorEngine.detectFaces !== 'function' || !Array.isArray(list) || !list.length) {
+          _bgFaceScanState = { running: false, done: 0, total: 0 };
+          return;
+        }
+        const targets = list.filter((rec) => rec && rec.src && !rec.inReview && !isScreenshotPhoto(rec) &&
+          (forceAll || (!rec.facesScanned && !(Array.isArray(rec.faces) && rec.faces.length > 0))));
+        if (targets.length === 0) {
+          _bgFaceScanState = { running: false, done: 0, total: 0 };
+          renderSidebarCounts();
+          return;
+        }
+
+        const myGen = ++_bgFaceScanGen;
+        _bgFaceScanState = { running: true, done: 0, total: targets.length };
+        renderSidebarCounts();
+
+        for (let i = 0; i < targets.length; i++) {
+          if (myGen !== _bgFaceScanGen) return;
+
+          while (myGen === _bgFaceScanGen) {
+            const ftModal = document.getElementById('face-tagger-modal');
+            const modalOpen = ftModal && !ftModal.hidden;
+            if (!modalOpen && mode !== 'lab') break;
+            await new Promise((r) => setTimeout(r, 400));
+          }
+          if (myGen !== _bgFaceScanGen) return;
+
+          const rec = targets[i];
+          try {
+            const priorConfirmed = (forceAll && Array.isArray(rec.faces))
+              ? rec.faces.filter((fc) => fc && fc.box && (fc.confirmed || (fc.name || '').trim()))
+              : [];
+            const detected = await window.FaceDetectorEngine.detectFaces(afterSrc(rec));
+            if (myGen !== _bgFaceScanGen) return;
+
+            const mergedFaces = Array.isArray(detected) ? detected.map((f) => ({ ...f, name: '', fsId: '' })) : [];
+            priorConfirmed.forEach((oldFc) => {
+              const ob = oldFc.box;
+              const ocx = ob.x + ob.width * 0.5;
+              const ocy = ob.y + ob.height * 0.5;
+              const matchIdx = mergedFaces.findIndex((nf) => {
+                const nb = nf.box;
+                const ncx = nb.x + nb.width * 0.5;
+                const ncy = nb.y + nb.height * 0.5;
+                const maxW = Math.max(ob.width, nb.width);
+                const maxH = Math.max(ob.height, nb.height);
+                return Math.abs(ocx - ncx) < maxW * 0.52 && Math.abs(ocy - ncy) < maxH * 0.52;
+              });
+              if (matchIdx !== -1 && !mergedFaces[matchIdx].name) {
+                mergedFaces[matchIdx].name = oldFc.name;
+                mergedFaces[matchIdx].fsId = oldFc.fsId || '';
+                mergedFaces[matchIdx].confirmed = Boolean(oldFc.confirmed);
+              } else if (oldFc.confirmed && matchIdx === -1) {
+                mergedFaces.push({ ...oldFc });
+              }
+            });
+
+            if (mergedFaces.length === 1 && !mergedFaces[0].name && Array.isArray(rec.people) && rec.people.length === 1 && rec.people[0].name) {
+              mergedFaces[0].name = rec.people[0].name;
+              mergedFaces[0].fsId = rec.people[0].fsId || '';
+            }
+
+            rec.faces = mergedFaces;
+            rec.facesScanned = true;
+            rec.unnamedFaces = getUnnamedFaceCount(rec);
+            saveItemMetadata(rec);
+          } catch (_scanErr) {}
+
+          _bgFaceScanState.done = i + 1;
+          renderSidebarCounts();
+
+          if ((i % 4 === 3 || rec.id === selectedId) && mode === 'catalog' && layout !== 'map') {
+            const activeEl = document.activeElement;
+            if (!activeEl || !activeEl.closest('#catalog-inspector')) {
+              renderCatalogCenter();
+              if (rec.id === selectedId) renderInspector();
+            }
+          }
+          await new Promise((r) => setTimeout(r, 60));
+        }
+
+        if (myGen !== _bgFaceScanGen) return;
+        _bgFaceScanState.running = false;
+        renderSidebarCounts();
+        if (mode === 'catalog' && layout !== 'map') {
+          renderCatalogCenter();
+          const activeEl = document.activeElement;
+          if (!activeEl || !activeEl.closest('#catalog-inspector')) {
+            renderInspector();
+          }
+        }
+        if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+          saveArchiveToDb(items, rootFolderName).catch(() => {});
+        }
       }
 
       async function loadFolderBatch(batchIdx) {
@@ -14453,6 +14720,7 @@
           notify(`Loaded Batch ${(batchIdx + 1).toLocaleString()} of ${totalBatches.toLocaleString()} (Photos ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${activeFolderImageFiles.length.toLocaleString()}).`);
           render();
           scheduleMetadataExtraction(items);
+          scheduleBackgroundFaceScan(items);
 
           // Persist current batch to IndexedDB in the background so UI renders immediately
           saveArchiveToDb(items, rootFolderName).catch(() => {});
@@ -14898,6 +15166,7 @@
           openMobileInspector();
         }
         scheduleMetadataExtraction(items);
+        scheduleBackgroundFaceScan(items);
       }
 
       function pickIndividualPhotos() {
@@ -15245,6 +15514,7 @@
 
       if (isCustomFolder && items.length > 0) {
         scheduleMetadataExtraction(items);
+        scheduleBackgroundFaceScan(items);
       }
 
       setAppLoadingProgress(100, 'Ready!');
