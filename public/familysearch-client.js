@@ -197,13 +197,20 @@
     }
   }
 
+  var _userFamilyCache = null;
+  var _userFamilyPromise = null;
+
   function saveToken(tokenData) {
+    _userFamilyCache = null;
+    _userFamilyPromise = null;
     try {
       localStorage.setItem(FS_TOKEN_KEY, JSON.stringify(tokenData));
     } catch (e) { }
   }
 
   function clearToken() {
+    _userFamilyCache = null;
+    _userFamilyPromise = null;
     try {
       localStorage.removeItem(FS_TOKEN_KEY);
     } catch (e) { }
@@ -2238,6 +2245,131 @@
       .map(function (item) { return item.candidate; });
   }
 
+  async function loadSignedInUserFamily(token) {
+    var tok = token || getStoredToken();
+    if (!tok || !tok.accessToken) return [];
+    if (_userFamilyCache && _userFamilyCache.tokenKey === tok.accessToken) {
+      return _userFamilyCache.people;
+    }
+    if (_userFamilyPromise) return _userFamilyPromise;
+
+    _userFamilyPromise = (async function () {
+      var headers = {
+        'Authorization': 'Bearer ' + tok.accessToken,
+        'Accept': 'application/x-gedcomx-v1+json'
+      };
+      var rootPid = '';
+      try {
+        var me = await getCurrentUser();
+        if (me && me.treePersonId) rootPid = String(me.treePersonId).trim().toUpperCase();
+      } catch (_) {}
+
+      if (!rootPid) {
+        try {
+          var cpRes = await fetch(API_BASE + '/platform/tree/current-person', { headers: headers });
+          if (cpRes.ok) {
+            var cpData = await cpRes.json();
+            var cpPers = cpData && cpData.persons && cpData.persons[0];
+            if (cpPers && cpPers.id) rootPid = String(cpPers.id).trim().toUpperCase();
+          }
+        } catch (_) {}
+      }
+
+      if (!rootPid) {
+        _userFamilyCache = { tokenKey: tok.accessToken, rootPid: '', people: [] };
+        return [];
+      }
+
+      var fetchJsonSafe = async function (url) {
+        try {
+          var r = await fetch(url, { headers: headers });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) {
+          return null;
+        }
+      };
+
+      var [pwrData, ancData, descData] = await Promise.all([
+        fetchJsonSafe(API_BASE + '/platform/tree/persons-with-relationships?person=' + encodeURIComponent(rootPid) + '&persons=true'),
+        fetchJsonSafe(API_BASE + '/platform/tree/ancestry?person=' + encodeURIComponent(rootPid) + '&generations=4&personDetails=true'),
+        fetchJsonSafe(API_BASE + '/platform/tree/descendancy?person=' + encodeURIComponent(rootPid) + '&generations=3&personDetails=true')
+      ]);
+
+      // Fetch living siblings via up to 2 parent PIDs
+      var parentPids = [];
+      if (pwrData && Array.isArray(pwrData.childAndParentsRelationships)) {
+        pwrData.childAndParentsRelationships.forEach(function (cpr) {
+          if (cpr && cpr.child && cpr.child.resourceId === rootPid) {
+            [cpr.parent1, cpr.parent2].forEach(function (par) {
+              var parId = par && par.resourceId ? String(par.resourceId).trim().toUpperCase() : '';
+              if (parId && parentPids.indexOf(parId) === -1 && parentPids.length < 2) {
+                parentPids.push(parId);
+              }
+            });
+          }
+        });
+      }
+
+      var parentPwrList = [];
+      if (parentPids.length > 0) {
+        parentPwrList = await Promise.all(parentPids.map(function (ppid) {
+          return fetchJsonSafe(API_BASE + '/platform/tree/persons-with-relationships?person=' + encodeURIComponent(ppid) + '&persons=true');
+        }));
+      }
+
+      var byId = new Map();
+      var collectPersons = function (payload) {
+        if (!payload || !Array.isArray(payload.persons)) return;
+        payload.persons.forEach(function (pers) {
+          if (!pers || !pers.id) return;
+          var pidKey = String(pers.id).trim().toUpperCase();
+          var disp = pers.display || {};
+          var fullName = disp.name ||
+            (pers.names && pers.names[0] && pers.names[0].nameForms && pers.names[0].nameForms[0] && pers.names[0].nameForms[0].fullText) ||
+            '';
+          if (!fullName) return;
+          var prev = byId.get(pidKey);
+          if (!prev) {
+            byId.set(pidKey, {
+              id: pidKey,
+              name: fullName,
+              lifespan: disp.lifespan || '',
+              gender: disp.gender || '',
+              birthDate: disp.birthDate || '',
+              birthPlace: disp.birthPlace || '',
+              deathDate: disp.deathDate || '',
+              deathPlace: disp.deathPlace || '',
+              living: Boolean(pers.living)
+            });
+          } else {
+            if (!prev.lifespan && disp.lifespan) prev.lifespan = disp.lifespan;
+            if (!prev.gender && disp.gender) prev.gender = disp.gender;
+            if (!prev.birthDate && disp.birthDate) prev.birthDate = disp.birthDate;
+            if (!prev.birthPlace && disp.birthPlace) prev.birthPlace = disp.birthPlace;
+            if (!prev.deathDate && disp.deathDate) prev.deathDate = disp.deathDate;
+            if (!prev.deathPlace && disp.deathPlace) prev.deathPlace = disp.deathPlace;
+          }
+        });
+      };
+
+      collectPersons(pwrData);
+      collectPersons(ancData);
+      collectPersons(descData);
+      parentPwrList.forEach(collectPersons);
+
+      var list = Array.from(byId.values());
+      _userFamilyCache = { tokenKey: tok.accessToken, rootPid: rootPid, people: list };
+      return list;
+    })();
+
+    try {
+      return await _userFamilyPromise;
+    } finally {
+      _userFamilyPromise = null;
+    }
+  }
+
   async function searchPersons(query, opts) {
     if (!query || !query.trim()) return [];
     var trimmed = query.trim();
@@ -2293,7 +2425,11 @@
               id: pItem.id || trimmed.toUpperCase(),
               name: pName || trimmed.toUpperCase(),
               lifespan: d.lifespan || '',
-              gender: d.gender || ''
+              gender: d.gender || '',
+              birthDate: d.birthDate || '',
+              birthPlace: d.birthPlace || '',
+              deathDate: d.deathDate || '',
+              deathPlace: d.deathPlace || ''
             }];
           }
         }
@@ -2302,7 +2438,17 @@
       }
     }
 
+    // 2b. Include the signed-in user's own living/immediate FamilySearch tree relatives
+    // (FamilySearch public /tree/search intentionally omits living people)
+    var myTreeMatches = [];
+    try {
+      var myTreePeople = await loadSignedInUserFamily(token);
+      myTreeMatches = rankMatches(myTreePeople, query);
+    } catch (_) {}
+    var combinedSeed = myTreeMatches.concat(localMatches);
+
     // 3. Search Family Tree REST API
+    var serverResults = [];
     try {
       var runTreeSearch = async function (givenOverride, useYears) {
         var searchParams = new URLSearchParams();
@@ -2355,7 +2501,6 @@
       var nameParts = trimmed.split(/\s+/).filter(Boolean);
       var firstGiven = nameParts.length > 2 ? nameParts[0] : '';
 
-      var serverResults = [];
       var seenSrv = new Set();
       var addSrv = function (arr) {
         (arr || []).forEach(function (r) {
@@ -2375,55 +2520,60 @@
       if (serverResults.length < 5) {
         addSrv(await runTreeSearch('', false));
       }
-
-      if (serverResults.length > 0 || localMatches.length > 0) {
-        var seen = new Set();
-        var combined = [];
-        localMatches.forEach(function (m) { seen.add(m.id); combined.push(m); });
-        serverResults.forEach(function (r) {
-          if (!seen.has(r.id)) {
-            seen.add(r.id);
-            combined.push(r);
-          }
-        });
-        var ranked = rankMatches(combined, query);
-        if (hasVitals) {
-          var bYr = (String(searchOpts.birthDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
-          var dYr = (String(searchOpts.deathDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
-          var bPl = String(searchOpts.birthPlace || '').toLowerCase()
-            .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
-          var dPl = String(searchOpts.deathPlace || '').toLowerCase()
-            .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
-          ranked.sort(function (a, b) {
-            var scoreVital = function (c) {
-              var s = 0;
-              var hay = [c.lifespan, c.birthDate, c.birthPlace, c.deathDate, c.deathPlace].join(' ').toLowerCase();
-              if (bYr) {
-                if (hay.includes(bYr)) s += 60;
-                else if (c.lifespan || c.birthDate) s -= 30;
-              }
-              if (dYr) {
-                if (hay.includes(dYr)) s += 60;
-                else if (c.lifespan || c.deathDate) s -= 30;
-              }
-              [bPl, dPl].forEach(function (pl) {
-                if (!pl) return;
-                pl.split(/[,\s]+/).filter(function (t) { return t.length > 2 && t !== 'usa' && t !== 'united' && t !== 'states'; }).forEach(function (t) {
-                  if (hay.includes(t)) s += 15;
-                });
-              });
-              return s;
-            };
-            return scoreVital(b) - scoreVital(a);
-          });
-        }
-        return ranked;
-      }
     } catch (searchErr) {
       console.warn('FamilySearch tree search notice:', searchErr);
     }
 
-    return localMatches;
+    if (serverResults.length > 0 || combinedSeed.length > 0) {
+      var seen = new Set();
+      var combined = [];
+      combinedSeed.forEach(function (m) {
+        if (m && m.id && !seen.has(m.id)) {
+          seen.add(m.id);
+          combined.push(m);
+        }
+      });
+      serverResults.forEach(function (r) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          combined.push(r);
+        }
+      });
+      var ranked = rankMatches(combined, query);
+      if (searchOpts.birthDate || searchOpts.birthPlace || searchOpts.deathDate || searchOpts.deathPlace) {
+        var bYr = (String(searchOpts.birthDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
+        var dYr = (String(searchOpts.deathDate || '').match(/\b(1[789]\d{2}|20\d{2})\b/) || [])[1] || '';
+        var bPl = String(searchOpts.birthPlace || '').toLowerCase()
+          .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
+        var dPl = String(searchOpts.deathPlace || '').toLowerCase()
+          .replace(/\boh\b/g, 'ohio').replace(/\bmi\b/g, 'michigan').replace(/\bwi\b/g, 'wisconsin');
+        ranked.sort(function (a, b) {
+          var scoreVital = function (c) {
+            var s = 0;
+            var hay = [c.lifespan, c.birthDate, c.birthPlace, c.deathDate, c.deathPlace].join(' ').toLowerCase();
+            if (bYr) {
+              if (hay.includes(bYr)) s += 60;
+              else if (c.lifespan || c.birthDate) s -= 30;
+            }
+            if (dYr) {
+              if (hay.includes(dYr)) s += 60;
+              else if (c.lifespan || c.deathDate) s -= 30;
+            }
+            [bPl, dPl].forEach(function (pl) {
+              if (!pl) return;
+              pl.split(/[,\s]+/).filter(function (t) { return t.length > 2 && t !== 'usa' && t !== 'united' && t !== 'states'; }).forEach(function (t) {
+                if (hay.includes(t)) s += 15;
+              });
+            });
+            return s;
+          };
+          return scoreVital(b) - scoreVital(a);
+        });
+      }
+      return ranked;
+    }
+
+    return combinedSeed;
   }
 
   function buildGedcomXName(personData) {
@@ -3042,6 +3192,7 @@
     checkMemoryExists: checkMemoryExists,
     createFreshUploadBlob: createFreshUploadBlob,
     searchPersons: searchPersons,
+    loadSignedInUserFamily: loadSignedInUserFamily,
     createPerson: createPerson,
     populatePersonMissingFields: populatePersonMissingFields,
     extractStructuredPafData: extractStructuredPafData,
