@@ -15110,11 +15110,15 @@
         // 8. Collaborate Note (always available & checked if not already posted)
         if (paf.rawNote) {
           const alreadyNote = live.notes.some((n) => n.text && n.text.indexOf(paf.rawNote.slice(0, 40)) !== -1);
+          const noteLen = paf.rawNote.length;
+          const partCount = Math.max(1, Math.ceil(noteLen / 9500));
+          const notePreview = paf.rawNote.slice(0, 140) + (noteLen > 140 ? '…' : '') +
+            (noteLen > 9500 ? ` (${noteLen.toLocaleString()} chars — will split into ${partCount} parts so nothing is lost)` : (noteLen > 140 ? ` (${noteLen.toLocaleString()} chars — full note)` : ''));
           rows.push({
             kind: 'note',
             label: 'PAF / GEDCOM Note (Collaborate Tab)',
             fsText: alreadyNote ? 'Already in Collaborate' : (live.notes.length ? `${live.notes.length} existing note(s)` : '— (none)'),
-            pafText: paf.rawNote.slice(0, 140) + (paf.rawNote.length > 140 ? '…' : ''),
+            pafText: notePreview,
             noteText: paf.rawNote,
             status: alreadyNote ? 'match' : 'missing',
             checked: !alreadyNote

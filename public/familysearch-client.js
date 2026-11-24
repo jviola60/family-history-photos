@@ -231,6 +231,57 @@
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
+  function cleanControlChars(str) {
+    return String(str || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+  }
+
+  function splitTextChunks(text, maxLen) {
+    var limit = Math.max(100, Number(maxLen) || 9500);
+    var rem = cleanControlChars(text);
+    if (!rem) return [];
+    var chunks = [];
+    var minBoundary = Math.floor(limit * 0.3);
+    while (rem.length > limit) {
+      var slice = rem.slice(0, limit + 1);
+      var cut = -1;
+      var paraIdx = slice.lastIndexOf('\n\n');
+      if (paraIdx >= minBoundary && paraIdx + 2 <= limit) {
+        cut = paraIdx + 2;
+      } else {
+        var lineIdx = slice.lastIndexOf('\n');
+        if (lineIdx >= minBoundary && lineIdx + 1 <= limit) {
+          cut = lineIdx + 1;
+        } else {
+          var spaceIdx = slice.lastIndexOf(' ');
+          if (spaceIdx >= minBoundary && spaceIdx + 1 <= limit) {
+            cut = spaceIdx + 1;
+          } else {
+            cut = limit;
+          }
+        }
+      }
+      chunks.push(rem.slice(0, cut));
+      rem = rem.slice(cut);
+    }
+    if (rem.length > 0) chunks.push(rem);
+    return chunks;
+  }
+
+  function buildSplitNotes(text, baseSubject, maxLen) {
+    var chunks = splitTextChunks(text, maxLen || 9500);
+    if (chunks.length === 0) return [];
+    var subj = String(baseSubject || 'PAF / GEDCOM Note').trim() || 'PAF / GEDCOM Note';
+    if (chunks.length === 1) {
+      return [{ subject: subj, text: chunks[0] }];
+    }
+    return chunks.map(function (chunk, idx) {
+      return {
+        subject: subj + ' (Part ' + (idx + 1) + ' of ' + chunks.length + ')',
+        text: chunk
+      };
+    });
+  }
+
   async function startLogin(overrideUriOrOptions) {
     var overrideUri = typeof overrideUriOrOptions === 'string' ? overrideUriOrOptions : (overrideUriOrOptions && overrideUriOrOptions.redirectUri);
     var usePopup = typeof overrideUriOrOptions === 'object' ? overrideUriOrOptions.popup !== false : true;
@@ -1126,10 +1177,8 @@
       descLines.push('People: ' + names.join(', '));
     }
     descLines.push('Preserved with Family History Photos');
-    var fullDescription = descLines.join('\n\n')
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-      .trim()
-      .slice(0, 1500);
+    var fullDescription = cleanControlChars(descLines.join('\n\n'));
+    var descriptionTruncatedOnUpload = false;
 
     // Build filename
     var cleanSlug = title.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
@@ -1257,6 +1306,21 @@
           },
           body: fallbackFd
         });
+        if (personRes.status === 400 && fullDescription && fullDescription.length > 1400) {
+          var shortFd = new FormData();
+          shortFd.append('artifact', retryBlob, filename);
+          shortFd.append('title', title);
+          shortFd.append('description', fullDescription.slice(0, 1300) + '\n\n[Full description preserved in full below / comments]');
+          descriptionTruncatedOnUpload = true;
+          personRes = await fetch(personUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token.accessToken,
+              'Accept': 'application/json'
+            },
+            body: shortFd
+          });
+        }
         if (!personRes.ok && personRes.status !== 409) {
           var pErr = await personRes.text();
           throw new Error('FamilySearch upload failed (' + personRes.status + '): ' + pErr);
@@ -1438,6 +1502,85 @@
         }
       } catch (covErr) {
         console.warn('Memory coverage date/place update notice:', covErr);
+      }
+    }
+
+    // 1c. Preserve full description if artifact upload required a short preview
+    if (memoryId && descriptionTruncatedOnUpload && fullDescription) {
+      var fullDescSaved = false;
+      try {
+        var sdDescRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId), {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token.accessToken,
+            'Content-Type': 'application/x-gedcomx-v1+json',
+            'Accept': 'application/x-gedcomx-v1+json, application/json'
+          },
+          body: JSON.stringify({
+            sourceDescriptions: [{
+              id: memoryId,
+              descriptions: [{ value: fullDescription }]
+            }]
+          })
+        });
+        if (sdDescRes.ok) fullDescSaved = true;
+      } catch (sdDescErr) {
+        console.warn('Full memory description update notice:', sdDescErr);
+      }
+
+      if (!fullDescSaved) {
+        var descChunks = splitTextChunks(fullDescription, 1400);
+        var commentsOk = descChunks.length > 0;
+        for (var dcIdx = 0; dcIdx < descChunks.length; dcIdx++) {
+          var chunkText = (descChunks.length > 1 ? '[Part ' + (dcIdx + 1) + ' of ' + descChunks.length + ']\n' : '') + descChunks[dcIdx];
+          var postedChunk = false;
+          var commentPayloads = [
+            { discussions: [{ comments: [{ text: chunkText }] }] },
+            { comments: [{ text: chunkText }] }
+          ];
+          for (var cpIdx = 0; cpIdx < commentPayloads.length; cpIdx++) {
+            try {
+              var cRes = await fetch(API_BASE + '/platform/memories/memories/' + encodeURIComponent(memoryId) + '/comments', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + token.accessToken,
+                  'Content-Type': 'application/x-gedcomx-v1+json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(commentPayloads[cpIdx])
+              });
+              if (cRes.ok) {
+                postedChunk = true;
+                break;
+              }
+            } catch (_) {}
+          }
+          if (!postedChunk) {
+            commentsOk = false;
+            break;
+          }
+        }
+        if (commentsOk) fullDescSaved = true;
+      }
+
+      if (!fullDescSaved && targetPersonId) {
+        try {
+          var collabNotes = buildSplitNotes(fullDescription, 'PAF / GEDCOM Photo Description: ' + title, 9500);
+          if (collabNotes.length > 0) {
+            await fetch(API_BASE + '/platform/tree/persons/' + encodeURIComponent(targetPersonId), {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token.accessToken,
+                'Content-Type': 'application/x-gedcomx-v1+json',
+                'Accept': 'application/x-gedcomx-v1+json',
+                'X-Reason': 'Preserved full PAF / GEDCOM photo description without truncation'
+              },
+              body: JSON.stringify({ persons: [{ id: targetPersonId, notes: collabNotes }] })
+            });
+          }
+        } catch (collabErr) {
+          console.warn('Fallback Collaborate description notice:', collabErr);
+        }
       }
     }
 
@@ -2341,9 +2484,9 @@
     var gender = buildGedcomXGender(personData.sex);
     if (gender) personObj.gender = gender;
     if (personData.notes && String(personData.notes).trim()) {
-      var cleanCreateNote = String(personData.notes).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
-      if (cleanCreateNote) {
-        personObj.notes = [{ subject: 'PAF / GEDCOM Note', text: cleanCreateNote }];
+      var createNotes = buildSplitNotes(personData.notes, 'PAF / GEDCOM Note', 9500);
+      if (createNotes.length > 0) {
+        personObj.notes = createNotes;
       }
     }
 
@@ -2420,12 +2563,15 @@
     }
 
     if (personData.notes && String(personData.notes).trim()) {
-      var noteTxt = String(personData.notes).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
+      var noteTxt = cleanControlChars(personData.notes);
       var existingNotes = Array.isArray(existingPerson.notes) ? existingPerson.notes : [];
       var alreadyHasNote = existingNotes.some(function (n) { return n.text && n.text.indexOf(noteTxt.slice(0, 40)) !== -1; });
       if (noteTxt && !alreadyHasNote) {
-        patchPerson.notes = [{ subject: 'PAF / GEDCOM Note', text: noteTxt }];
-        added.push('Notes');
+        var splitMissingNotes = buildSplitNotes(noteTxt, 'PAF / GEDCOM Note', 9500);
+        if (splitMissingNotes.length > 0) {
+          patchPerson.notes = splitMissingNotes;
+          added.push('Notes');
+        }
       }
     }
 
@@ -2724,9 +2870,9 @@
 
     var addedNote = false;
     if (plan.noteText && String(plan.noteText).trim()) {
-      var cleanNote = String(plan.noteText).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, 10000);
-      if (cleanNote) {
-        patchPerson.notes = [{ subject: 'PAF / GEDCOM Note', text: cleanNote }];
+      var splitPlanNotes = buildSplitNotes(plan.noteText, 'PAF / GEDCOM Note', 9500);
+      if (splitPlanNotes.length > 0) {
+        patchPerson.notes = splitPlanNotes;
         addedNote = true;
       }
     }
