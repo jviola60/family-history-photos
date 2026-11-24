@@ -2738,16 +2738,31 @@
       relObj.facts = [marriageFact];
     }
 
+    var relHeaders = {
+      'Authorization': 'Bearer ' + stored.accessToken,
+      'Content-Type': 'application/x-gedcomx-v1+json',
+      'Accept': 'application/x-gedcomx-v1+json',
+      'X-Reason': 'Added marriage relationship from Family History Photos'
+    };
+    var relBody = JSON.stringify({ relationships: [relObj] });
     var res = await fetch(API_BASE + '/platform/tree/relationships', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + stored.accessToken,
-        'Content-Type': 'application/x-gedcomx-v1+json',
-        'Accept': 'application/x-gedcomx-v1+json',
-        'X-Reason': 'Added marriage relationship from Family History Photos'
-      },
-      body: JSON.stringify({ relationships: [relObj] })
+      headers: relHeaders,
+      body: relBody
     });
+
+    if (res.status === 400 || res.status === 415) {
+      res = await fetch(API_BASE + '/platform/tree/relationships', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + stored.accessToken,
+          'Content-Type': 'application/x-fs-v1+json',
+          'Accept': 'application/x-fs-v1+json',
+          'X-Reason': 'Added marriage relationship from Family History Photos'
+        },
+        body: relBody
+      });
+    }
 
     if (!res.ok) {
       var errTxt = await res.text().catch(function () { return ''; });
@@ -2764,6 +2779,169 @@
     return {
       success: true,
       id: relId
+    };
+  }
+
+  async function createChildAndParentsRelationship(parent1Pid, parent2Pid, childPid) {
+    var stored = getStoredToken();
+    if (!stored || !stored.accessToken) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var p1 = String(parent1Pid || '').trim().toUpperCase();
+    var p2 = String(parent2Pid || '').trim().toUpperCase();
+    var ch = String(childPid || '').trim().toUpperCase();
+    if (!ch) {
+      throw new Error('Child FamilySearch PID is required.');
+    }
+    if (!p1 && !p2) {
+      throw new Error('At least one Parent FamilySearch PID is required.');
+    }
+    if (p1 === ch || p2 === ch) {
+      throw new Error('Parent and child PIDs must belong to different people.');
+    }
+    if (!p1 && p2) {
+      p1 = p2;
+      p2 = '';
+    }
+    if (p1 && p2 && p1 === p2) {
+      p2 = '';
+    }
+
+    // If linking a single parent to a child who already has an open parent slot in a ChildAndParentsRelationship, fill it
+    if (p1 && !p2) {
+      try {
+        var existingRes = await fetch(API_BASE + '/platform/tree/persons-with-relationships?person=' + encodeURIComponent(ch), {
+          headers: {
+            'Authorization': 'Bearer ' + stored.accessToken,
+            'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json'
+          }
+        });
+        if (existingRes.ok) {
+          var existingData = await existingRes.json();
+          var cprs = Array.isArray(existingData && existingData.childAndParentsRelationships) ? existingData.childAndParentsRelationships : [];
+          for (var i = 0; i < cprs.length; i++) {
+            var cpr = cprs[i];
+            if (!cpr || !cpr.id || !cpr.child || String(cpr.child.resourceId || '').trim().toUpperCase() !== ch) continue;
+            var exP1 = cpr.parent1 && cpr.parent1.resourceId ? String(cpr.parent1.resourceId).trim().toUpperCase() : '';
+            var exP2 = cpr.parent2 && cpr.parent2.resourceId ? String(cpr.parent2.resourceId).trim().toUpperCase() : '';
+            if ((exP1 && !exP2 && exP1 !== p1) || (!exP1 && exP2 && exP2 !== p1)) {
+              var newP1 = exP1 || p1;
+              var newP2 = exP2 || p1;
+              var patchCpr = {
+                id: cpr.id,
+                parent1: { resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(newP1), resourceId: newP1 },
+                parent2: { resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(newP2), resourceId: newP2 },
+                child: { resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(ch), resourceId: ch }
+              };
+              var upRes = await fetch(API_BASE + '/platform/tree/child-and-parents-relationships/' + encodeURIComponent(cpr.id), {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + stored.accessToken,
+                  'Content-Type': 'application/x-fs-v1+json',
+                  'Accept': 'application/x-fs-v1+json',
+                  'X-Reason': 'Added second parent to existing child-and-parents relationship from Family History Photos'
+                },
+                body: JSON.stringify({ childAndParentsRelationships: [patchCpr] })
+              });
+              if (upRes.ok) {
+                _userFamilyCache = null;
+                return {
+                  success: true,
+                  id: cpr.id,
+                  updatedExisting: true
+                };
+              }
+            }
+          }
+        }
+      } catch (_exErr) {}
+    }
+
+    var cprObj = {
+      parent1: {
+        resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(p1),
+        resourceId: p1
+      },
+      child: {
+        resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(ch),
+        resourceId: ch
+      }
+    };
+    if (p2) {
+      cprObj.parent2 = {
+        resource: API_BASE + '/platform/tree/persons/' + encodeURIComponent(p2),
+        resourceId: p2
+      };
+    }
+
+    var res = await fetch(API_BASE + '/platform/tree/relationships', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + stored.accessToken,
+        'Content-Type': 'application/x-fs-v1+json',
+        'Accept': 'application/x-fs-v1+json',
+        'X-Reason': 'Added parent-child relationship from Family History Photos'
+      },
+      body: JSON.stringify({ childAndParentsRelationships: [cprObj] })
+    });
+
+    if (!res.ok) {
+      var errTxt = await res.text().catch(function () { return ''; });
+      throw new Error('FamilySearch parent-child link failed (' + res.status + '): ' + (errTxt || res.statusText));
+    }
+
+    var relId = res.headers.get('X-ENTITY-ID') || '';
+    var loc = res.headers.get('Location') || '';
+    if (!relId && loc) {
+      var m = loc.match(/\/(?:child-and-parents-)?relationships\/([^/?#]+)/i);
+      if (m) relId = m[1];
+    }
+    _userFamilyCache = null;
+    return {
+      success: true,
+      id: relId
+    };
+  }
+
+  async function createSiblingRelationship(newSiblingPid, existingRelativePid) {
+    var stored = getStoredToken();
+    if (!stored || !stored.accessToken) {
+      throw new Error('Please sign in to FamilySearch first.');
+    }
+    var s1 = String(newSiblingPid || '').trim().toUpperCase();
+    var s2 = String(existingRelativePid || '').trim().toUpperCase();
+    if (!s1 || !s2) {
+      throw new Error('Both sibling FamilySearch PIDs are required.');
+    }
+    if (s1 === s2) {
+      throw new Error('Sibling PIDs must belong to two different people.');
+    }
+
+    var pwrRes = await fetch(API_BASE + '/platform/tree/persons-with-relationships?person=' + encodeURIComponent(s2), {
+      headers: {
+        'Authorization': 'Bearer ' + stored.accessToken,
+        'Accept': 'application/x-fs-v1+json, application/x-gedcomx-v1+json'
+      }
+    });
+    if (!pwrRes.ok) {
+      throw new Error('Could not load parents for ' + s2 + ' (' + pwrRes.status + ')');
+    }
+    var pwrData = await pwrRes.json();
+    var cprs = Array.isArray(pwrData && pwrData.childAndParentsRelationships) ? pwrData.childAndParentsRelationships : [];
+    var targetCpr = cprs.find(function (cpr) {
+      return cpr && cpr.child && String(cpr.child.resourceId || '').trim().toUpperCase() === s2 &&
+        ((cpr.parent1 && cpr.parent1.resourceId) || (cpr.parent2 && cpr.parent2.resourceId));
+    });
+    var p1 = targetCpr && targetCpr.parent1 && targetCpr.parent1.resourceId ? String(targetCpr.parent1.resourceId).trim().toUpperCase() : '';
+    var p2 = targetCpr && targetCpr.parent2 && targetCpr.parent2.resourceId ? String(targetCpr.parent2.resourceId).trim().toUpperCase() : '';
+    if (!p1 && !p2) {
+      throw new Error('No parents found on FamilySearch for ' + s2 + ' yet. Add a parent to ' + s2 + ' first, or link siblings directly on FamilySearch.');
+    }
+    var linked = await createChildAndParentsRelationship(p1 || p2, (p1 && p2 ? p2 : ''), s1);
+    return {
+      success: true,
+      id: linked.id,
+      parentPids: [p1, p2].filter(Boolean)
     };
   }
 
@@ -3317,6 +3495,8 @@
     loadSignedInUserFamily: loadSignedInUserFamily,
     createPerson: createPerson,
     createCoupleRelationship: createCoupleRelationship,
+    createChildAndParentsRelationship: createChildAndParentsRelationship,
+    createSiblingRelationship: createSiblingRelationship,
     populatePersonMissingFields: populatePersonMissingFields,
     extractStructuredPafData: extractStructuredPafData,
     getPersonForCompare: getPersonForCompare,

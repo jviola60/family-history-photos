@@ -4236,16 +4236,50 @@
           }];
         }
 
+        const wireCreateButtons = () => {
+          host.querySelectorAll('.btn-fs-suggest-create').forEach((cBtn) => {
+            cBtn.onclick = () => {
+              const personName = cBtn.getAttribute('data-person-name');
+              if (!personName) return;
+              if (!Array.isArray(p.people)) p.people = [];
+              let personObj = p.people.find(x => x && x.name && x.name.toLowerCase() === personName.toLowerCase());
+              if (!personObj) {
+                personObj = { name: personName, rel: 'Relative', branch: p.branch || '' };
+                p.people.push(personObj);
+              }
+              openCreateFsPersonModal(p, personObj, (newPid) => {
+                if (newPid) {
+                  showFsPidSuggestions(p, resultsByPerson);
+                  renderSidebarCounts();
+                  renderInspector();
+                }
+              });
+            };
+          });
+        };
+
         const totalMatches = resultsByPerson.reduce((acc, cur) => acc + (cur.matches ? cur.matches.length : 0), 0);
         if (totalMatches === 0) {
+          const unlinkedInEmpty = resultsByPerson.filter(r => {
+            const pr = (p.people || []).find(x => x && x.name && x.name.toLowerCase() === (r.personName || '').toLowerCase());
+            return r.personName && (!pr || !pr.fsId);
+          });
           host.innerHTML = `
-            <div style="margin-top:6px;padding:6px 8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
-              <span class="muted" style="font-size:11px;">No tree matches found. You can type/paste PIDs into the field.</span>
-              <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:11px;color:var(--muted);cursor:pointer;">✕</button>
+            <div style="margin-top:6px;padding:8px;background:var(--raised);border:1px solid var(--border);border-radius:6px;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <span class="muted" style="font-size:11px;">No tree matches found. Paste a PID or add them directly:</span>
+                <button type="button" class="link-btn" id="btn-close-fs-matches" style="font-size:11px;color:var(--muted);cursor:pointer;">✕</button>
+              </div>
+              ${unlinkedInEmpty.length ? `
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+                  ${unlinkedInEmpty.map(r => `<button type="button" class="btn sm btn-fs-suggest-create" data-person-name="${esc(r.personName)}" style="font-size:11px;padding:3px 8px;background:var(--accent-soft,rgba(37,99,235,0.12));color:var(--accent,#2563eb);border:1px solid var(--accent,#2563eb);font-weight:600;cursor:pointer;">+ Add "${esc(r.personName)}" to FamilySearch</button>`).join('')}
+                </div>
+              ` : ''}
             </div>
           `;
           const closeBtn = host.querySelector('#btn-close-fs-matches');
           if (closeBtn) closeBtn.onclick = () => { host.innerHTML = ''; };
+          wireCreateButtons();
           return;
         }
 
@@ -4311,6 +4345,11 @@
                           </details>
                         ` : ''}
                       `}
+                    ${!linkedPid ? `
+                      <div style="margin-top:5px;">
+                        <button type="button" class="btn sm btn-fs-suggest-create" data-person-name="${esc(group.personName)}" style="width:100%;font-size:11px;padding:4px 8px;background:var(--accent-soft,rgba(37,99,235,0.12));color:var(--accent,#2563eb);border:1px solid var(--accent,#2563eb);font-weight:600;cursor:pointer;">+ Add "${esc(group.personName)}" to FamilySearch Tree</button>
+                      </div>
+                    ` : ''}
                   </div>
                 `;
               }).join('')}
@@ -4323,6 +4362,7 @@
           </div>
         `;
 
+        wireCreateButtons();
         const closeBtn = host.querySelector('#btn-close-fs-matches');
         if (closeBtn) closeBtn.onclick = () => { host.innerHTML = ''; };
 
@@ -7085,14 +7125,31 @@
 
           if (pidRowEl) {
             if (curName) {
+              const openCreateFromFace = () => {
+                if (!Array.isArray(p.people)) p.people = [];
+                let targetRel = p.people.find(pr => pr && pr.name && pr.name.trim().toLowerCase() === curName.toLowerCase());
+                if (!targetRel) {
+                  targetRel = { name: curName, rel: 'Relative', branch: p.branch || '' };
+                  p.people.push(targetRel);
+                }
+                openCreateFsPersonModal(p, targetRel, (newPid) => {
+                  if (newPid) setFacePid(newPid);
+                });
+              };
+
               pidRowEl.style.display = 'flex';
               pidRowEl.innerHTML = `
                 <span style="font-size:11.5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.08);color:${activeFacePid ? '#7dd3fc' : '#cbd5e1'};border:1px solid rgba(255,255,255,0.14);">
                   ${activeFacePid ? `FamilySearch PID: <strong>${esc(activeFacePid)}</strong>` : 'No FamilySearch PID linked'}
                 </span>
                 <button type="button" id="btn-ft-pick-pid" style="background:rgba(56,189,248,0.16);color:#7dd3fc;border:1px solid rgba(56,189,248,0.4);border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;">🔍 ${activeFacePid ? 'Change PID' : 'Pick / Set PID'}</button>
+                ${!activeFacePid ? '<button type="button" id="btn-ft-create-person" style="background:rgba(37,99,235,0.22);color:#93c5fd;border:1px solid rgba(96,165,250,0.5);border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;">+ Add to FS</button>' : ''}
                 ${activeFacePid ? '<button type="button" id="btn-ft-clear-pid" style="background:rgba(239,68,68,0.14);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;">✕ Clear PID</button>' : ''}
               `;
+              const createFaceBtn = document.getElementById('btn-ft-create-person');
+              if (createFaceBtn) {
+                createFaceBtn.onclick = openCreateFromFace;
+              }
               const clearPidBtn = document.getElementById('btn-ft-clear-pid');
               if (clearPidBtn) {
                 clearPidBtn.onclick = () => {
@@ -7119,7 +7176,12 @@
                       <button type="button" id="btn-ft-manual-pid-set" style="background:#2563eb;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">Set PID</button>
                     </div>
                     <div id="ft-pid-candidates" style="font-size:12px;color:#94a3b8;max-height:170px;overflow-y:auto;">Searching FamilySearch for "${esc(curName)}"...</div>
+                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                      <span style="font-size:11px;color:#94a3b8;">Not on FamilySearch yet?</span>
+                      <button type="button" id="btn-ft-picker-create-person" style="background:#2563eb;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;">+ Add "${esc(curName)}" as New Person on FamilySearch Beta</button>
+                    </div>
                   `;
+                  document.getElementById('btn-ft-picker-create-person').onclick = openCreateFromFace;
                   document.getElementById('btn-ft-pid-close').onclick = () => {
                     ftPidPickerOpen = false;
                     pidPickerEl.style.display = 'none';
@@ -7153,7 +7215,7 @@
                     const fsMatches = await fsClient.searchPersons(curName, searchOpts);
                     const topMatches = (fsMatches || []).slice(0, 8);
                     if (topMatches.length === 0) {
-                      candListEl.innerHTML = `No FamilySearch matches found for "${esc(curName)}". Paste a PID above.`;
+                      candListEl.innerHTML = `No FamilySearch matches found for "${esc(curName)}". Paste an existing PID above or click "+ Add as New Person" below.`;
                       return;
                     }
                     candListEl.innerHTML = topMatches.map((m, mIdx) => {
@@ -7596,7 +7658,7 @@
               ${p.people.map((person, idx) => `
                 <div class="person-tag-row">
                   <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                       <span style="font-weight:700;font-size:15.5px;color:var(--text);">${esc(person.name)}</span>
                       ${person.fsId ? `
                         <span class="pill mono pos" style="font-size:12px;padding:2px 6px;font-weight:600;display:inline-flex;align-items:center;gap:4px;" title="FamilySearch Tree PID: ${esc(person.fsId)}">
@@ -15551,7 +15613,7 @@
         renderTab();
       }
 
-      async function openCreateFsPersonModal(p, personObj) {
+      async function openCreateFsPersonModal(p, personObj, onCreated = null) {
         if (!p || !personObj) return;
         const fs = window.FamilySearchClient;
         if (!fs || !fs.createPerson) {
@@ -15568,6 +15630,7 @@
 
         const relStr = String(personObj.rel || '').trim();
         const relLower = relStr.toLowerCase();
+        const selfNameLower = (personObj.name || '').trim().toLowerCase();
         let defaultSex = 'U';
         if (personObj.sex) {
           if (/^m/i.test(personObj.sex)) defaultSex = 'M';
@@ -15580,40 +15643,94 @@
         const defaultLiving = !(personObj.deathDate && String(personObj.deathDate).trim());
 
         const seenCandPids = new Set();
-        const spouseCandidates = (p.people || []).filter((pr) => {
+        const candNameByPid = new Map();
+        const photoRelCandidates = (p.people || []).filter((pr) => {
           if (!pr || pr === personObj || !pr.fsId) return false;
-          if ((pr.name || '').trim().toLowerCase() === (personObj.name || '').trim().toLowerCase()) return false;
+          if ((pr.name || '').trim().toLowerCase() === selfNameLower) return false;
           const clean = String(pr.fsId).trim().toUpperCase();
           if (!clean || seenCandPids.has(clean)) return false;
           seenCandPids.add(clean);
+          candNameByPid.set(clean, `${pr.name} (${clean})`);
           return true;
         });
 
-        let defaultSpousePid = '';
-        if (/son-in-law/.test(relLower)) {
-          const dMatch = spouseCandidates.find((c) => /\bdaughter\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
-          if (dMatch) defaultSpousePid = String(dMatch.fsId).trim().toUpperCase();
-        } else if (/daughter-in-law/.test(relLower)) {
-          const sMatch = spouseCandidates.find((c) => /\bson\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
-          if (sMatch) defaultSpousePid = String(sMatch.fsId).trim().toUpperCase();
-        } else if (/\b(wife|husband|spouse)\b/.test(relLower)) {
-          const spMatch = spouseCandidates.find((c) => /\b(self|husband|wife|spouse)\b/i.test(c.rel || '')) || (spouseCandidates.length === 1 ? spouseCandidates[0] : null);
-          if (spMatch) defaultSpousePid = String(spMatch.fsId).trim().toUpperCase();
+        let treeRelCandidates = [];
+        if (typeof fs.loadSignedInUserFamily === 'function') {
+          try {
+            const loadedFam = await fs.loadSignedInUserFamily(token);
+            treeRelCandidates = (loadedFam || []).filter((tp) => {
+              if (!tp || !tp.id || !tp.name) return false;
+              if (tp.name.trim().toLowerCase() === selfNameLower) return false;
+              const clean = String(tp.id).trim().toUpperCase();
+              if (!clean || seenCandPids.has(clean)) return false;
+              seenCandPids.add(clean);
+              candNameByPid.set(clean, `${tp.name} (${clean})`);
+              return true;
+            });
+          } catch (_famErr) {
+            treeRelCandidates = [];
+          }
         }
+
+        let defaultConnType = 'spouse';
+        let defaultTargetPid = '';
+        const pickFromPhotoOrTree = (photoPred) => {
+          const m = photoRelCandidates.find(photoPred);
+          return m ? String(m.fsId).trim().toUpperCase() : '';
+        };
+
+        if (/son-in-law/.test(relLower)) {
+          defaultConnType = 'spouse';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\bdaughter\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
+        } else if (/daughter-in-law/.test(relLower)) {
+          defaultConnType = 'spouse';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\bson\b/i.test(c.rel || '') && !/in-law/i.test(c.rel || ''));
+        } else if (/\b(wife|husband|spouse)\b/.test(relLower)) {
+          defaultConnType = 'spouse';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\b(self|husband|wife|spouse)\b/i.test(c.rel || '')) ||
+            (photoRelCandidates.length === 1 ? String(photoRelCandidates[0].fsId).trim().toUpperCase() : '');
+        } else if (/\b(son|daughter|child|grandson|granddaughter)\b/.test(relLower) && !/in-law/.test(relLower)) {
+          defaultConnType = 'child';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\b(self|father|mother|wife|husband)\b/i.test(c.rel || ''));
+        } else if (/\b(father|mother|parent|dad|mom)\b/.test(relLower) && !/in-law/.test(relLower)) {
+          defaultConnType = 'parent';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\bself\b/i.test(c.rel || '')) ||
+            (photoRelCandidates.length === 1 ? String(photoRelCandidates[0].fsId).trim().toUpperCase() : '');
+        } else if (/\b(brother|sister|sibling)\b/.test(relLower) && !/in-law/.test(relLower)) {
+          defaultConnType = 'sibling';
+          defaultTargetPid = pickFromPhotoOrTree((c) => /\bself\b/i.test(c.rel || '')) ||
+            (photoRelCandidates.length === 1 ? String(photoRelCandidates[0].fsId).trim().toUpperCase() : '');
+        }
+
+        const buildRelOptionsHtml = (selectedPid, emptyLabel) => {
+          const photoOpts = photoRelCandidates.map((c) => {
+            const cPid = String(c.fsId).trim().toUpperCase();
+            return `<option value="${esc(cPid)}" ${cPid === selectedPid ? 'selected' : ''}>${esc(c.name)} (${esc(c.rel || 'Relative')}) · ${esc(cPid)}</option>`;
+          }).join('');
+          const treeOpts = treeRelCandidates.map((t) => {
+            const tPid = String(t.id).trim().toUpperCase();
+            return `<option value="${esc(tPid)}" ${tPid === selectedPid ? 'selected' : ''}>${esc(t.name)}${t.lifespan ? ` (${esc(t.lifespan)})` : ''} · ${esc(tPid)}</option>`;
+          }).join('');
+          return `
+            <option value="">${esc(emptyLabel)}</option>
+            ${photoOpts ? `<optgroup label="In This Photo">${photoOpts}</optgroup>` : ''}
+            ${treeOpts ? `<optgroup label="In Your FamilySearch Tree">${treeOpts}</optgroup>` : ''}
+          `;
+        };
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-backdrop';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.58);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:100010;display:flex;align-items:center;justify-content:center;padding:16px;';
         overlay.innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+          <div id="create-fs-dialog" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:540px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.34);overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:16px;font-weight:700;margin:0;">Add Relative to FamilySearch Beta</h2>
-                <p class="muted" style="font-size:12px;margin:2px 0 0;">Create a new living or deceased profile and optionally link them as a spouse.</p>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Create their FamilySearch record and connect them to your tree as spouse, child, parent, or sibling.</p>
               </div>
               <button type="button" class="btn sm" id="create-fs-close">✕</button>
             </div>
-            <div style="padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:11px;">
+            <div id="create-fs-body" style="padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:11px;">
               <div>
                 <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Full Name</label>
                 <input id="create-fs-name" type="text" value="${esc(personObj.name || '')}" style="width:100%;font-size:13.5px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--ground);color:var(--text);">
@@ -15643,34 +15760,60 @@
                 </div>
               </div>
               <div style="padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);display:flex;flex-direction:column;gap:8px;">
-                <div style="font-size:12px;font-weight:700;">Link as Spouse (Married to)</div>
-                <select id="create-fs-spouse-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
-                  <option value="">— Do not link to a spouse yet —</option>
-                  ${spouseCandidates.map((c) => {
-                    const cPid = String(c.fsId).trim().toUpperCase();
-                    return `<option value="${esc(cPid)}" ${cPid === defaultSpousePid ? 'selected' : ''}>${esc(c.name)} (${esc(c.rel || 'Relative')}) · ${esc(cPid)}</option>`;
-                  }).join('')}
-                </select>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div style="font-size:12.5px;font-weight:700;">Connect to FamilySearch Tree</div>
+                <div>
+                  <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">How is this person related to an existing person in your tree?</label>
+                  <select id="create-fs-conn-type" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-weight:600;">
+                    <option value="spouse" ${defaultConnType === 'spouse' ? 'selected' : ''}>Spouse (Married to)</option>
+                    <option value="child" ${defaultConnType === 'child' ? 'selected' : ''}>Child of</option>
+                    <option value="parent" ${defaultConnType === 'parent' ? 'selected' : ''}>Parent of</option>
+                    <option value="sibling" ${defaultConnType === 'sibling' ? 'selected' : ''}>Sibling of</option>
+                    <option value="none" ${defaultConnType === 'none' ? 'selected' : ''}>Standalone — do not connect yet</option>
+                  </select>
+                </div>
+                <div id="create-fs-rel-wrap" style="display:flex;flex-direction:column;gap:8px;">
                   <div>
-                    <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Or Enter Spouse PID</label>
-                    <input id="create-fs-spouse-pid" type="text" placeholder="e.g. BM6T-8QC" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);text-transform:uppercase;">
+                    <label id="create-fs-rel-label" style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Connected Relative on FamilySearch</label>
+                    <select id="create-fs-rel-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                      ${buildRelOptionsHtml(defaultTargetPid, '— Choose a relative to connect —')}
+                    </select>
                   </div>
                   <div>
-                    <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Date (optional)</label>
-                    <input id="create-fs-mdate" type="text" placeholder="e.g. May 2024" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                    <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Or Enter Relative's PID directly</label>
+                    <input id="create-fs-rel-pid" type="text" placeholder="e.g. BM6T-8QC" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);text-transform:uppercase;">
+                  </div>
+                  <div id="create-fs-spouse-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div>
+                      <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Date (optional)</label>
+                      <input id="create-fs-mdate" type="text" placeholder="e.g. May 2024" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                    </div>
+                    <div>
+                      <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Place (optional)</label>
+                      <input id="create-fs-mplace" type="text" placeholder="e.g. Cleveland, Ohio" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                    </div>
+                  </div>
+                  <div id="create-fs-child-fields" style="display:none;flex-direction:column;gap:4px;">
+                    <label style="display:block;font-size:11px;font-weight:600;">Second Parent (optional)</label>
+                    <select id="create-fs-parent2-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                      ${buildRelOptionsHtml('', '— Only link to 1 parent —')}
+                    </select>
+                  </div>
+                  <div id="create-fs-parent-note" class="muted" style="display:none;font-size:11.5px;line-height:1.4;">
+                    Links this new person as a parent of the selected relative (or fills an open parent slot if they only have one parent listed).
+                  </div>
+                  <div id="create-fs-sibling-note" class="muted" style="display:none;font-size:11.5px;line-height:1.4;">
+                    Links this new person under the same parent(s) as the selected relative on FamilySearch Tree.
                   </div>
                 </div>
-                <div>
-                  <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Marriage Place (optional)</label>
-                  <input id="create-fs-mplace" type="text" placeholder="e.g. Cleveland, Ohio" style="width:100%;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);">
+                <div id="create-fs-none-note" class="muted" style="display:none;font-size:11.5px;line-height:1.4;">
+                  This creates a standalone FamilySearch record. You can attach parents, spouse, or children later on FamilySearch Beta.
                 </div>
               </div>
               <div id="create-fs-status" style="font-size:12.5px;min-height:18px;color:var(--muted);"></div>
             </div>
-            <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+            <div id="create-fs-footer" style="padding:12px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:8px;">
               <button type="button" class="btn sm" id="create-fs-cancel">Cancel</button>
-              <button type="button" class="btn sm primary" id="create-fs-submit">Create on FamilySearch Beta</button>
+              <button type="button" class="btn sm primary" id="create-fs-submit">Create &amp; Connect on FamilySearch</button>
             </div>
           </div>
         `;
@@ -15683,6 +15826,31 @@
           if (ev.target === overlay) closeModal();
         });
 
+        const connTypeEl = overlay.querySelector('#create-fs-conn-type');
+        const relWrapEl = overlay.querySelector('#create-fs-rel-wrap');
+        const relLabelEl = overlay.querySelector('#create-fs-rel-label');
+        const spouseFieldsEl = overlay.querySelector('#create-fs-spouse-fields');
+        const childFieldsEl = overlay.querySelector('#create-fs-child-fields');
+        const parentNoteEl = overlay.querySelector('#create-fs-parent-note');
+        const siblingNoteEl = overlay.querySelector('#create-fs-sibling-note');
+        const noneNoteEl = overlay.querySelector('#create-fs-none-note');
+
+        const syncConnUi = () => {
+          const ct = connTypeEl.value;
+          relWrapEl.style.display = ct === 'none' ? 'none' : 'flex';
+          noneNoteEl.style.display = ct === 'none' ? 'block' : 'none';
+          spouseFieldsEl.style.display = ct === 'spouse' ? 'grid' : 'none';
+          childFieldsEl.style.display = ct === 'child' ? 'flex' : 'none';
+          parentNoteEl.style.display = ct === 'parent' ? 'block' : 'none';
+          siblingNoteEl.style.display = ct === 'sibling' ? 'block' : 'none';
+          if (ct === 'spouse') relLabelEl.textContent = 'Spouse on FamilySearch (Married to)';
+          else if (ct === 'child') relLabelEl.textContent = 'First Parent on FamilySearch';
+          else if (ct === 'parent') relLabelEl.textContent = 'Child on FamilySearch (Parent of)';
+          else if (ct === 'sibling') relLabelEl.textContent = 'Sibling on FamilySearch (Shares Parents with)';
+        };
+        connTypeEl.onchange = syncConnUi;
+        syncConnUi();
+
         const submitBtn = overlay.querySelector('#create-fs-submit');
         const statusEl = overlay.querySelector('#create-fs-status');
         submitBtn.onclick = async () => {
@@ -15692,15 +15860,23 @@
             statusEl.textContent = 'Please enter a full name.';
             return;
           }
+          const connType = connTypeEl.value;
+          const relSelectVal = overlay.querySelector('#create-fs-rel-select').value.trim();
+          const relManualVal = overlay.querySelector('#create-fs-rel-pid').value.trim();
+          const targetPid = (relManualVal || relSelectVal || '').toUpperCase();
+          if (connType !== 'none' && !targetPid) {
+            statusEl.style.color = '#991b1b';
+            statusEl.textContent = 'Choose a relative to connect to, or switch to "Standalone" if you don\'t want to connect them yet.';
+            return;
+          }
+
           const sex = overlay.querySelector('#create-fs-sex').value;
           const living = overlay.querySelector('#create-fs-living').checked;
           const birthDate = overlay.querySelector('#create-fs-bdate').value.trim();
           const birthPlace = overlay.querySelector('#create-fs-bplace').value.trim();
-          const spouseSelectVal = overlay.querySelector('#create-fs-spouse-select').value.trim();
-          const spouseManualVal = overlay.querySelector('#create-fs-spouse-pid').value.trim();
-          const spousePid = (spouseManualVal || spouseSelectVal || '').toUpperCase();
           const marriageDate = overlay.querySelector('#create-fs-mdate').value.trim();
           const marriagePlace = overlay.querySelector('#create-fs-mplace').value.trim();
+          const parent2Pid = overlay.querySelector('#create-fs-parent2-select').value.trim().toUpperCase();
 
           submitBtn.disabled = true;
           submitBtn.textContent = 'Creating...';
@@ -15721,23 +15897,44 @@
               throw new Error('FamilySearch created the person but did not return a PID.');
             }
 
-            let coupleLinked = false;
-            let coupleWarning = '';
-            if (spousePid) {
-              if (fs.createCoupleRelationship) {
-                try {
-                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking marriage to ${spousePid}...`;
-                  await fs.createCoupleRelationship(newPid, spousePid, marriageDate, marriagePlace);
-                  coupleLinked = true;
-                } catch (relErr) {
-                  coupleWarning = relErr && relErr.message ? relErr.message : String(relErr);
+            let connSuccessText = '';
+            let connWarning = '';
+            const targetLabel = candNameByPid.get(targetPid) || targetPid;
+            const parent2Label = parent2Pid ? (candNameByPid.get(parent2Pid) || parent2Pid) : '';
+
+            if (connType !== 'none' && targetPid) {
+              try {
+                if (connType === 'spouse') {
+                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking marriage to ${targetLabel}...`;
+                  if (!fs.createCoupleRelationship) throw new Error('createCoupleRelationship unavailable');
+                  await fs.createCoupleRelationship(newPid, targetPid, marriageDate, marriagePlace);
+                  connSuccessText = `Connected as Spouse (Married to) ${targetLabel}`;
+                } else if (connType === 'child') {
+                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking parents (${targetLabel})...`;
+                  if (!fs.createChildAndParentsRelationship) throw new Error('createChildAndParentsRelationship unavailable');
+                  await fs.createChildAndParentsRelationship(targetPid, parent2Pid, newPid);
+                  connSuccessText = `Connected as Child of ${targetLabel}${parent2Label ? ` & ${parent2Label}` : ''}`;
+                } else if (connType === 'parent') {
+                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking as parent of ${targetLabel}...`;
+                  if (!fs.createChildAndParentsRelationship) throw new Error('createChildAndParentsRelationship unavailable');
+                  await fs.createChildAndParentsRelationship(newPid, '', targetPid);
+                  connSuccessText = `Connected as Parent of ${targetLabel}`;
+                } else if (connType === 'sibling') {
+                  statusEl.textContent = `Created ${fullName} (${newPid}). Linking under parents of ${targetLabel}...`;
+                  if (!fs.createSiblingRelationship) throw new Error('createSiblingRelationship unavailable');
+                  await fs.createSiblingRelationship(newPid, targetPid);
+                  connSuccessText = `Connected as Sibling of ${targetLabel}`;
                 }
-              } else {
-                coupleWarning = 'createCoupleRelationship unavailable';
+              } catch (relErr) {
+                connWarning = relErr && relErr.message ? relErr.message : String(relErr);
               }
             }
 
             const prevNameLower = (personObj.name || '').trim().toLowerCase();
+            if (!Array.isArray(p.people)) p.people = [];
+            if (!p.people.includes(personObj)) {
+              p.people.push(personObj);
+            }
             personObj.name = fullName;
             if (sex && sex !== 'U') personObj.sex = sex;
             if (birthDate) personObj.birthDate = birthDate;
@@ -15760,26 +15957,60 @@
               await saveArchiveToDb(items, rootFolderName);
             }
 
-            closeModal();
             render();
+            if (typeof onCreated === 'function') {
+              try { onCreated(newPid, personObj); } catch (_) {}
+            }
 
-            let msg = `✓ Created ${fullName} on FamilySearch Beta (${newPid})`;
-            if (coupleLinked) {
-              msg += ` and linked as married to ${spousePid}`;
-            } else if (coupleWarning) {
-              msg += `, but marriage link failed: ${coupleWarning}`;
+            const toastMsg = `✓ Created ${fullName} (${newPid})` +
+              (connSuccessText ? ` — ${connSuccessText}` : (connWarning ? `, but tree link failed: ${connWarning}` : ''));
+            notify(toastMsg);
+
+            const personUrl = (created && created.url) || `${(fs.WEB_BASE || 'https://beta.familysearch.org')}/tree/person/details/${encodeURIComponent(newPid)}`;
+            const bodyEl = overlay.querySelector('#create-fs-body');
+            const footerEl = overlay.querySelector('#create-fs-footer');
+            bodyEl.innerHTML = `
+              <div style="padding:12px 14px;border-radius:8px;background:rgba(22,163,74,0.12);border:1px solid rgba(22,163,74,0.35);color:#14532d;font-size:13.5px;line-height:1.5;">
+                <strong>✓ Created ${esc(fullName)} on FamilySearch Beta</strong><br>
+                New Person ID (PID): <code style="font-weight:700;">${esc(newPid)}</code>
+              </div>
+              ${connSuccessText ? `
+                <div style="padding:10px 12px;border-radius:8px;background:rgba(37,99,235,0.1);border:1px solid rgba(37,99,235,0.3);font-size:13px;">
+                  🌳 ${esc(connSuccessText)}
+                </div>
+              ` : ''}
+              ${connWarning ? `
+                <div style="padding:10px 12px;border-radius:8px;background:rgba(217,119,6,0.12);border:1px solid rgba(217,119,6,0.4);color:#78350f;font-size:12.5px;line-height:1.45;">
+                  <strong>Tree link notice:</strong> ${esc(connWarning)}<br>
+                  Their new PID (<strong>${esc(newPid)}</strong>) is saved in this app, and you can finish linking them directly on their FamilySearch profile below.
+                </div>
+              ` : ''}
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+                <a href="${esc(personUrl)}" target="_blank" rel="noopener noreferrer" class="btn sm primary" style="text-align:center;text-decoration:none;font-weight:600;">
+                  Open ${esc(newPid)} on FamilySearch Beta ↗
+                </a>
+                ${(p.fsSynced && p.fsMemoryId) ? `
+                  <button type="button" class="btn sm" id="create-fs-update-mem" style="font-weight:600;">
+                    🔄 Update Photo Memory #${esc(p.fsMemoryId)} Now
+                  </button>
+                ` : ''}
+              </div>
+            `;
+            footerEl.innerHTML = `<button type="button" class="btn sm primary" id="create-fs-done">Done</button>`;
+            footerEl.querySelector('#create-fs-done').onclick = closeModal;
+            const updateMemBtn = bodyEl.querySelector('#create-fs-update-mem');
+            if (updateMemBtn) {
+              updateMemBtn.onclick = async () => {
+                closeModal();
+                await uploadPrintToFamilySearch(p, { replaceMemoryId: p.fsMemoryId });
+                render();
+              };
             }
-            if (p.fsSynced && p.fsMemoryId) {
-              msg += `. Click "✓ View FS Memory #${p.fsMemoryId} ↗" → "Update / Re-upload" to attach this photo to ${newPid}.`;
-            } else {
-              msg += '.';
-            }
-            notify(msg);
           } catch (err) {
             statusEl.style.color = '#991b1b';
             statusEl.textContent = err && err.message ? err.message : 'Could not create person on FamilySearch Beta.';
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Create on FamilySearch Beta';
+            submitBtn.textContent = 'Create & Connect on FamilySearch';
           }
         };
       }
