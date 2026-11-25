@@ -57,22 +57,46 @@ function isImageFile(name, mimeType) {
    ============================================================================ */
 
 const GOOGLE_TOKEN_CACHE_KEY = 'fhp_gdrive_token_cache_v1';
+const GOOGLE_ACCOUNT_HINT_KEY = 'fhp_gdrive_account_hint_v1';
+const _silentRefreshInFlight = new Map();
 let _memoryGoogleToken = null;
+
+function matchGoogleScope(have, requiredScope) {
+  if (!requiredScope || have === requiredScope) return true;
+  if (requiredScope === 'https://www.googleapis.com/auth/drive.readonly' && String(have || '').includes('https://www.googleapis.com/auth/drive')) {
+    return true;
+  }
+  return false;
+}
 
 function readGoogleTokenStore() {
   if (_memoryGoogleToken && _memoryGoogleToken.byScope) return _memoryGoogleToken;
   try {
-    const raw = sessionStorage.getItem(GOOGLE_TOKEN_CACHE_KEY);
+    let raw = localStorage.getItem(GOOGLE_TOKEN_CACHE_KEY);
+    let fromSession = false;
+    if (!raw) {
+      raw = sessionStorage.getItem(GOOGLE_TOKEN_CACHE_KEY);
+      fromSession = Boolean(raw);
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
+      let normalized = null;
       if (parsed && parsed.byScope && typeof parsed.byScope === 'object') {
-        _memoryGoogleToken = parsed;
-        return parsed;
+        normalized = parsed;
+      } else if (parsed && parsed.token && parsed.expiresAt) {
+        normalized = { byScope: { [parsed.scope || 'default']: parsed } };
       }
-      if (parsed && parsed.token && parsed.expiresAt) {
-        const migrated = { byScope: { [parsed.scope || 'default']: parsed } };
-        _memoryGoogleToken = migrated;
-        return migrated;
+      if (normalized) {
+        _memoryGoogleToken = normalized;
+        if (fromSession) {
+          try {
+            localStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(normalized));
+            sessionStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
+          } catch {
+            // ignore migration storage errors
+          }
+        }
+        return normalized;
       }
     }
   } catch {
@@ -92,7 +116,7 @@ function saveGoogleTokenCache(token, scope, expiresInSec = 3500) {
   store.byScope[key] = rec;
   _memoryGoogleToken = store;
   try {
-    sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
+    localStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
   } catch {
     // ignore storage errors
   }
@@ -107,19 +131,72 @@ export function getCachedGoogleToken(requiredScope = 'https://www.googleapis.com
     const cached = entries[i];
     if (!cached || !cached.token) continue;
     if (cached.expiresAt - now <= 120_000) continue;
-    const have = cached.scope || '';
-    if (!requiredScope || have === requiredScope) return cached.token;
-    if (requiredScope === 'https://www.googleapis.com/auth/drive.readonly' && have.includes('https://www.googleapis.com/auth/drive')) {
-      return cached.token;
-    }
+    if (matchGoogleScope(cached.scope || '', requiredScope)) return cached.token;
   }
   return '';
+}
+
+export function getGoogleTokenExpiresAt(requiredScope = 'https://www.googleapis.com/auth/drive.readonly') {
+  const store = readGoogleTokenStore();
+  const entries = Object.values(store.byScope || {});
+  let maxExp = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const cached = entries[i];
+    if (!cached || !cached.token || !cached.expiresAt) continue;
+    if (matchGoogleScope(cached.scope || '', requiredScope)) {
+      maxExp = Math.max(maxExp, Number(cached.expiresAt) || 0);
+    }
+  }
+  return maxExp;
+}
+
+export function getGoogleAccountHint() {
+  try {
+    const raw = localStorage.getItem(GOOGLE_ACCOUNT_HINT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.email || parsed.displayName)) return parsed;
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+export function saveGoogleAccountHint(info) {
+  const email = String(info?.email || '').trim();
+  const displayName = String(info?.displayName || '').trim();
+  if (!email && !displayName) return null;
+  const payload = { email, displayName, savedAt: Date.now() };
+  try {
+    localStorage.setItem(GOOGLE_ACCOUNT_HINT_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+  return payload;
+}
+
+async function fetchAndSaveGoogleDriveUserHint(token) {
+  if (!token) return null;
+  try {
+    const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress)', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return saveGoogleAccountHint({
+      email: data?.user?.emailAddress,
+      displayName: data?.user?.displayName
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function clearCachedGoogleToken(scope = '') {
   if (!scope) {
     _memoryGoogleToken = null;
     try {
+      localStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
       sessionStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
     } catch {
       // ignore
@@ -131,11 +208,77 @@ export function clearCachedGoogleToken(scope = '') {
     delete store.byScope[scope];
     _memoryGoogleToken = store;
     try {
-      sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
+      localStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
     } catch {
       // ignore
     }
   }
+}
+
+export async function tryRefreshGoogleTokenSilently(
+  clientId,
+  scope = 'https://www.googleapis.com/auth/drive.readonly',
+  timeoutMs = 5500
+) {
+  const cleanId = String(clientId || '').trim();
+  if (!cleanId) return '';
+
+  const existing = getCachedGoogleToken(scope);
+  if (existing && getGoogleTokenExpiresAt(scope) - Date.now() > 12 * 60 * 1000) {
+    return existing;
+  }
+
+  const inflightKey = `${cleanId}::${scope || 'default'}`;
+  if (_silentRefreshInFlight.has(inflightKey)) {
+    return _silentRefreshInFlight.get(inflightKey);
+  }
+
+  const promise = (async () => {
+    try {
+      await loadScriptOnce('https://accounts.google.com/gsi/client');
+      if (!window.google?.accounts?.oauth2) return '';
+      const savedHint = getGoogleAccountHint()?.email || '';
+      return await new Promise((resolve) => {
+        let settled = false;
+        const finish = (tok) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(tok || '');
+        };
+        const timer = setTimeout(() => finish(''), Math.max(1500, Number(timeoutMs) || 5500));
+        try {
+          const client = window.google.accounts.oauth2.initTokenClient({
+            client_id: cleanId,
+            scope,
+            ...(savedHint ? { hint: savedHint } : {}),
+            callback: (resp) => {
+              if (resp?.error || !resp?.access_token) {
+                finish('');
+                return;
+              }
+              saveGoogleTokenCache(resp.access_token, scope, resp.expires_in);
+              if (String(scope || '').includes('/auth/drive')) {
+                fetchAndSaveGoogleDriveUserHint(resp.access_token).catch(() => {});
+              }
+              finish(resp.access_token);
+            },
+            error_callback: () => finish('')
+          });
+          client.requestAccessToken({ prompt: 'none' });
+        } catch {
+          finish('');
+        }
+      });
+    } catch {
+      return '';
+    } finally {
+      _silentRefreshInFlight.delete(inflightKey);
+    }
+  })();
+
+  _silentRefreshInFlight.set(inflightKey, promise);
+  return promise;
 }
 
 export async function requestGoogleToken(clientId, scope, opts = {}) {
@@ -152,10 +295,13 @@ export async function requestGoogleToken(clientId, scope, opts = {}) {
     throw new Error('Google Sign-In library failed to load.');
   }
 
+  const savedHint = getGoogleAccountHint()?.email || '';
+
   return new Promise((resolve, reject) => {
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: cleanId,
       scope,
+      ...(savedHint ? { hint: savedHint } : {}),
       callback: (resp) => {
         if (resp?.error) {
           reject(new Error(resp.error_description || resp.error || 'Google sign-in cancelled.'));
@@ -166,7 +312,13 @@ export async function requestGoogleToken(clientId, scope, opts = {}) {
           return;
         }
         saveGoogleTokenCache(resp.access_token, scope, resp.expires_in);
+        if (String(scope || '').includes('/auth/drive')) {
+          fetchAndSaveGoogleDriveUserHint(resp.access_token).catch(() => {});
+        }
         resolve(resp.access_token);
+      },
+      error_callback: (err) => {
+        reject(new Error(err?.message || err?.type || 'Google sign-in cancelled.'));
       }
     });
     client.requestAccessToken({ prompt: opts.forcePrompt ? 'consent' : '' });
@@ -178,7 +330,7 @@ async function fetchDriveWithRetry(url, token, attempt = 0) {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (res.status === 401) {
-    clearCachedGoogleToken();
+    clearCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly');
     throw new Error('Google Drive session expired — please reconnect Google Drive.');
   }
   if ((res.status === 429 || res.status >= 500) && attempt < 3) {

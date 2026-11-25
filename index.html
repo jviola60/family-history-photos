@@ -15889,6 +15889,8 @@
         const hub = window.CloudImportHub;
         const fsSignedIn = Boolean(fsUser);
         const driveSignedIn = Boolean(hub && typeof hub.getCachedGoogleToken === 'function' && hub.getCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly'));
+        const driveHint = (hub && typeof hub.getGoogleAccountHint === 'function') ? hub.getGoogleAccountHint() : null;
+        const driveUserLabel = driveHint && (driveHint.email || driveHint.displayName) ? (driveHint.email || driveHint.displayName) : '';
         const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
         const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
         const gathered = loadGatheredSources();
@@ -15946,7 +15948,7 @@
                     <strong style="font-size:13.5px;color:#0f172a;">☁️ Google Drive</strong>
                     <span style="font-size:11.5px;font-weight:700;color:${driveSignedIn ? '#15803d' : '#b91c1c'};">${driveSignedIn ? '● Logged In' : (driveCount > 0 ? '● Session Expired' : '● Signed Out')}</span>
                   </div>
-                  <div style="font-size:12px;color:#334155;margin-top:3px;">${driveSignedIn ? 'Google Drive account connected. Use the Cloud box below to pull photos.' : (driveCount > 0 ? `${driveCount.toLocaleString()} photos cached; sign in to refresh or pull more.` : 'Sign in to Google Drive, then pull photos below.')}</div>
+                  <div style="font-size:12px;color:#334155;margin-top:3px;">${driveSignedIn ? `Signed in${driveUserLabel ? ` as ${esc(driveUserLabel)}` : ''} · Auto-renews while open. Use the Cloud box below to pull photos.` : (driveCount > 0 ? `${driveCount.toLocaleString()} photos cached${driveUserLabel ? ` (${esc(driveUserLabel)})` : ''}; sign in to refresh or pull more.` : 'Sign in to Google Drive, then pull photos below.')}</div>
                 </div>
                 <button type="button" class="btn sm ${driveSignedIn ? 'success' : 'danger'}" id="gather-acct-gdrive" style="width:100%;">${driveSignedIn ? '✓ Google Drive Logged In' : 'Sign in: Google Drive'}</button>
               </div>
@@ -18217,7 +18219,10 @@
               const status = body.querySelector('#gdrive-status');
               status.textContent = 'Signing in to Google Drive...';
               try {
-                gdriveToken = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive.readonly');
+                const scope = 'https://www.googleapis.com/auth/drive.readonly';
+                gdriveToken = (cid && typeof hub.tryRefreshGoogleTokenSilently === 'function'
+                  ? await hub.tryRefreshGoogleTokenSilently(cid, scope)
+                  : '') || await hub.requestGoogleToken(cid, scope);
                 render();
                 renderTab();
                 await loadGdriveList();
@@ -18301,18 +18306,7 @@
                   }
                   closeModal();
                   render();
-                  notify(mode === 'gather'
-                    ? `✓ Indexed ${files.length.toLocaleString()} Google Drive photos! Continue to Step 2 when ready to review & tag.`
-                    : `✓ Indexed ${files.length.toLocaleString()} Google Drive photos (My Drive + Shared)!`);
-                  if (mode !== 'gather') {
-                    const gd = window._activeGedcomData;
-                    const matchCnt = (gedcomIndexMatches.strongMatches?.length || 0) + (gedcomIndexMatches.possibleMatches?.length || 0);
-                    if (gd && matchCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
-                      openGedcomMatchReviewModal(gedcomIndexMatches, 'Google Drive');
-                    } else if (typeof openPhotoIndexBrowserModal === 'function') {
-                      openPhotoIndexBrowserModal('', { initialSource: 'gdrive' });
-                    }
-                  }
+                  notify(`✓ Indexed ${files.length.toLocaleString()} Google Drive photos (My Drive + Shared)! Open PAF / GEDCOM Photo Match Review in Step 2 when ready.`);
                 } catch (e) {
                   status.textContent = e.message;
                   scanAllBtn.disabled = false;
@@ -20683,6 +20677,8 @@
         return gedcomIndexMatches;
       }
 
+      let _lastDriveSilentFailAt = 0;
+
       async function ensureGoogleDriveToken(forcePrompt = false) {
         const hub = window.CloudImportHub;
         if (!hub) throw new Error('Cloud module is still loading — please try again in a second.');
@@ -20693,12 +20689,46 @@
         }
         const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
         let cid = (settings.googleClientId || '').trim();
+        if (!forcePrompt && cid && typeof hub.tryRefreshGoogleTokenSilently === 'function') {
+          const silentTok = await hub.tryRefreshGoogleTokenSilently(cid, scope);
+          if (silentTok) {
+            _lastDriveSilentFailAt = 0;
+            return silentTok;
+          }
+        }
         if (!cid) {
           cid = (window.prompt('Enter your Google OAuth Client ID to connect Google Drive:', '') || '').trim();
           if (!cid) throw new Error('Google Drive sign-in cancelled (no Client ID).');
           if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
         }
         return await hub.requestGoogleToken(cid, scope, { forcePrompt });
+      }
+
+      async function maybeRenewGoogleDriveSilently(reason = '') {
+        const hub = window.CloudImportHub;
+        if (!hub || typeof hub.tryRefreshGoogleTokenSilently !== 'function') return '';
+        const scope = 'https://www.googleapis.com/auth/drive.readonly';
+        const cid = ((hub.getCloudSettings && hub.getCloudSettings().googleClientId) || '').trim();
+        if (!cid) return '';
+        const hasHistory = Boolean(
+          (hub.getGoogleAccountHint && hub.getGoogleAccountHint()?.email)
+          || ((hub.getGoogleTokenExpiresAt && hub.getGoogleTokenExpiresAt(scope)) || 0) > 0
+          || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
+        );
+        if (!hasHistory) return '';
+        const exp = hub.getGoogleTokenExpiresAt ? hub.getGoogleTokenExpiresAt(scope) : 0;
+        if (exp - Date.now() > 12 * 60 * 1000) return '';
+        const cooldown = reason === 'visibility' ? 2 * 60 * 1000 : 10 * 60 * 1000;
+        if (Date.now() - _lastDriveSilentFailAt < cooldown) return '';
+        const tok = await hub.tryRefreshGoogleTokenSilently(cid, scope);
+        if (tok) {
+          _lastDriveSilentFailAt = 0;
+          if (mode === 'gather') render();
+          else if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+        } else {
+          _lastDriveSilentFailAt = Date.now();
+        }
+        return tok;
       }
 
       async function importAndLinkExternalPhotosToPerson(selectedEntries, gp, onProgress = null) {
@@ -21042,7 +21072,7 @@
         const msg = `✓ Checked <strong>${items.length}</strong> loaded photos against <strong>${gd.peopleList.length.toLocaleString()}</strong> people — linked <strong>${res.matchedPhotos}</strong> strong match${res.matchedPhotos === 1 ? '' : 'es'} (${res.totalLinksRestored} new links)${possCount > 0 ? ` and found <strong>${possCount}</strong> close / possible filename match${possCount === 1 ? '' : 'es'} to review!` : '.'}`;
         if (onStatus) onStatus(msg);
         notify(`Matched ${res.matchedPhotos} photos${possCount > 0 ? ` + ${possCount} possible matches to review` : ''}!`);
-        if (possCount > 0 && typeof openGedcomMatchReviewModal === 'function') {
+        if (mode !== 'gather' && possCount > 0 && typeof openGedcomMatchReviewModal === 'function') {
           openGedcomMatchReviewModal(batchRes, 'Loaded Photos');
         }
         return res;
@@ -21125,21 +21155,13 @@
 
           const strongCnt = matchRes.strongMatches.length;
           const possCnt = matchRes.possibleMatches.length;
-          const doneMsg = `✓ Indexed <strong>${localRecords.length.toLocaleString()}</strong> photos in <strong>${esc(scannedRootName)}</strong> — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}. All ${localRecords.length.toLocaleString()} photos are now searchable under <strong>🔍 Find &amp; Link Photo</strong>!`;
+          const doneMsg = `✓ Indexed <strong>${localRecords.length.toLocaleString()}</strong> photos in <strong>${esc(scannedRootName)}</strong> — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}. All ${localRecords.length.toLocaleString()} photos are ready in Step 2 (Match Review &amp; Find &amp; Link)!`;
           if (onStatus) onStatus(doneMsg);
-          notify(`Indexed ${localRecords.length.toLocaleString()} local photos (${strongCnt} strong, ${possCnt} possible matches)!`);
+          notify(`✓ Indexed ${localRecords.length.toLocaleString()} local photos!${strongCnt + possCnt > 0 ? ` ${(strongCnt + possCnt).toLocaleString()} matches are ready to review in Step 2.` : ''}`);
           if (typeof recordGatheredSource === 'function') {
             recordGatheredSource('local', { label: 'Local Folder', count: localRecords.length });
           }
           render();
-
-          if (mode !== 'gather') {
-            if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
-              openGedcomMatchReviewModal(matchRes, `Local Folder: ${scannedRootName}`);
-            } else if (typeof openPhotoIndexBrowserModal === 'function') {
-              openPhotoIndexBrowserModal();
-            }
-          }
         };
         input.click();
       }
@@ -21261,12 +21283,9 @@
           if (typeof recordGatheredSource === 'function') {
             recordGatheredSource('gdrive', { label: 'Google Drive', count: driveFiles.length });
           }
-          notify(`Ready! ${driveFiles.length.toLocaleString()} Google Drive photos are now searchable.`);
+          notify(`✓ Indexed ${driveFiles.length.toLocaleString()} Google Drive photos!${strongCnt + possCnt > 0 ? ` ${(strongCnt + possCnt).toLocaleString()} matches are ready to review in Step 2.` : ''}`);
           closeModal();
           render();
-          if (mode !== 'gather' && strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
-            openGedcomMatchReviewModal(matchRes, 'Google Drive');
-          }
         } catch (err) {
           closeModal();
           if (onStatus) onStatus(`Could not scan Google Drive: ${esc(err.message)}`);
@@ -21406,16 +21425,9 @@
           if (typeof recordGatheredSource === 'function') {
             recordGatheredSource('gdrive', { label: 'Google Drive', count: finalIndex.length });
           }
-          notify(`Indexed ${finalIndex.length.toLocaleString()} Google Drive photos (${strongCnt} strong, ${possCnt} possible matches)!`);
+          notify(`✓ Indexed ${finalIndex.length.toLocaleString()} Google Drive photos!${strongCnt + possCnt > 0 ? ` ${(strongCnt + possCnt).toLocaleString()} matches are ready to review in Step 2.` : ''}`);
           closeModal();
           render();
-          if (mode !== 'gather') {
-            if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
-              openGedcomMatchReviewModal(matchRes, `Google Drive: ${label}`);
-            } else if (typeof openPhotoIndexBrowserModal === 'function') {
-              openPhotoIndexBrowserModal();
-            }
-          }
         };
 
         const rematchBtn = overlay.querySelector('#gd-rematch-saved-btn');
@@ -24731,7 +24743,10 @@
               if (!hub || !cid) throw new Error('Google OAuth Client ID missing for token refresh.');
               refreshPromise = (async () => {
                 statusEl.textContent = 'Refreshing Google Drive session (1-hour token renewal)...';
-                const newTok = await hub.requestGoogleToken(cid, 'https://www.googleapis.com/auth/drive');
+                const scope = 'https://www.googleapis.com/auth/drive';
+                const newTok = (!force && typeof hub.tryRefreshGoogleTokenSilently === 'function'
+                  ? await hub.tryRefreshGoogleTokenSilently(cid, scope)
+                  : '') || await hub.requestGoogleToken(cid, scope, { forcePrompt: force });
                 driveToken = newTok;
                 tokenObtainedAt = Date.now();
                 return newTok;
@@ -24866,6 +24881,14 @@
 
       const btnOpenDriveSync = document.getElementById('btn-open-drive-sync');
       if (btnOpenDriveSync) btnOpenDriveSync.onclick = openDriveSyncModal;
+
+      setTimeout(() => { maybeRenewGoogleDriveSilently('startup'); }, 1500);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') maybeRenewGoogleDriveSilently('visibility');
+      });
+      setInterval(() => {
+        if (document.visibilityState === 'visible') maybeRenewGoogleDriveSilently('interval');
+      }, 8 * 60 * 1000);
 
       if (window.FamilyHistoryTutorial) {
         window.FamilyHistoryTutorial.init({
