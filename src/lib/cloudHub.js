@@ -190,6 +190,42 @@ export async function downloadGoogleDriveFile(token, fileRec) {
   return file;
 }
 
+export async function fetchGoogleDriveThumbnailLinks(token, fileIds, options = {}) {
+  const uniqueIds = Array.from(new Set((fileIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const resultMap = new Map();
+  if (!token || uniqueIds.length === 0) return resultMap;
+
+  const onEach = typeof options.onEach === 'function' ? options.onEach : null;
+  const concurrency = Math.min(6, uniqueIds.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (cursor < uniqueIds.length) {
+      const fileId = uniqueIds[cursor++];
+      try {
+        const res = await fetchDriveWithRetry(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,thumbnailLink&supportsAllDrives=true`,
+          token
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        const link = (data && data.thumbnailLink) ? String(data.thumbnailLink) : '';
+        if (link) {
+          resultMap.set(fileId, link);
+          if (onEach) onEach(fileId, link);
+        }
+      } catch (err) {
+        if (String(err && err.message || '').includes('session expired')) {
+          throw err;
+        }
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return resultMap;
+}
+
 export async function listGoogleDriveFolders(token, parentId = 'root') {
   const q = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`;
