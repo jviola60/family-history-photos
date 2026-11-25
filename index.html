@@ -2692,6 +2692,180 @@
     @keyframes fhpSpin {
       to { transform: rotate(360deg); }
     }
+    .photo-hover-thumb {
+      cursor: zoom-in;
+      transition: transform 0.14s ease, box-shadow 0.14s ease;
+    }
+    .photo-hover-thumb:hover {
+      box-shadow: 0 0 0 2.5px var(--accent, #2563eb);
+      transform: scale(1.06);
+    }
+    .photo-hover-popover {
+      position: fixed;
+      z-index: 100001;
+      pointer-events: none;
+      background: #0f172a;
+      border: 2px solid rgba(255, 255, 255, 0.22);
+      border-radius: 12px;
+      box-shadow: 0 22px 54px rgba(0, 0, 0, 0.52);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: min(460px, calc(100vw - 24px));
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+    .photo-hover-popover[hidden] {
+      display: none !important;
+    }
+    .photo-hover-popover.is-open {
+      opacity: 1;
+    }
+    .photo-hover-popover img {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: min(440px, calc(100vw - 44px));
+      max-height: min(440px, calc(100vh - 96px));
+      min-width: 240px;
+      min-height: 180px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #020617;
+    }
+    .photo-hover-popover-meta {
+      padding: 2px 4px 1px;
+      color: #f8fafc;
+      min-width: 0;
+    }
+    .photo-hover-popover-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .photo-hover-popover-sub {
+      font-size: 11.5px;
+      color: #cbd5e1;
+      margin-top: 2px;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .photo-hover-popover-hint {
+      font-size: 11px;
+      color: #93c5fd;
+      margin-top: 3px;
+      font-weight: 600;
+    }
+    .photo-lightbox-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100002;
+      background: rgba(2, 6, 23, 0.86);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      gap: 12px;
+    }
+    .photo-lightbox-img {
+      max-width: 92vw;
+      max-height: 82vh;
+      object-fit: contain;
+      border-radius: 10px;
+      background: #020617;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+    }
+    .photo-lightbox-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      max-width: min(92vw, 880px);
+      width: 100%;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #f8fafc;
+    }
+    #face-tagger-modal {
+      z-index: 100010;
+    }
+    .gmr-extra-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 6px;
+      align-items: center;
+    }
+    .gmr-extra-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #eff6ff;
+      border: 1px solid #93c5fd;
+      color: #1e3a8a;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .gmr-extra-chip.is-face-tagged {
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+      color: #065f46;
+    }
+    .gmr-chip-rm {
+      background: transparent;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .gmr-chip-rm:hover {
+      color: #b91c1c;
+    }
+    .gmr-add-picker {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #f8fafc;
+      border: 1.5px solid #93c5fd;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .gmr-picker-list {
+      max-height: 170px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .gmr-picker-item {
+      text-align: left;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      cursor: pointer;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #0f172a;
+    }
+    .gmr-picker-item:hover {
+      background: #eff6ff;
+      border-color: #60a5fa;
+    }
   </style>
 </head>
 
@@ -2761,7 +2935,20 @@
         </div>
       </div>
 
-      <div class="group-label">Workspace</div>
+      <div id="sidebar-index-section" hidden>
+        <div class="group-label">Scanned Cloud &amp; Index</div>
+        <button class="nav-item" type="button" id="nav-gdrive-indexed" hidden title="Browse and search all indexed Google Drive photos without downloading them">
+          <span data-icon="spark"></span><span>Google Drive Indexed</span><span class="nav-count" id="q-gdrive-indexed" style="background:#dbeafe;color:#1e40af;">0</span>
+        </button>
+        <button class="nav-item" type="button" id="nav-local-indexed" hidden title="Browse and search all indexed local folder photos">
+          <span data-icon="folder"></span><span>Local Folder Indexed</span><span class="nav-count" id="q-local-indexed">0</span>
+        </button>
+        <button class="nav-item" type="button" id="nav-index-matches" hidden title="Review suggested PAF / GEDCOM matches found across your indexed photos">
+          <span data-icon="tree"></span><span>Suggested Matches</span><span class="nav-count" id="q-index-matches" style="background:#dcfce7;color:#166534;">0</span>
+        </button>
+      </div>
+
+      <div class="group-label" id="sidebar-workspace-label">Workspace</div>
       <button class="nav-item" type="button" data-queue="all" aria-current="page">
         <span data-icon="grid"></span><span>All album prints</span><span class="nav-count" id="q-all">10</span>
       </button>
@@ -2797,6 +2984,10 @@
 
       <div class="group-label">Subfolders on Disk</div>
       <div id="folder-nav"></div>
+      <div id="gdrive-folder-nav-wrap" hidden>
+        <div class="group-label" id="gdrive-folder-nav-label">Google Drive Folders</div>
+        <div id="gdrive-folder-nav"></div>
+      </div>
 
       <div class="sidebar-foot">
         <button class="nav-item sidebar-help-btn" type="button" id="btn-sidebar-help">
@@ -5217,6 +5408,8 @@
         render();
       }
 
+      let _cachedGdriveSidebar = { version: -1, renderedVersion: -1, topFolders: [], totalFolders: 0 };
+
       function renderSidebarCounts() {
         document.getElementById('sidebar-folder-name').textContent = rootFolderName;
         document.getElementById('top-folder-label').textContent = `Folder: ${rootFolderName}`;
@@ -5308,6 +5501,120 @@
               const q = btn.getAttribute('data-queue');
               btn.setAttribute('aria-current', (!activeFolder && activeQueue === q) ? 'page' : 'false');
             });
+
+            const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+            const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+            const matchCount = (gedcomIndexMatches && Array.isArray(gedcomIndexMatches.strongMatches) ? gedcomIndexMatches.strongMatches.length : 0)
+              + (gedcomIndexMatches && Array.isArray(gedcomIndexMatches.possibleMatches) ? gedcomIndexMatches.possibleMatches.length : 0);
+
+            const idxSection = document.getElementById('sidebar-index-section');
+            const navGd = document.getElementById('nav-gdrive-indexed');
+            const qGd = document.getElementById('q-gdrive-indexed');
+            const navLoc = document.getElementById('nav-local-indexed');
+            const qLoc = document.getElementById('q-local-indexed');
+            const navMatches = document.getElementById('nav-index-matches');
+            const qMatches = document.getElementById('q-index-matches');
+            const wsLabel = document.getElementById('sidebar-workspace-label');
+            const allBtn = document.querySelector('[data-queue="all"]');
+
+            if (idxSection) idxSection.hidden = (driveCount === 0 && localCount === 0 && matchCount === 0);
+            if (navGd && qGd) {
+              navGd.hidden = driveCount === 0;
+              qGd.textContent = driveCount.toLocaleString();
+              navGd.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'gdrive' });
+              };
+            }
+            if (navLoc && qLoc) {
+              navLoc.hidden = localCount === 0;
+              qLoc.textContent = localCount.toLocaleString();
+              navLoc.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'local' });
+              };
+            }
+            if (navMatches && qMatches) {
+              navMatches.hidden = matchCount === 0;
+              qMatches.textContent = matchCount.toLocaleString();
+              navMatches.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openGedcomMatchReviewModal === 'function') {
+                  openGedcomMatchReviewModal(gedcomIndexMatches, driveCount > 0 ? 'Google Drive' : 'Indexed Photos');
+                }
+              };
+            }
+            if (wsLabel) {
+              wsLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Workspace (Imported)' : 'Workspace';
+            }
+            if (allBtn) {
+              allBtn.title = driveCount > 0
+                ? `Imported album prints (${s.activeCount}) — ${driveCount.toLocaleString()} Google Drive photos are indexed in "Google Drive Indexed" above`
+                : 'All imported album prints';
+            }
+
+            const gdWrap = document.getElementById('gdrive-folder-nav-wrap');
+            const gdNav = document.getElementById('gdrive-folder-nav');
+            if (gdWrap && gdNav) {
+              if (driveCount === 0) {
+                gdWrap.hidden = true;
+                _cachedGdriveSidebar.renderedVersion = -1;
+              } else {
+                gdWrap.hidden = false;
+                if (_cachedGdriveSidebar.version !== photoLibraryIndex.indexVersion) {
+                  const counts = new Map();
+                  for (let i = 0; i < photoLibraryIndex.gdrive.length; i++) {
+                    const fp = photoLibraryIndex.gdrive[i].path || 'My Drive';
+                    counts.set(fp, (counts.get(fp) || 0) + 1);
+                  }
+                  const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+                  _cachedGdriveSidebar = {
+                    version: photoLibraryIndex.indexVersion,
+                    renderedVersion: _cachedGdriveSidebar.renderedVersion,
+                    topFolders: sorted.slice(0, 12),
+                    totalFolders: sorted.length
+                  };
+                }
+                if (_cachedGdriveSidebar.renderedVersion !== photoLibraryIndex.indexVersion) {
+                  const rowsHtml = _cachedGdriveSidebar.topFolders.map(([fullPath, cnt]) => {
+                    const disp = fullPath.length > 11 && fullPath.startsWith('My Drive / ')
+                      ? fullPath.slice(11)
+                      : fullPath;
+                    return `
+                      <button class="nav-item" type="button" data-gdrive-folder="${esc(fullPath)}" title="${esc(fullPath)} (${cnt.toLocaleString()} indexed photos)">
+                        <span data-icon="folder"></span>
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(disp)}</span>
+                        <span class="nav-count">${cnt.toLocaleString()}</span>
+                      </button>
+                    `;
+                  }).join('');
+                  const moreBtnHtml = _cachedGdriveSidebar.totalFolders > _cachedGdriveSidebar.topFolders.length
+                    ? `<button class="nav-item" type="button" id="btn-gd-all-folders" style="font-size:12px;color:var(--accent,#1d4ed8);font-weight:600;"><span>Browse all ${_cachedGdriveSidebar.totalFolders.toLocaleString()} Drive folders...</span></button>`
+                    : '';
+                  gdNav.innerHTML = rowsHtml + moreBtnHtml;
+                  mountIcons(gdNav);
+                  gdNav.querySelectorAll('[data-gdrive-folder]').forEach((btn) => {
+                    btn.onclick = () => {
+                      const fp = btn.getAttribute('data-gdrive-folder') || '';
+                      document.getElementById('sidebar').classList.remove('open');
+                      if (typeof openPhotoIndexBrowserModal === 'function') {
+                        openPhotoIndexBrowserModal(fp, { initialSource: 'gdrive' });
+                      }
+                    };
+                  });
+                  const allFoldersBtn = gdNav.querySelector('#btn-gd-all-folders');
+                  if (allFoldersBtn) {
+                    allFoldersBtn.onclick = () => {
+                      document.getElementById('sidebar').classList.remove('open');
+                      if (typeof openPhotoIndexBrowserModal === 'function') {
+                        openPhotoIndexBrowserModal('', { initialSource: 'gdrive' });
+                      }
+                    };
+                  }
+                  _cachedGdriveSidebar.renderedVersion = photoLibraryIndex.indexVersion;
+                }
+              }
+            }
           }
 
           function renderCharts() {
@@ -7313,6 +7620,7 @@
       }
 
       async function openFaceTaggerModal(p, startIdx = 0, opts = {}) {
+        if (typeof hidePhotoHoverPreview === 'function') hidePhotoHoverPreview();
         const modal = document.getElementById('face-tagger-modal');
         if (!modal || !p) return;
         sanitizePhotoPersonPids(p);
@@ -7401,6 +7709,9 @@
           drawMode = false;
           modal.setAttribute('hidden', '');
           refreshHostViews();
+          if (opts && typeof opts.onClose === 'function') {
+            try { opts.onClose(p); } catch (_) {}
+          }
         };
 
         document.getElementById('btn-ft-close').onclick = closeModal;
@@ -17251,6 +17562,7 @@
             photoLibraryIndex.gdriveScannedAt = Date.now();
             photoLibraryIndex.gdriveFolderName = sourceLabel || 'Google Drive';
             photoLibraryIndex.indexVersion++;
+            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
             if (typeof saveGdriveIndexToDb === 'function') {
               saveGdriveIndexToDb(gdriveRecords, photoLibraryIndex.gdriveFolderName).catch(() => {});
             }
@@ -19256,6 +19568,7 @@
             photoLibraryIndex.gdriveScannedAt = meta.scannedAt || Date.now();
             photoLibraryIndex.gdriveFolderName = meta.folderName || 'My Drive';
             photoLibraryIndex.indexVersion++;
+            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
             if (window._activeGedcomData) {
               await refreshGedcomIndexMatches();
             } else if (mode === 'catalog' && layout === 'people') {
@@ -19350,6 +19663,7 @@
           indexVersion: photoLibraryIndex.indexVersion,
           gedFileName: gd.fileName || ''
         };
+        if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
         if (mode === 'catalog' && layout === 'people') {
           const activeEl = document.activeElement;
           if (!activeEl || (!activeEl.closest('#people-tree-list') && activeEl.id !== 'inp-people-search')) {
@@ -19573,7 +19887,7 @@
 
         for (let i = 0; i < pairs.length; i++) {
           const item = pairs[i];
-          if (!item || !item.record || !item.person) continue;
+          if (!item || !item.record || (!item.person && !item.importOnly)) continue;
           const rec = item.record;
           const gp = item.person;
 
@@ -19589,24 +19903,28 @@
           }
 
           if (target) {
-            await linkGedcomPersonToPhoto(target, gp, { persistArchive: false });
-            linkedSet.add(target.id);
+            if (gp) {
+              await linkGedcomPersonToPhoto(target, gp, { persistArchive: false });
+              linkedSet.add(target.id);
+            }
             if (!firstPhotoId) firstPhotoId = target.id;
           } else if (rec.source === 'local' && rec.fileObj) {
             const f = rec.fileObj;
             const relParts = String(f.webkitRelativePath || rec.path || '').split(/[\\/]/).filter(Boolean);
             const subFolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : (photoLibraryIndex.localFolderName || rootFolderName);
             const created = createLocalPhotoItem(f, makeUniqueId(), subFolder, {
-              fallbackTitle: gp.name,
-              birthDate: gp.birthDate,
-              branch: gp.surname || ''
+              fallbackTitle: (gp && gp.name) || rec.name,
+              birthDate: gp ? gp.birthDate : '',
+              branch: gp ? (gp.surname || '') : ''
             });
-            await linkGedcomPersonToPhoto(created, gp, { persistArchive: false });
+            if (gp) {
+              await linkGedcomPersonToPhoto(created, gp, { persistArchive: false });
+              linkedSet.add(created.id);
+            }
             baseItems.push(created);
             byId.set(created.id, created);
             byFileName.set(String(created.file || '').toLowerCase(), created);
             newlyCreated.push(created);
-            linkedSet.add(created.id);
             if (!firstPhotoId) firstPhotoId = created.id;
           } else if (rec.source === 'gdrive') {
             driveTodo.push(item);
@@ -19614,27 +19932,39 @@
         }
 
         if (driveTodo.length > 0 && hub) {
+          const driveGroupMap = new Map();
+          driveTodo.forEach((item, idx) => {
+            const key = String(item.record.cloudId || item.record.id || item.record.name || idx);
+            let group = driveGroupMap.get(key);
+            if (!group) {
+              group = { record: item.record, people: [] };
+              driveGroupMap.set(key, group);
+            }
+            if (item.person) group.people.push(item.person);
+          });
+          const driveGroups = Array.from(driveGroupMap.values());
+
           let done = 0;
           let cursor = 0;
-          const downloaded = new Array(driveTodo.length);
-          const workers = Array.from({ length: Math.min(4, driveTodo.length) }, async () => {
-            while (cursor < driveTodo.length) {
+          const downloaded = new Array(driveGroups.length);
+          const workers = Array.from({ length: Math.min(4, driveGroups.length) }, async () => {
+            while (cursor < driveGroups.length) {
               const idx = cursor++;
-              const { record, person } = driveTodo[idx];
+              const { record, people } = driveGroups[idx];
               try {
                 const file = await hub.downloadGoogleDriveFile(driveToken, record);
-                downloaded[idx] = { record, person, file };
+                downloaded[idx] = { record, people, file };
               } catch (dlErr) {
                 if (String(dlErr.message || '').includes('session expired')) {
                   driveToken = await ensureGoogleDriveToken(true);
                   const file = await hub.downloadGoogleDriveFile(driveToken, record);
-                  downloaded[idx] = { record, person, file };
+                  downloaded[idx] = { record, people, file };
                 } else {
                   console.warn('Drive download failed:', record.name, dlErr);
                 }
               }
               done++;
-              if (onProgress) onProgress({ done, total: driveTodo.length, currentName: record.name });
+              if (onProgress) onProgress({ done, total: driveGroups.length, currentName: record.name });
             }
           });
           await Promise.all(workers);
@@ -19642,14 +19972,15 @@
           for (let i = 0; i < downloaded.length; i++) {
             const row = downloaded[i];
             if (!row || !row.file) continue;
-            const { record, person, file } = row;
+            const { record, people, file } = row;
+            const leadPerson = people[0] || null;
             let created = (record.cloudId && byCloudId.get(record.cloudId)) || byFileName.get(String(record.name || '').toLowerCase());
             if (!created) {
               const subFolder = record.path || photoLibraryIndex.gdriveFolderName || 'Google Drive';
               created = createLocalPhotoItem(file, makeUniqueId(), subFolder, {
-                fallbackTitle: person.name,
-                birthDate: person.birthDate,
-                branch: person.surname || ''
+                fallbackTitle: (leadPerson && leadPerson.name) || record.name,
+                birthDate: leadPerson ? leadPerson.birthDate : '',
+                branch: leadPerson ? (leadPerson.surname || '') : ''
               });
               created.cloudId = record.cloudId || record.id || '';
               created.cloudProvider = 'gdrive';
@@ -19659,8 +19990,10 @@
               byFileName.set(String(created.file || '').toLowerCase(), created);
               newlyCreated.push(created);
             }
-            await linkGedcomPersonToPhoto(created, person, { persistArchive: false });
-            linkedSet.add(created.id);
+            for (let pi = 0; pi < people.length; pi++) {
+              await linkGedcomPersonToPhoto(created, people[pi], { persistArchive: false });
+              linkedSet.add(created.id);
+            }
             if (!firstPhotoId) firstPhotoId = created.id;
           }
         }
@@ -19760,6 +20093,7 @@
           photoLibraryIndex.local = localRecords;
           photoLibraryIndex.localFolderName = scannedRootName;
           photoLibraryIndex.indexVersion++;
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
 
           if (localRecords.length === 0) {
             hideImportProgress();
@@ -19894,6 +20228,7 @@
           photoLibraryIndex.gdriveScannedAt = Date.now();
           photoLibraryIndex.gdriveFolderName = stopRequested ? 'My Drive (Partial)' : 'My Drive';
           photoLibraryIndex.indexVersion++;
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
           await saveGdriveIndexToDb(driveFiles, photoLibraryIndex.gdriveFolderName);
 
           statusEl.textContent = `Looking for relative names across ${driveFiles.length.toLocaleString()} photos...`;
@@ -20030,6 +20365,7 @@
           photoLibraryIndex.gdriveScannedAt = Date.now();
           photoLibraryIndex.gdriveFolderName = label;
           photoLibraryIndex.indexVersion++;
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
           await saveGdriveIndexToDb(driveFiles, label);
 
           statusEl.textContent = `Matching ${driveFiles.length.toLocaleString()} Drive photos against ${gd.peopleList.length.toLocaleString()} relatives...`;
@@ -21257,6 +21593,7 @@
         `;
         document.body.appendChild(overlay);
 
+        let currentSlice = [];
         const cleanupUrls = () => {
           while (tempLocalUrls.length) {
             const u = tempLocalUrls.pop();
@@ -21264,6 +21601,7 @@
           }
         };
         const closeModal = () => {
+          if (typeof hidePhotoHoverPreview === 'function') hidePhotoHoverPreview();
           cleanupUrls();
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         };
@@ -21306,6 +21644,7 @@
         };
 
         const renderGrid = () => {
+          if (typeof hidePhotoHoverPreview === 'function') hidePhotoHoverPreview();
           cleanupUrls();
           renderTabs();
 
@@ -21405,19 +21744,20 @@
             gridEl.innerHTML = `<div class="muted" style="grid-column:1/-1;padding:24px;text-align:center;font-size:14px;">No photos matched "${esc(qFilter)}" in this tab. Try clearing the search filter, checking another tab, or clicking <strong>☁️ Search Drive Live</strong>.</div>`;
           } else {
             const slice = filtered.slice(0, pageLimit);
+            currentSlice = slice;
             const cardsHtml = slice.map((rec, idx) => {
               const key = entryKey(rec);
               const isSel = selectedMap.has(key);
               const isLinked = (rec.photoItem && alreadySet.has(rec.photoItem.id)) || (rec.alreadyLoadedId && alreadySet.has(rec.alreadyLoadedId));
               let thumbHtml = '';
               if (rec.source === 'loaded' && rec.photoItem) {
-                thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
+                thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" class="photo-hover-thumb flp-thumb" data-fidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
               } else if (rec.source === 'local' && rec.fileObj) {
                 const u = URL.createObjectURL(rec.fileObj);
                 tempLocalUrls.push(u);
-                thumbHtml = `<img src="${esc(u)}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
+                thumbHtml = `<img src="${esc(u)}" class="photo-hover-thumb flp-thumb" data-fidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:6px;">`;
               } else if (rec.thumbnailLink) {
-                thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:110px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:110px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:26px;">☁️</div>`;
+                thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" class="photo-hover-thumb flp-thumb" data-fidx="${idx}" title="Hover to enlarge" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:110px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:110px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:26px;">☁️</div>`;
               } else {
                 thumbHtml = `<div style="width:100%;height:110px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:26px;">☁️</div>`;
               }
@@ -21562,7 +21902,226 @@
           }
         };
 
+        if (typeof attachPhotoHoverPreview === 'function') {
+          attachPhotoHoverPreview(gridEl, 'img.flp-thumb', (img) => {
+            const rec = currentSlice[Number(img.getAttribute('data-fidx'))];
+            return {
+              src: img.currentSrc || img.getAttribute('src'),
+              title: rec ? (rec.title || rec.name || '') : '',
+              subtitle: rec ? (rec.path || '') : '',
+              hint: ''
+            };
+          }, { enableClickLightbox: false });
+        }
+
         renderGrid();
+      }
+
+      const _highResThumbCache = new Map();
+      let _activePhotoHoverEl = null;
+      let _activePhotoHoverAnchor = null;
+
+      function getHighResGoogleThumbUrl(src, targetSize = 800) {
+        if (!src || typeof src !== 'string') return '';
+        if (!/googleusercontent\.com|drive\.google\.com\/thumbnail/i.test(src)) return '';
+        let upgraded = '';
+        if (/=s\d+\b/i.test(src)) {
+          upgraded = src.replace(/=s(\d+)\b/i, (m, sz) => (Number(sz) < targetSize ? `=s${targetSize}` : m));
+        } else if (/=w\d+-h\d+/i.test(src)) {
+          upgraded = src.replace(/=w\d+-h\d+[^\s&]*/i, `=s${targetSize}`);
+        } else if (/([?&]sz=)w\d+/i.test(src)) {
+          upgraded = src.replace(/([?&]sz=)w\d+/i, `$1w${targetSize}`);
+        }
+        return upgraded && upgraded !== src ? upgraded : '';
+      }
+
+      function upgradePreviewImageIfPossible(imgEl, baseSrc, targetSize = 800) {
+        if (!imgEl || !baseSrc) return;
+        const cacheKey = `${targetSize}:${baseSrc}`;
+        if (_highResThumbCache.has(cacheKey)) {
+          const cached = _highResThumbCache.get(cacheKey);
+          if (cached && imgEl.isConnected && imgEl.dataset.baseSrc === baseSrc && imgEl.src !== cached) {
+            imgEl.src = cached;
+          }
+          return;
+        }
+        const hiUrl = getHighResGoogleThumbUrl(baseSrc, targetSize);
+        if (!hiUrl) return;
+        const probe = new Image();
+        probe.referrerPolicy = 'no-referrer';
+        probe.onload = () => {
+          if (probe.naturalWidth > 0) {
+            _highResThumbCache.set(cacheKey, hiUrl);
+            if (imgEl.isConnected && imgEl.dataset.baseSrc === baseSrc) {
+              imgEl.src = hiUrl;
+            }
+          } else {
+            _highResThumbCache.set(cacheKey, null);
+          }
+        };
+        probe.onerror = () => {
+          _highResThumbCache.set(cacheKey, null);
+        };
+        probe.src = hiUrl;
+      }
+
+      function ensurePhotoHoverPopover() {
+        if (_activePhotoHoverEl && _activePhotoHoverEl.isConnected) return _activePhotoHoverEl;
+        const el = document.createElement('div');
+        el.className = 'photo-hover-popover';
+        el.hidden = true;
+        el.innerHTML = `
+          <img referrerpolicy="no-referrer" alt="">
+          <div class="photo-hover-popover-meta">
+            <div class="photo-hover-popover-title"></div>
+            <div class="photo-hover-popover-sub"></div>
+            <div class="photo-hover-popover-hint"></div>
+          </div>
+        `;
+        document.body.appendChild(el);
+        _activePhotoHoverEl = el;
+        return el;
+      }
+
+      function hidePhotoHoverPreview() {
+        _activePhotoHoverAnchor = null;
+        if (_activePhotoHoverEl) {
+          _activePhotoHoverEl.classList.remove('is-open');
+          _activePhotoHoverEl.hidden = true;
+        }
+      }
+
+      function positionPhotoHoverPreview(anchorEl) {
+        if (!_activePhotoHoverEl || _activePhotoHoverEl.hidden || !anchorEl || !anchorEl.isConnected) return;
+        const rect = anchorEl.getBoundingClientRect();
+        const popRect = _activePhotoHoverEl.getBoundingClientRect();
+        const popW = popRect.width || 320;
+        const popH = popRect.height || 260;
+        const pad = 12;
+        const gap = 14;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let left = rect.right + gap;
+        if (left + popW > vw - pad) {
+          const leftSide = rect.left - popW - gap;
+          if (leftSide >= pad) {
+            left = leftSide;
+          } else {
+            left = Math.max(pad, Math.min(vw - popW - pad, rect.right + gap));
+          }
+        }
+        left = Math.max(pad, Math.min(vw - popW - pad, left));
+
+        let top = rect.top + (rect.height / 2) - (popH / 2);
+        top = Math.max(pad, Math.min(vh - popH - pad, top));
+
+        _activePhotoHoverEl.style.left = `${Math.round(left)}px`;
+        _activePhotoHoverEl.style.top = `${Math.round(top)}px`;
+      }
+
+      function showPhotoHoverPreview(anchorEl, { src, title = '', subtitle = '', hint = '' } = {}) {
+        if (!anchorEl || !src) return;
+        const pop = ensurePhotoHoverPopover();
+        const img = pop.querySelector('img');
+        const titleEl = pop.querySelector('.photo-hover-popover-title');
+        const subEl = pop.querySelector('.photo-hover-popover-sub');
+        const hintEl = pop.querySelector('.photo-hover-popover-hint');
+
+        _activePhotoHoverAnchor = anchorEl;
+        titleEl.textContent = title || '';
+        titleEl.hidden = !title;
+        subEl.textContent = subtitle || '';
+        subEl.hidden = !subtitle;
+        hintEl.textContent = hint || '';
+        hintEl.hidden = !hint;
+
+        img.dataset.baseSrc = src;
+        img.onload = () => {
+          if (_activePhotoHoverAnchor === anchorEl) positionPhotoHoverPreview(anchorEl);
+        };
+        img.src = src;
+
+        pop.hidden = false;
+        positionPhotoHoverPreview(anchorEl);
+        pop.classList.add('is-open');
+        upgradePreviewImageIfPossible(img, src, 800);
+      }
+
+      function openPhotoZoomLightbox({ src, title = '', subtitle = '', actionLabel = '', onAction = null } = {}) {
+        if (!src) return;
+        hidePhotoHoverPreview();
+        const backdrop = document.createElement('div');
+        backdrop.className = 'photo-lightbox-backdrop';
+        backdrop.innerHTML = `
+          <img class="photo-lightbox-img" referrerpolicy="no-referrer" alt="${esc(title)}">
+          <div class="photo-lightbox-bar">
+            <div style="min-width:0;flex:1;">
+              <div style="font-size:14px;font-weight:700;word-break:break-word;">${esc(title || 'Photo Preview')}</div>
+              ${subtitle ? `<div style="font-size:12px;color:#cbd5e1;margin-top:2px;word-break:break-word;">${esc(subtitle)}</div>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+              ${actionLabel && typeof onAction === 'function' ? `<button type="button" class="btn sm primary" id="plb-action">${esc(actionLabel)}</button>` : ''}
+              <button type="button" class="btn-close-prominent" id="plb-close">✕ Close</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(backdrop);
+
+        const img = backdrop.querySelector('.photo-lightbox-img');
+        img.dataset.baseSrc = src;
+        img.src = src;
+        upgradePreviewImageIfPossible(img, src, 1600);
+
+        const closeLightbox = () => {
+          document.removeEventListener('keydown', onKeyDown);
+          if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        };
+        const onKeyDown = (e) => {
+          if (e.key === 'Escape') closeLightbox();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        backdrop.querySelector('#plb-close').onclick = closeLightbox;
+        const actionBtn = backdrop.querySelector('#plb-action');
+        if (actionBtn && typeof onAction === 'function') {
+          actionBtn.onclick = () => {
+            closeLightbox();
+            onAction();
+          };
+        }
+        backdrop.onclick = (e) => { if (e.target === backdrop) closeLightbox(); };
+      }
+
+      function attachPhotoHoverPreview(containerEl, selector, getMetaFromImg, { enableClickLightbox = false } = {}) {
+        if (!containerEl) return;
+        containerEl.addEventListener('mouseover', (e) => {
+          const img = e.target && e.target.closest ? e.target.closest(selector) : null;
+          if (!img || !containerEl.contains(img)) return;
+          if (e.relatedTarget && img.contains(e.relatedTarget)) return;
+          if (img.style.display === 'none') return;
+          const meta = getMetaFromImg ? getMetaFromImg(img) : null;
+          if (meta && meta.src) showPhotoHoverPreview(img, meta);
+        });
+        containerEl.addEventListener('mouseout', (e) => {
+          const img = e.target && e.target.closest ? e.target.closest(selector) : null;
+          if (!img) return;
+          if (e.relatedTarget && img.contains(e.relatedTarget)) return;
+          if (_activePhotoHoverAnchor === img) hidePhotoHoverPreview();
+        });
+        containerEl.addEventListener('scroll', () => {
+          hidePhotoHoverPreview();
+        }, { passive: true });
+        if (enableClickLightbox) {
+          containerEl.addEventListener('click', (e) => {
+            const img = e.target && e.target.closest ? e.target.closest(selector) : null;
+            if (!img || !containerEl.contains(img) || img.style.display === 'none') return;
+            const meta = getMetaFromImg ? getMetaFromImg(img) : null;
+            if (meta && meta.src) {
+              e.stopPropagation();
+              openPhotoZoomLightbox(meta);
+            }
+          });
+        }
       }
 
       function openGedcomMatchReviewModal(matchResult, sourceLabel = 'Photo Index') {
@@ -21573,6 +22132,10 @@
           kind: 'strong',
           rowId: `s:${i}`,
           chosenPersonIdx: 0,
+          extraPeople: [],
+          importedPhotoId: null,
+          pickerOpen: false,
+          pickerQuery: '',
           status: 'pending'
         }));
         const possibleRows = (matchResult.possibleMatches || []).map((m, i) => ({
@@ -21580,6 +22143,10 @@
           kind: 'possible',
           rowId: `p:${i}`,
           chosenPersonIdx: 0,
+          extraPeople: [],
+          importedPhotoId: null,
+          pickerOpen: false,
+          pickerQuery: '',
           status: 'pending'
         }));
 
@@ -21596,7 +22163,7 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔗 PAF / GEDCOM Photo Match Review (${esc(sourceLabel)})</h2>
-                <p class="muted" style="font-size:13px;margin:3px 0 0;">Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${strongRows.length.toLocaleString()}</strong> strong matches · <strong>${possibleRows.length.toLocaleString()}</strong> close / possible matches.</p>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${strongRows.length.toLocaleString()}</strong> strong matches · <strong>${possibleRows.length.toLocaleString()}</strong> close / possible matches. Hover over any photo to enlarge · click for full size.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="gmr-close">✕ Close</button>
             </div>
@@ -21617,12 +22184,14 @@
         `;
         document.body.appendChild(overlay);
 
+        let currentSlice = [];
         const cleanupUrls = () => {
           while (tempUrls.length) {
             try { URL.revokeObjectURL(tempUrls.pop()); } catch (_) {}
           }
         };
         const closeModal = () => {
+          hidePhotoHoverPreview();
           cleanupUrls();
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         };
@@ -21638,7 +22207,182 @@
         const progEl = overlay.querySelector('#gmr-progress');
         const bulkBtn = overlay.querySelector('#gmr-link-all-strong');
 
-        const renderRows = () => {
+        const personIdentityKey = (p) => {
+          if (!p) return '';
+          if (p.id || p.gedId) return `id:${p.id || p.gedId}`;
+          return `name:${String(p.name || '').trim().toLowerCase()}`;
+        };
+
+        const getSelectedPeopleForRow = (row) => {
+          const out = [];
+          const seen = new Set();
+          const pushUniq = (p) => {
+            if (!p || !p.name) return;
+            const k = personIdentityKey(p);
+            const nmKey = `name:${String(p.name || '').trim().toLowerCase()}`;
+            if (seen.has(k) || seen.has(nmKey)) return;
+            seen.add(k);
+            seen.add(nmKey);
+            out.push(p);
+          };
+          const people = row.people || [];
+          const primary = people[row.chosenPersonIdx] || people[0];
+          if (primary) pushUniq(primary);
+          (row.extraPeople || []).forEach(pushUniq);
+          return out;
+        };
+
+        const findLoadedPhotoForRow = (row) => {
+          if (!row || !row.record || !Array.isArray(items)) return null;
+          const rec = row.record;
+          if (row.importedPhotoId) {
+            const byImp = items.find((x) => x && x.id === row.importedPhotoId);
+            if (byImp) return byImp;
+          }
+          if (rec.source === 'loaded' && rec.photoItem) return rec.photoItem;
+          if (rec.alreadyLoadedId) {
+            const byAl = items.find((x) => x && x.id === rec.alreadyLoadedId);
+            if (byAl) return byAl;
+          }
+          if (rec.cloudId) {
+            const byCid = items.find((x) => x && x.cloudId === rec.cloudId);
+            if (byCid) return byCid;
+          }
+          if (rec.name) {
+            const low = String(rec.name).toLowerCase();
+            const byFn = items.find((x) => x && String(x.file || '').toLowerCase() === low);
+            if (byFn) return byFn;
+          }
+          return null;
+        };
+
+        const addExtraPersonToRow = async (row, personObj) => {
+          if (!row || !personObj || !personObj.name) return;
+          const cleanName = String(personObj.name).trim();
+          if (!cleanName) return;
+          const candidate = { ...personObj, name: cleanName };
+          const existing = getSelectedPeopleForRow(row);
+          const candId = candidate.id || candidate.gedId || '';
+          const candLow = cleanName.toLowerCase();
+          if (existing.some((p) => (candId && (p.id || p.gedId) === candId) || String(p.name || '').trim().toLowerCase() === candLow)) {
+            row.pickerOpen = false;
+            row.pickerQuery = '';
+            renderRows({ preserveScroll: true });
+            return;
+          }
+
+          const loadedPhoto = findLoadedPhotoForRow(row);
+          if (row.status === 'linked' && loadedPhoto) {
+            try {
+              const res = await importAndLinkMatchPairs([{ record: row.record, person: candidate }]);
+              if (res && res.firstPhotoId) {
+                row.importedPhotoId = res.firstPhotoId;
+                row.record.alreadyLoadedId = res.firstPhotoId;
+              }
+              row.pickerOpen = false;
+              row.pickerQuery = '';
+              render();
+              renderRows({ preserveScroll: true });
+              notify(`✓ Tagged ${cleanName} on "${row.record.name}"!`);
+            } catch (err) {
+              notify(`Failed to tag ${cleanName}: ${err.message}`);
+            }
+            return;
+          }
+
+          row.extraPeople = [...(row.extraPeople || []), candidate];
+          row.pickerOpen = false;
+          row.pickerQuery = '';
+          renderRows({ preserveScroll: true });
+        };
+
+        const openRowInFaceTagger = async (row, triggerBtn = null) => {
+          if (!row || !row.record) return;
+          hidePhotoHoverPreview();
+          const origBtnHtml = triggerBtn ? triggerBtn.innerHTML : '';
+          if (triggerBtn) {
+            triggerBtn.disabled = true;
+            triggerBtn.textContent = row.record.source === 'gdrive' ? '⏳ Downloading...' : '⏳ Loading...';
+          }
+          try {
+            let photo = findLoadedPhotoForRow(row);
+            const selectedPeople = getSelectedPeopleForRow(row);
+            const existingNames = new Set(
+              ((photo && photo.people) || []).map((pr) => String((typeof pr === 'string' ? pr : pr && pr.name) || '').trim().toLowerCase()).filter(Boolean)
+            );
+            const missingPeople = selectedPeople.filter((p) => !existingNames.has(String(p.name || '').trim().toLowerCase()));
+
+            if (!photo || missingPeople.length > 0) {
+              const pairs = missingPeople.length > 0
+                ? missingPeople.map((person) => ({ record: row.record, person }))
+                : [{ record: row.record, person: null, importOnly: true }];
+              const res = await importAndLinkMatchPairs(pairs);
+              if (res && res.firstPhotoId) {
+                photo = items.find((x) => x && x.id === res.firstPhotoId) || findLoadedPhotoForRow(row);
+              }
+            }
+            if (!photo) {
+              notify(`Could not load "${row.record.name}" for face tagging.`);
+              return;
+            }
+            row.importedPhotoId = photo.id;
+            row.record.alreadyLoadedId = photo.id;
+            if (photo.people && photo.people.length > 0) {
+              row.status = 'linked';
+            }
+            selectedId = photo.id;
+            render();
+
+            if ((!photo.faces || photo.faces.length === 0) && typeof scanAndRecognizePhotoFaces === 'function') {
+              if (triggerBtn) triggerBtn.textContent = '🔍 Scanning...';
+              try {
+                await scanAndRecognizePhotoFaces(photo, afterSrc(photo), true);
+              } catch (_) {}
+            }
+
+            const firstUntagged = (photo.faces || []).findIndex((fc) => !(fc.name || '').trim());
+            await openFaceTaggerModal(photo, firstUntagged !== -1 ? firstUntagged : 0, {
+              startInDrawMode: !photo.faces || photo.faces.length === 0,
+              onClose: () => {
+                if (photo.people && photo.people.length > 0) {
+                  row.status = 'linked';
+                }
+                if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
+                  saveArchiveToDb(items, rootFolderName).catch(() => {});
+                }
+                render();
+                renderRows({ preserveScroll: true });
+              }
+            });
+          } catch (err) {
+            notify(`Could not open Face Tagger: ${err.message}`);
+          } finally {
+            if (triggerBtn && triggerBtn.isConnected) {
+              triggerBtn.disabled = false;
+              triggerBtn.innerHTML = origBtnHtml || '🏷️ Tag Faces';
+            }
+          }
+        };
+
+        attachPhotoHoverPreview(listEl, 'img.gmr-thumb', (img) => {
+          const row = currentSlice[Number(img.getAttribute('data-ridx'))];
+          if (!row) return null;
+          const rec = row.record || {};
+          const people = row.people || [];
+          const chosen = people[row.chosenPersonIdx] || people[0];
+          return {
+            src: img.currentSrc || img.getAttribute('src'),
+            title: rec.name || '',
+            subtitle: [rec.path, chosen ? `→ ${chosen.name}` : ''].filter(Boolean).join(' · '),
+            hint: 'Click photo for full-size view & Face Tagger',
+            actionLabel: '🏷️ Open in Face Tagger',
+            onAction: () => openRowInFaceTagger(row, null)
+          };
+        }, { enableClickLightbox: true });
+
+        const renderRows = ({ preserveScroll = false } = {}) => {
+          const prevScroll = preserveScroll ? listEl.scrollTop : 0;
+          hidePhotoHoverPreview();
           cleanupUrls();
           const pendingStrong = strongRows.filter((r) => r.status === 'pending' && r.people && r.people.length > 0);
           if (bulkBtn) {
@@ -21666,23 +22410,95 @@
           }
 
           const slice = filtered.slice(0, pageLimit);
+          currentSlice = slice;
+          const allGedPeople = (gd && Array.isArray(gd.peopleList)) ? gd.peopleList : [];
           const html = slice.map((row, idx) => {
             const rec = row.record;
             const people = row.people || [];
             const chosen = people[row.chosenPersonIdx] || people[0];
+            const selectedPeople = getSelectedPeopleForRow(row);
+            const loadedPhoto = findLoadedPhotoForRow(row);
             let thumbHtml = '';
             if (rec.source === 'loaded' && rec.photoItem) {
-              thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
+              thumbHtml = `<img src="${esc(afterSrc(rec.photoItem))}" class="photo-hover-thumb gmr-thumb" data-ridx="${idx}" title="Hover to enlarge · Click for full size" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
             } else if (rec.source === 'local' && rec.fileObj) {
               const u = URL.createObjectURL(rec.fileObj);
               tempUrls.push(u);
-              thumbHtml = `<img src="${esc(u)}" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
+              thumbHtml = `<img src="${esc(u)}" class="photo-hover-thumb gmr-thumb" data-ridx="${idx}" title="Hover to enlarge · Click for full size" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
             } else if (rec.thumbnailLink) {
-              thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;"><div style="display:none;width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
+              thumbHtml = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" class="photo-hover-thumb gmr-thumb" data-ridx="${idx}" title="Hover to enlarge · Click for full size" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;"><div style="display:none;width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
             } else {
               thumbHtml = `<div style="width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
             }
             const isLinked = row.status === 'linked';
+
+            let chipsHtml = '';
+            if (loadedPhoto && Array.isArray(loadedPhoto.people) && loadedPhoto.people.length > 0 && isLinked) {
+              const faceNamesLow = new Set(
+                (loadedPhoto.faces || []).map((fc) => String(fc && fc.name || '').trim().toLowerCase()).filter(Boolean)
+              );
+              const extraChips = loadedPhoto.people
+                .map((pr) => (typeof pr === 'string' ? { name: pr } : pr))
+                .filter((pr) => pr && pr.name)
+                .map((pr) => {
+                  const hasFace = faceNamesLow.has(pr.name.trim().toLowerCase());
+                  return `<span class="gmr-extra-chip ${hasFace ? 'is-face-tagged' : ''}" title="${hasFace ? 'Tagged on a face box' : 'Linked to photo'}">${hasFace ? '👤 ' : '✓ '}${esc(pr.name)}</span>`;
+                });
+              chipsHtml = extraChips.join('');
+            } else if ((row.extraPeople || []).length > 0) {
+              chipsHtml = row.extraPeople.map((ep, eidx) => (
+                `<span class="gmr-extra-chip">+ ${esc(ep.name)} <button type="button" class="gmr-chip-rm" data-ridx="${idx}" data-eidx="${eidx}" title="Remove ${esc(ep.name)}">×</button></span>`
+              )).join('');
+            }
+
+            let pickerHtml = '';
+            if (row.pickerOpen) {
+              const selectedKeys = new Set(selectedPeople.map((p) => String(p.name || '').trim().toLowerCase()));
+              if (loadedPhoto && Array.isArray(loadedPhoto.people) && isLinked) {
+                loadedPhoto.people.forEach((pr) => {
+                  const nm = typeof pr === 'string' ? pr : (pr && pr.name);
+                  if (nm) selectedKeys.add(nm.trim().toLowerCase());
+                });
+              }
+              const otherFilenameCandidates = people.filter((p) => p && p.name && !selectedKeys.has(p.name.trim().toLowerCase()));
+              const pq = (row.pickerQuery || '').trim();
+              const pqLow = pq.toLowerCase();
+              const matchedTree = (pqLow
+                ? allGedPeople.filter((p) => p && p.name && `${p.name} ${p.id || ''} ${p.birthDate || ''}`.toLowerCase().includes(pqLow))
+                : allGedPeople
+              ).filter((p) => p && p.name && !selectedKeys.has(p.name.trim().toLowerCase())).slice(0, 12);
+              const hasExactTreeMatch = pqLow && (selectedKeys.has(pqLow) || allGedPeople.some((p) => p && String(p.name || '').trim().toLowerCase() === pqLow));
+
+              pickerHtml = `
+                <div class="gmr-add-picker" data-ridx="${idx}">
+                  ${otherFilenameCandidates.length > 0 ? `
+                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11.5px;">
+                      <span class="muted">From filename:</span>
+                      ${otherFilenameCandidates.map((cand) => `
+                        <button type="button" class="btn sm gmr-quick-cand" data-ridx="${idx}" data-gid="${esc(cand.id || '')}" data-gname="${esc(cand.name)}" style="height:24px;padding:2px 8px;font-size:11.5px;background:#eff6ff;border-color:#93c5fd;color:#1e3a8a;">+ ${esc(cand.name)}</button>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+                  <input type="search" class="gmr-picker-search" data-ridx="${idx}" value="${esc(row.pickerQuery || '')}" placeholder="Search relative by name or ID (or type any name)..." style="padding:5px 8px;border:1px solid var(--control);border-radius:6px;font-size:12.5px;background:#ffffff;">
+                  <div class="gmr-picker-list">
+                    ${matchedTree.map((gp) => `
+                      <button type="button" class="gmr-picker-item" data-ridx="${idx}" data-gid="${esc(gp.id || '')}" data-gname="${esc(gp.name)}">
+                        <span><strong>${esc(gp.name)}</strong> <span class="mono muted" style="font-size:11px;">(${esc(gp.id || 'PAF')})</span>${gp.birthDate ? ` · b. ${esc(gp.birthDate)}` : ''}</span>
+                        <span style="color:#2563eb;font-weight:700;">+ Add</span>
+                      </button>
+                    `).join('')}
+                    ${pq && !hasExactTreeMatch ? `
+                      <button type="button" class="gmr-picker-item gmr-picker-custom" data-ridx="${idx}" data-custom-name="${esc(pq)}" style="border-style:dashed;border-color:#60a5fa;background:#eff6ff;">
+                        <span>+ Add "<strong>${esc(pq)}</strong>" (not in GEDCOM tree)</span>
+                        <span style="color:#2563eb;font-weight:700;">+ Tag</span>
+                      </button>
+                    ` : ''}
+                    ${matchedTree.length === 0 && (!pq || hasExactTreeMatch) ? '<div class="muted" style="font-size:12px;padding:4px 6px;">Type a relative\'s name above to search or add.</div>' : ''}
+                  </div>
+                </div>
+              `;
+            }
+
             return `
               <div style="border:1.5px solid ${isLinked ? '#86efac' : '#cbd5e1'};background:${isLinked ? '#f0fdf4' : '#ffffff'};border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                 <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:260px;">
@@ -21696,13 +22512,17 @@
                           ${people.map((p, pi) => `<option value="${pi}" ${pi === row.chosenPersonIdx ? 'selected' : ''}>${esc(p.name)} (${esc(p.id)})${p.birthDate ? ` · b. ${esc(p.birthDate)}` : ''}</option>`).join('')}
                         </select>
                       ` : (chosen ? `<strong style="font-size:13.5px;color:#1e3a8a;">→ ${esc(chosen.name)} <span class="mono muted" style="font-size:11.5px;">(${esc(chosen.id)})</span>${chosen.birthDate ? ` · b. ${esc(chosen.birthDate)}` : ''}</strong>` : '<span class="muted">No person record</span>')}
+                      <button type="button" class="btn sm gmr-add-rel-btn" data-ridx="${idx}" style="height:26px;padding:2px 9px;font-size:12px;">${row.pickerOpen ? '✕ Close' : '+ Add Relative'}</button>
                     </div>
+                    ${chipsHtml ? `<div class="gmr-extra-chips">${chipsHtml}</div>` : ''}
+                    ${pickerHtml}
                   </div>
                 </div>
-                <div style="display:flex;gap:6px;flex-shrink:0;">
+                <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap;">
                   ${isLinked
                     ? '<span class="pill pos" style="font-size:12px;">✓ Linked</span>'
-                    : (chosen ? `<button type="button" class="btn sm success gmr-link-one" data-ridx="${idx}">✓ Link</button><button type="button" class="btn sm gmr-skip-one" data-ridx="${idx}">✕ Skip</button>` : '')}
+                    : (selectedPeople.length > 0 ? `<button type="button" class="btn sm success gmr-link-one" data-ridx="${idx}">✓ Link${selectedPeople.length > 1 ? ` (${selectedPeople.length})` : ''}</button><button type="button" class="btn sm gmr-skip-one" data-ridx="${idx}">✕ Skip</button>` : '')}
+                  <button type="button" class="btn sm accent gmr-tag-faces" data-ridx="${idx}" title="Import photo (if needed), scan faces, and open the Blown-Up Face Tagger Studio">🏷️ Tag Faces</button>
                 </div>
               </div>
             `;
@@ -21719,26 +22539,100 @@
           listEl.querySelectorAll('.gmr-person-sel').forEach((sel) => {
             sel.onchange = () => {
               const row = slice[Number(sel.getAttribute('data-ridx'))];
-              if (row) row.chosenPersonIdx = Number(sel.value) || 0;
+              if (row) {
+                row.chosenPersonIdx = Number(sel.value) || 0;
+                renderRows({ preserveScroll: true });
+              }
+            };
+          });
+          listEl.querySelectorAll('.gmr-add-rel-btn').forEach((btn) => {
+            btn.onclick = () => {
+              const rIdx = Number(btn.getAttribute('data-ridx'));
+              const row = slice[rIdx];
+              if (!row) return;
+              row.pickerOpen = !row.pickerOpen;
+              renderRows({ preserveScroll: true });
+              if (row.pickerOpen) {
+                const inp = listEl.querySelector(`.gmr-picker-search[data-ridx="${rIdx}"]`);
+                if (inp) inp.focus();
+              }
+            };
+          });
+          listEl.querySelectorAll('.gmr-chip-rm').forEach((btn) => {
+            btn.onclick = () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              const eidx = Number(btn.getAttribute('data-eidx'));
+              if (row && Array.isArray(row.extraPeople)) {
+                row.extraPeople.splice(eidx, 1);
+                renderRows({ preserveScroll: true });
+              }
+            };
+          });
+          listEl.querySelectorAll('.gmr-picker-search').forEach((inp) => {
+            inp.oninput = () => {
+              const rIdx = Number(inp.getAttribute('data-ridx'));
+              const row = slice[rIdx];
+              if (!row) return;
+              const selStart = inp.selectionStart;
+              row.pickerQuery = inp.value || '';
+              renderRows({ preserveScroll: true });
+              const fresh = listEl.querySelector(`.gmr-picker-search[data-ridx="${rIdx}"]`);
+              if (fresh) {
+                fresh.focus();
+                if (typeof selStart === 'number') {
+                  try { fresh.setSelectionRange(selStart, selStart); } catch (_) {}
+                }
+              }
+            };
+          });
+          listEl.querySelectorAll('.gmr-quick-cand, .gmr-picker-item:not(.gmr-picker-custom)').forEach((btn) => {
+            btn.onclick = () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              if (!row) return;
+              const gid = btn.getAttribute('data-gid') || '';
+              const gname = btn.getAttribute('data-gname') || '';
+              const found = (gid && allGedPeople.find((p) => p && p.id === gid))
+                || (row.people || []).find((p) => p && p.name === gname)
+                || (gname ? { name: gname, id: gid } : null);
+              if (found) addExtraPersonToRow(row, found);
+            };
+          });
+          listEl.querySelectorAll('.gmr-picker-custom').forEach((btn) => {
+            btn.onclick = () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              const nm = btn.getAttribute('data-custom-name') || '';
+              if (row && nm) addExtraPersonToRow(row, { name: nm });
+            };
+          });
+          listEl.querySelectorAll('.gmr-tag-faces').forEach((btn) => {
+            btn.onclick = () => {
+              const row = slice[Number(btn.getAttribute('data-ridx'))];
+              if (row) openRowInFaceTagger(row, btn);
             };
           });
           listEl.querySelectorAll('.gmr-link-one').forEach((btn) => {
             btn.onclick = async () => {
               const row = slice[Number(btn.getAttribute('data-ridx'))];
               if (!row) return;
-              const chosen = row.people[row.chosenPersonIdx] || row.people[0];
-              if (!chosen) return;
+              const selectedPeople = getSelectedPeopleForRow(row);
+              if (!selectedPeople.length) return;
               btn.disabled = true;
               btn.textContent = 'Linking...';
               try {
-                await importAndLinkMatchPairs([{ record: row.record, person: chosen }]);
+                const pairs = selectedPeople.map((person) => ({ record: row.record, person }));
+                const res = await importAndLinkMatchPairs(pairs);
+                if (res && res.firstPhotoId) {
+                  row.importedPhotoId = res.firstPhotoId;
+                  row.record.alreadyLoadedId = res.firstPhotoId;
+                }
                 row.status = 'linked';
-                renderRows();
+                row.pickerOpen = false;
+                renderRows({ preserveScroll: true });
                 render();
-                notify(`✓ Linked "${row.record.name}" to ${chosen.name}!`);
+                notify(`✓ Linked "${row.record.name}" to ${selectedPeople.map((p) => p.name).join(', ')}!`);
               } catch (err) {
                 btn.disabled = false;
-                btn.textContent = '✓ Link';
+                btn.textContent = `✓ Link${selectedPeople.length > 1 ? ` (${selectedPeople.length})` : ''}`;
                 notify(`Failed to link: ${err.message}`);
               }
             };
@@ -21748,7 +22642,7 @@
               const row = slice[Number(btn.getAttribute('data-ridx'))];
               if (row) {
                 row.status = 'skipped';
-                renderRows();
+                renderRows({ preserveScroll: true });
               }
             };
           });
@@ -21756,8 +22650,11 @@
           if (moreBtn) {
             moreBtn.onclick = () => {
               pageLimit += 50;
-              renderRows();
+              renderRows({ preserveScroll: true });
             };
+          }
+          if (preserveScroll) {
+            listEl.scrollTop = prevScroll;
           }
         };
 
@@ -21784,10 +22681,10 @@
             progEl.hidden = false;
             progEl.textContent = `Importing & linking ${toProcess.length} strong matches...`;
             try {
-              const pairs = toProcess.map((r) => ({
+              const pairs = toProcess.flatMap((r) => getSelectedPeopleForRow(r).map((person) => ({
                 record: r.record,
-                person: r.people[r.chosenPersonIdx] || r.people[0]
-              }));
+                person
+              })));
               const res = await importAndLinkMatchPairs(pairs, (p) => {
                 progEl.textContent = `Downloading Google Drive matches (${p.done} / ${p.total}): ${p.currentName}...`;
               });
@@ -21807,11 +22704,11 @@
         renderRows();
       }
 
-      function openPhotoIndexBrowserModal(initialQuery = '') {
+      function openPhotoIndexBrowserModal(initialQuery = '', opts = {}) {
         const gd = window._activeGedcomData;
         const hub = window.CloudImportHub;
         const activePhotos = items.filter((x) => x && !x.inReview);
-        let sourceFilter = photoLibraryIndex.gdrive.length > 0 ? 'all' : 'loaded';
+        let sourceFilter = (opts && opts.initialSource) ? opts.initialSource : (photoLibraryIndex.gdrive.length > 0 ? 'all' : 'loaded');
         let photoQuery = initialQuery || '';
         let personQuery = '';
         let selectedPhoto = null;
@@ -21854,12 +22751,14 @@
         `;
         document.body.appendChild(overlay);
 
+        let currentSlice = [];
         const cleanupUrls = () => {
           while (tempUrls.length) {
             try { URL.revokeObjectURL(tempUrls.pop()); } catch (_) {}
           }
         };
         const closeModal = () => {
+          hidePhotoHoverPreview();
           cleanupUrls();
           if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         };
@@ -21881,6 +22780,7 @@
         };
 
         const renderPhotos = () => {
+          hidePhotoHoverPreview();
           cleanupUrls();
           overlay.querySelectorAll('[data-pib-src]').forEach((b) => {
             b.className = `btn sm ${sourceFilter === b.getAttribute('data-pib-src') ? 'primary' : ''}`;
@@ -21900,17 +22800,18 @@
             return;
           }
           const slice = pool.slice(0, photoLimit);
+          currentSlice = slice;
           gridEl.innerHTML = slice.map((rec, idx) => {
             const isSel = selectedPhoto && selectedPhoto.id === rec.id && selectedPhoto.name === rec.name;
             let thumb = '';
             if (rec.source === 'loaded' && rec.photoItem) {
-              thumb = `<img src="${esc(afterSrc(rec.photoItem))}" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
+              thumb = `<img src="${esc(afterSrc(rec.photoItem))}" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
             } else if (rec.source === 'local' && rec.fileObj) {
               const u = URL.createObjectURL(rec.fileObj);
               tempUrls.push(u);
-              thumb = `<img src="${esc(u)}" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
+              thumb = `<img src="${esc(u)}" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
             } else if (rec.thumbnailLink) {
-              thumb = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:96px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
+              thumb = `<img src="${esc(rec.thumbnailLink)}" referrerpolicy="no-referrer" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" title="Hover to enlarge" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:96px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
             } else {
               thumb = `<div style="width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
             }
@@ -22014,6 +22915,16 @@
             notify(`Link failed: ${err.message}`);
           }
         };
+
+        attachPhotoHoverPreview(gridEl, 'img.pib-thumb', (img) => {
+          const rec = currentSlice[Number(img.getAttribute('data-pidx'))];
+          return {
+            src: img.currentSrc || img.getAttribute('src'),
+            title: rec ? (rec.name || '') : '',
+            subtitle: rec ? (rec.path || '') : '',
+            hint: ''
+          };
+        }, { enableClickLightbox: false });
 
         updateApplyState();
         renderPhotos();
