@@ -380,7 +380,7 @@ export async function uploadFileToDrive(token, rootFolderId, relPath, file, fold
 }
 
 export async function trashDriveFile(token, fileId) {
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`, {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -393,4 +393,22 @@ export async function trashDriveFile(token, fileId) {
     throw new Error(`Could not move file to Trash (${res.status}): ${errText || res.statusText}`);
   }
   return res.json();
+}
+
+export async function deleteDriveFilePermanently(token, fileId) {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  if (res.status === 204 || res.ok) {
+    return { mode: 'deleted' };
+  }
+  if (res.status === 403) {
+    await trashDriveFile(token, fileId);
+    return { mode: 'trashed' };
+  }
+  const errText = await res.text().catch(() => '');
+  throw new Error(`Could not permanently delete file (${res.status}): ${errText || res.statusText}`);
 }

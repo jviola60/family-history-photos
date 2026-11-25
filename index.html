@@ -5464,13 +5464,17 @@
       let idxDupQuery = '';
       let idxDupPage = 1;
       let _idxDupObjectUrls = [];
-      let _cachedIndexedLibraryStats = { version: -1, ignoredSize: -1, data: null };
+      let idxDupMasterOverrides = new Map();
+      let _idxDupOverrideVersion = 0;
+      let _writableLocalRootHandle = null;
+      let _cachedIndexedLibraryStats = { version: -1, ignoredSize: -1, overrideVersion: -1, data: null };
 
       function getIndexedLibraryStats() {
         if (
           _cachedIndexedLibraryStats.data
           && _cachedIndexedLibraryStats.version === photoLibraryIndex.indexVersion
           && _cachedIndexedLibraryStats.ignoredSize === ignoredIndexDupGroups.size
+          && _cachedIndexedLibraryStats.overrideVersion === _idxDupOverrideVersion
         ) {
           return _cachedIndexedLibraryStats.data;
         }
@@ -5494,6 +5498,7 @@
           _cachedIndexedLibraryStats = {
             version: photoLibraryIndex.indexVersion,
             ignoredSize: ignoredIndexDupGroups.size,
+            overrideVersion: _idxDupOverrideVersion,
             data: emptyStats
           };
           return emptyStats;
@@ -5503,11 +5508,13 @@
         const seenRecKeys = new Set();
         let indexedScreenshotCount = 0;
         let indexedLowResCount = 0;
+        const reviewFolderRe = /(^|[\\/])_duplicates_review([\\/]|$)/i;
 
         const ingestList = (list, src) => {
           for (let i = 0; i < list.length; i++) {
             const r = list[i];
             if (!r || !r.name) continue;
+            if (reviewFolderRe.test(r.webkitRelativePath || '') || reviewFolderRe.test(r.path || '')) continue;
             const recKey = `${src === 'gdrive' ? 'g' : 'l'}:${r.cloudId || r.id || i}`;
             if (seenRecKeys.has(recKey)) continue;
             seenRecKeys.add(recKey);
@@ -5559,6 +5566,14 @@
               return;
             }
             const sorted = bucket.slice().sort(scoreMasterSort);
+            const overrideKey = idxDupMasterOverrides.get(key);
+            if (overrideKey) {
+              const ovIdx = sorted.findIndex((x) => x.recKey === overrideKey);
+              if (ovIdx > 0) {
+                const [picked] = sorted.splice(ovIdx, 1);
+                sorted.unshift(picked);
+              }
+            }
             let hasDrive = false;
             let hasLocal = false;
             for (let i = 0; i < sorted.length; i++) {
@@ -5700,9 +5715,345 @@
         _cachedIndexedLibraryStats = {
           version: photoLibraryIndex.indexVersion,
           ignoredSize: ignoredIndexDupGroups.size,
+          overrideVersion: _idxDupOverrideVersion,
           data: statsObj
         };
         return statsObj;
+      }
+
+      async function ensureWritableLocalFolderHandle(expectedRootName = '') {
+        if (typeof window.showDirectoryPicker !== 'function') {
+          throw new Error('Direct disk delete/move requires Chrome or Microsoft Edge on desktop.');
+        }
+        if (_writableLocalRootHandle) {
+          try {
+            let perm = await _writableLocalRootHandle.queryPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') {
+              perm = await _writableLocalRootHandle.requestPermission({ mode: 'readwrite' });
+            }
+            if (perm === 'granted') return _writableLocalRootHandle;
+          } catch (_) {
+            _writableLocalRootHandle = null;
+          }
+        }
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'pictures' });
+        let granted = true;
+        if (typeof handle.queryPermission === 'function') {
+          let perm = await handle.queryPermission({ mode: 'readwrite' });
+          if (perm !== 'granted' && typeof handle.requestPermission === 'function') {
+            perm = await handle.requestPermission({ mode: 'readwrite' });
+          }
+          granted = (perm === 'granted');
+        }
+        if (!granted) {
+          throw new Error(`Write permission to "${handle.name}" was declined.`);
+        }
+        _writableLocalRootHandle = handle;
+        return handle;
+      }
+
+      async function getUniqueFileNameInDir(dirHandle, originalName) {
+        let candidate = originalName || 'photo.jpg';
+        let counter = 1;
+        const dotIdx = candidate.lastIndexOf('.');
+        const base = dotIdx > 0 ? candidate.slice(0, dotIdx) : candidate;
+        const ext = dotIdx > 0 ? candidate.slice(dotIdx) : '';
+        while (counter < 9999) {
+          try {
+            await dirHandle.getFileHandle(candidate, { create: false });
+            candidate = `${base}_(${counter})${ext}`;
+            counter++;
+          } catch (_) {
+            return candidate;
+          }
+        }
+        return `${base}_${Date.now()}${ext}`;
+      }
+
+      async function resolveLocalFileInRoot(rootHandle, rec) {
+        const rawPath = String(rec.webkitRelativePath || rec.path || rec.name || '').replace(/\\/g, '/');
+        let parts = rawPath.split('/').filter(Boolean);
+        const rootLower = String(rootHandle.name || '').toLowerCase();
+        if (parts.length > 1) {
+          if (parts[0].toLowerCase() === rootLower) {
+            parts = parts.slice(1);
+          } else {
+            const matchIdx = parts.slice(0, -1).findIndex((seg) => seg.toLowerCase() === rootLower);
+            if (matchIdx !== -1) parts = parts.slice(matchIdx + 1);
+          }
+        }
+        const fileName = rec.name || parts[parts.length - 1] || '';
+        const dirParts = (parts.length > 0 && parts[parts.length - 1] === fileName)
+          ? parts.slice(0, -1)
+          : parts;
+        let curDir = rootHandle;
+        for (let i = 0; i < dirParts.length; i++) {
+          curDir = await curDir.getDirectoryHandle(dirParts[i]);
+        }
+        const fileHandle = await curDir.getFileHandle(fileName);
+        return { parentDir: curDir, fileHandle, fileName };
+      }
+
+      async function applyLocalDiskAction(rec, action, expectedRootName = '') {
+        const rootHandle = await ensureWritableLocalFolderHandle(expectedRootName);
+        let resolved;
+        try {
+          resolved = await resolveLocalFileInRoot(rootHandle, rec);
+        } catch (err) {
+          if (err && err.name === 'NotFoundError') {
+            const e = new Error(`Could not find "${rec.webkitRelativePath || rec.name}" inside selected folder "${rootHandle.name}". Please select your "${expectedRootName || 'scanned root'}" folder.`);
+            e.wrongFolder = true;
+            throw e;
+          }
+          throw err;
+        }
+        const { parentDir, fileHandle, fileName } = resolved;
+        if (action === 'delete') {
+          await parentDir.removeEntry(fileName);
+          return { mode: 'deleted' };
+        }
+        const reviewDir = await rootHandle.getDirectoryHandle('_Duplicates_Review', { create: true });
+        const targetName = await getUniqueFileNameInDir(reviewDir, fileName);
+        if (typeof fileHandle.move === 'function') {
+          try {
+            await fileHandle.move(reviewDir, targetName);
+            return { mode: 'moved', targetName };
+          } catch (_) {}
+        }
+        const srcFile = await fileHandle.getFile();
+        const dstHandle = await reviewDir.getFileHandle(targetName, { create: true });
+        const writable = await dstHandle.createWritable();
+        try {
+          await writable.write(srcFile);
+        } finally {
+          try { await writable.close(); } catch (_) {}
+        }
+        await parentDir.removeEntry(fileName);
+        return { mode: 'moved', targetName };
+      }
+
+      async function ensureGoogleDriveWriteToken(forcePrompt = false) {
+        const hub = window.CloudImportHub;
+        if (!hub) throw new Error('Cloud module is still loading — please try again.');
+        const scope = 'https://www.googleapis.com/auth/drive';
+        if (!forcePrompt && hub.getCachedGoogleToken) {
+          const cached = hub.getCachedGoogleToken(scope);
+          if (cached) return cached;
+        }
+        const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
+        let cid = (settings.googleClientId || '').trim();
+        if (!forcePrompt && cid && typeof hub.tryRefreshGoogleTokenSilently === 'function') {
+          const silent = await hub.tryRefreshGoogleTokenSilently(cid, scope);
+          if (silent) return silent;
+        }
+        if (!cid) {
+          cid = (window.prompt('Enter your Google OAuth Client ID:', '') || '').trim();
+          if (!cid) throw new Error('Google Drive write authorization cancelled.');
+          if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
+        }
+        return await hub.requestGoogleToken(cid, scope, { forcePrompt });
+      }
+
+      async function executeIndexedDuplicateAction(targetEntries, action = 'delete', { label = '' } = {}) {
+        const seen = new Set();
+        const uniqueTargets = [];
+        for (let i = 0; i < (targetEntries || []).length; i++) {
+          const entry = targetEntries[i];
+          if (!entry || !entry.recKey || seen.has(entry.recKey)) continue;
+          seen.add(entry.recKey);
+          uniqueTargets.push(entry);
+        }
+        if (uniqueTargets.length === 0) {
+          notify('No duplicate copies selected.');
+          return;
+        }
+
+        let localCnt = 0;
+        let driveCnt = 0;
+        let totalBytes = 0;
+        for (let i = 0; i < uniqueTargets.length; i++) {
+          if (uniqueTargets[i].source === 'gdrive') driveCnt++;
+          else localCnt++;
+          totalBytes += Number(uniqueTargets[i].size) || 0;
+        }
+        const sizeNote = totalBytes > 0
+          ? ` (~${totalBytes >= 1073741824 ? `${(totalBytes / 1073741824).toFixed(2)} GB` : (totalBytes >= 1048576 ? `${(totalBytes / 1048576).toFixed(1)} MB` : `${Math.round(totalBytes / 1024).toLocaleString()} KB`)})`
+          : '';
+        const scopeDesc = [
+          localCnt > 0 ? `${localCnt.toLocaleString()} on your computer disk` : '',
+          driveCnt > 0 ? `${driveCnt.toLocaleString()} on Google Drive` : ''
+        ].filter(Boolean).join(' and ');
+
+        const confirmMsg = action === 'delete'
+          ? `PERMANENTLY DELETE ${uniqueTargets.length.toLocaleString()} duplicate file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc})${label ? ` for ${label}` : ''}?\n\n• Every "★ Keep (Master)" copy stays untouched.\n• Deleted files are permanently removed from your computer / Google Drive so future scans will NEVER bring them back.\n• This cannot be undone.`
+          : `Move ${uniqueTargets.length.toLocaleString()} duplicate file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc}) into Review?\n\n• Local copies move into a "_Duplicates_Review" subfolder on disk and are excluded from future duplicate scans.\n• Google Drive copies move to Google Drive Trash (30-day recovery).\n• Every "★ Keep (Master)" copy stays untouched.`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        const expectedRoot = photoLibraryIndex.localFolderName || rootFolderName || '';
+        let driveWriteToken = '';
+        try {
+          if (localCnt > 0) {
+            await ensureWritableLocalFolderHandle(expectedRoot);
+          }
+          if (driveCnt > 0) {
+            if (!window.DriveSyncUtil) {
+              throw new Error('Google Drive sync helper is still loading — please try again in a second.');
+            }
+            driveWriteToken = await ensureGoogleDriveWriteToken(false);
+          }
+        } catch (authErr) {
+          notify(`Action cancelled: ${authErr && authErr.message ? authErr.message : authErr}`);
+          return;
+        }
+
+        let overlay = null;
+        let stopRequested = false;
+        let statusEl = null;
+        let barEl = null;
+        if (uniqueTargets.length > 3) {
+          overlay = document.createElement('div');
+          overlay.className = 'modal-backdrop';
+          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+          overlay.innerHTML = `
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:480px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:12px;">
+              <div style="font-size:16px;font-weight:700;">${action === 'delete' ? '🗑️ Permanently Deleting Duplicates' : '📁 Moving Duplicates to Review'}</div>
+              <div id="dup-act-status" style="font-size:13px;color:var(--text);">Starting...</div>
+              <div style="height:8px;background:var(--raised);border-radius:999px;overflow:hidden;border:1px solid var(--border);">
+                <div id="dup-act-bar" style="height:100%;width:4%;background:${action === 'delete' ? '#dc2626' : '#2563eb'};transition:width 0.12s ease;"></div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;">
+                <button type="button" class="btn sm danger" id="dup-act-stop">⏹ Stop</button>
+              </div>
+            </div>`;
+          document.body.appendChild(overlay);
+          statusEl = overlay.querySelector('#dup-act-status');
+          barEl = overlay.querySelector('#dup-act-bar');
+          const stopBtn = overlay.querySelector('#dup-act-stop');
+          stopBtn.onclick = () => {
+            stopRequested = true;
+            stopBtn.disabled = true;
+            stopBtn.textContent = 'Stopping...';
+          };
+        }
+
+        const removedLocalIds = new Set();
+        const removedLocalRelPaths = new Set();
+        const removedDriveIds = new Set();
+        const movedLocalNewPaths = new Map();
+        let succeeded = 0;
+        let failed = 0;
+        let abortedWrongFolder = '';
+        let lastErr = '';
+
+        try {
+          for (let i = 0; i < uniqueTargets.length; i++) {
+            if (stopRequested) break;
+            const entry = uniqueTargets[i];
+            if (statusEl) {
+              statusEl.textContent = `${action === 'delete' ? 'Deleting' : 'Moving'} ${(i + 1).toLocaleString()} / ${uniqueTargets.length.toLocaleString()}: ${entry.name}`;
+              barEl.style.width = `${Math.max(4, Math.round(((i + 1) / uniqueTargets.length) * 100))}%`;
+            }
+            try {
+              if (entry.source === 'gdrive') {
+                const cloudId = String(entry.rec.cloudId || entry.rec.id || '').trim();
+                if (!cloudId) throw new Error('Missing Google Drive file ID.');
+                if (action === 'delete') {
+                  await window.DriveSyncUtil.deleteDriveFilePermanently(driveWriteToken, cloudId);
+                } else {
+                  await window.DriveSyncUtil.trashDriveFile(driveWriteToken, cloudId);
+                }
+                removedDriveIds.add(cloudId);
+              } else {
+                const res = await applyLocalDiskAction(entry.rec, action, expectedRoot);
+                if (entry.rec.id) removedLocalIds.add(entry.rec.id);
+                if (entry.rec.webkitRelativePath) removedLocalRelPaths.add(entry.rec.webkitRelativePath);
+                if (action === 'review' && res && res.targetName) {
+                  movedLocalNewPaths.set(entry.rec.webkitRelativePath || entry.name, res.targetName);
+                }
+              }
+              succeeded++;
+            } catch (err) {
+              failed++;
+              lastErr = err && err.message ? err.message : String(err);
+              if (err && err.wrongFolder && succeeded === 0) {
+                _writableLocalRootHandle = null;
+                abortedWrongFolder = lastErr;
+                break;
+              }
+            }
+            if (i > 0 && i % 15 === 0) {
+              await new Promise((r) => setTimeout(r, 0));
+            }
+          }
+        } finally {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }
+
+        if (abortedWrongFolder) {
+          window.alert(`${abortedWrongFolder}\n\nTip: Pick the exact top folder you originally scanned (for example, "${expectedRoot || 'Pictures'}").`);
+          return;
+        }
+
+        if (removedLocalIds.size > 0 || removedLocalRelPaths.size > 0) {
+          if (Array.isArray(photoLibraryIndex.local)) {
+            photoLibraryIndex.local = photoLibraryIndex.local.filter((r) => !removedLocalIds.has(r.id) && !removedLocalRelPaths.has(r.webkitRelativePath));
+          }
+          if (Array.isArray(activeFolderImageFiles) && activeFolderImageFiles.length > 0) {
+            activeFolderImageFiles = activeFolderImageFiles.filter((f) => {
+              const rel = (f && f.webkitRelativePath) || '';
+              return !rel || !removedLocalRelPaths.has(rel);
+            });
+          }
+          if (typeof recordGatheredSource === 'function' && Array.isArray(photoLibraryIndex.local)) {
+            recordGatheredSource('local', { label: 'Local Folder', count: photoLibraryIndex.local.length });
+          }
+        }
+
+        if (removedDriveIds.size > 0 && Array.isArray(photoLibraryIndex.gdrive)) {
+          photoLibraryIndex.gdrive = photoLibraryIndex.gdrive.filter((r) => !removedDriveIds.has(String(r.cloudId || r.id || '')));
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('gdrive', { label: 'Google Drive', count: photoLibraryIndex.gdrive.length });
+          }
+        }
+
+        // Sync any matching items in the currently loaded active workspace batch
+        if (Array.isArray(items) && items.length > 0 && (removedDriveIds.size > 0 || removedLocalRelPaths.size > 0 || movedLocalNewPaths.size > 0)) {
+          const removedLocalFileNames = new Set(uniqueTargets.filter((e) => e.source !== 'gdrive' && (removedLocalIds.has(e.rec.id) || removedLocalRelPaths.has(e.rec.webkitRelativePath))).map((e) => `${String(e.name).toLowerCase()}|${Math.max(1, Math.round((e.size || 0) / 1024))}`));
+          if (action === 'delete') {
+            items = items.filter((p) => {
+              if (p.cloudId && removedDriveIds.has(String(p.cloudId))) return false;
+              const k = `${String(p.file || '').toLowerCase()}|${Number(p.kb) || 0}`;
+              return !removedLocalFileNames.has(k);
+            });
+          } else {
+            items.forEach((p) => {
+              const k = `${String(p.file || '').toLowerCase()}|${Number(p.kb) || 0}`;
+              if ((p.cloudId && removedDriveIds.has(String(p.cloudId))) || removedLocalFileNames.has(k)) {
+                p.inReview = true;
+                saveItemMetadata(p);
+              }
+            });
+          }
+          try { await saveArchiveToDb(items, rootFolderName); } catch (_) {}
+        }
+
+        if (succeeded > 0) {
+          photoLibraryIndex.indexVersion++;
+          if (removedDriveIds.size > 0 && typeof saveGdriveIndexToDb === 'function') {
+            await saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
+          }
+          if (window._activeGedcomData && typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
+          }
+        }
+
+        notify(
+          failed > 0
+            ? `${action === 'delete' ? 'Deleted' : 'Moved'} ${succeeded.toLocaleString()} duplicate(s); ${failed.toLocaleString()} failed${lastErr ? ` (${lastErr})` : ''}.`
+            : `✓ ${action === 'delete' ? 'Permanently deleted' : 'Moved to _Duplicates_Review / Trash'} ${succeeded.toLocaleString()} duplicate file${succeeded === 1 ? '' : 's'}!`
+        );
+        render();
       }
 
       function filteredItems() {
@@ -6827,6 +7178,10 @@
                         ${dupTabBarHtml}
                       </div>
                       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        ${(idxStats.localOnlyGroupCount > 0 || idxStats.crossSourceGroupCount > 0) ? `
+                          <button class="btn sm ${_writableLocalRootHandle ? 'success' : ''}" type="button" id="btn-idx-unlock-disk" title="Select your root local photo folder once to allow permanent delete or move to _Duplicates_Review on disk">
+                            ${_writableLocalRootHandle ? `🔓 Disk Ready (${esc(_writableLocalRootHandle.name)})` : '🔐 Unlock Disk Delete / Move'}
+                          </button>` : ''}
                         <button class="btn sm accent" type="button" id="btn-idx-dup-drive-sync" title="Compare local folders against Google Drive and safely move Cloud-Only duplicates to Google Drive Trash">
                           ☁️ Drive Sync &amp; Trash Cleanup
                         </button>
@@ -6844,6 +7199,19 @@
                   <div id="idx-dup-results"></div>
                 `;
 
+                const unlockDiskBtn = host.querySelector('#btn-idx-unlock-disk');
+                if (unlockDiskBtn) {
+                  unlockDiskBtn.onclick = async () => {
+                    try {
+                      _writableLocalRootHandle = null;
+                      const h = await ensureWritableLocalFolderHandle(photoLibraryIndex.localFolderName || rootFolderName || '');
+                      notify(`✓ Disk delete/move enabled for "${h.name}".`);
+                      render();
+                    } catch (err) {
+                      if (err && err.name !== 'AbortError') notify(err.message || String(err));
+                    }
+                  };
+                }
                 const srcWsBtn = host.querySelector('#btn-dup-src-workspace');
                 if (srcWsBtn) srcWsBtn.onclick = () => { dupSourceTab = 'workspace'; render(); };
                 const syncCleanupBtn = host.querySelector('#btn-idx-dup-drive-sync');
@@ -6890,6 +7258,21 @@
                   const start = (idxDupPage - 1) * PER_PAGE;
                   const pageGroups = filtered.slice(start, start + PER_PAGE);
                   const zoomMetaList = [];
+                  const pageCopyCount = pageGroups.reduce((acc, g) => acc + Math.max(0, g.items.length - 1), 0);
+                  const filteredCopyCount = filtered.reduce((acc, g) => acc + Math.max(0, g.items.length - 1), 0);
+
+                  const bulkBarHtml = `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                      <span style="font-size:12.5px;color:var(--muted);">Bulk actions keep every <strong style="color:#15803d;">★ Keep (Master)</strong> copy safe:</span>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn sm" type="button" id="btn-idx-move-page" title="Move duplicate copies on this page to _Duplicates_Review / Trash">📁 Move Page Copies (${pageCopyCount.toLocaleString()})</button>
+                        <button class="btn sm danger" type="button" id="btn-idx-del-page" title="Permanently delete all duplicate copies on this page from disk / Drive">🗑️ Delete Page Copies (${pageCopyCount.toLocaleString()})</button>
+                        ${filtered.length > pageGroups.length ? `
+                          <button class="btn sm" type="button" id="btn-idx-move-all" title="Move all filtered duplicate copies to _Duplicates_Review / Trash">📁 Move All (${filteredCopyCount.toLocaleString()})</button>
+                          <button class="btn sm danger" type="button" id="btn-idx-del-all" title="Permanently delete all filtered duplicate copies from disk / Drive">🗑️ Delete All (${filteredCopyCount.toLocaleString()})</button>
+                        ` : ''}
+                      </div>
+                    </div>`;
 
                   const pagerHtml = totalPages > 1 ? `
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -6926,21 +7309,29 @@
                       });
                       const dateStr = it.lastModified ? new Date(it.lastModified).toISOString().slice(0, 10) : '';
                       return `
-                        <div style="border:${isMaster ? '2px solid #22c55e' : '1px solid var(--border)'};border-radius:8px;padding:10px;background:${isMaster ? 'var(--surface)' : 'var(--raised)'};display:flex;flex-direction:column;gap:8px;">
-                          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-                            <span class="pill ${isMaster ? 'pos' : 'warn'}" style="font-size:11px;font-weight:700;">${isMaster ? '★ Keep (Master)' : `⚠️ Duplicate Copy #${cIdx}`}</span>
-                            <span class="pill neu" style="font-size:10.5px;">${isDrive ? '☁️ Drive' : '📁 Local'}</span>
+                        <div style="border:${isMaster ? '2px solid #22c55e' : '1px solid var(--border)'};border-radius:8px;padding:10px;background:${isMaster ? 'var(--surface)' : 'var(--raised)'};display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                          <div style="display:flex;flex-direction:column;gap:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                              <span class="pill ${isMaster ? 'pos' : 'warn'}" style="font-size:11px;font-weight:700;">${isMaster ? '★ Keep (Master)' : `⚠️ Duplicate Copy #${cIdx}`}</span>
+                              <span class="pill neu" style="font-size:10.5px;">${isDrive ? '☁️ Drive' : '📁 Local'}</span>
+                            </div>
+                            <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
+                              ${thumbSrc
+                                ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
+                                : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Google Drive Photo' : '📁 Local Folder Photo'}</div>`}
+                            </div>
+                            <div style="min-width:0;">
+                              <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
+                              <div class="muted" style="font-size:11px;margin-top:2px;word-break:break-word;" title="${esc(it.path)}">📂 ${esc(it.path)}</div>
+                              <div class="mono muted" style="font-size:11px;margin-top:2px;">${fmtBytes(it.size)}${dateStr ? ` · ${dateStr}` : ''}</div>
+                            </div>
                           </div>
-                          <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
-                            ${thumbSrc
-                              ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
-                              : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Google Drive Photo' : '📁 Local Folder Photo'}</div>`}
-                          </div>
-                          <div style="min-width:0;">
-                            <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
-                            <div class="muted" style="font-size:11px;margin-top:2px;word-break:break-word;" title="${esc(it.path)}">📂 ${esc(it.path)}</div>
-                            <div class="mono muted" style="font-size:11px;margin-top:2px;">${fmtBytes(it.size)}${dateStr ? ` · ${dateStr}` : ''}</div>
-                          </div>
+                          ${!isMaster ? `
+                            <div style="display:flex;gap:5px;flex-wrap:wrap;padding-top:6px;border-top:1px solid var(--border);">
+                              <button class="btn sm" type="button" data-swap-idx-master="${esc(g.key)}" data-swap-rec="${esc(it.recKey)}" style="font-size:11px;padding:3px 7px;" title="Keep this file as the master instead">★ Make Master</button>
+                              <button class="btn sm" type="button" data-move-idx-item="${gIdx}:${cIdx}" style="font-size:11px;padding:3px 7px;" title="Move to _Duplicates_Review / Trash">📁 Review</button>
+                              <button class="btn sm danger" type="button" data-del-idx-item="${gIdx}:${cIdx}" style="font-size:11px;padding:3px 7px;" title="Permanently delete this duplicate file from disk / Drive">🗑️ Delete</button>
+                            </div>` : ''}
                         </div>`;
                     }).join('');
 
@@ -6955,9 +7346,11 @@
                             </div>
                             <div class="muted" style="font-size:12px;margin-top:2px;">${esc(g.reason)}</div>
                           </div>
-                          <button class="btn sm" type="button" data-ignore-idx-dup="${esc(g.key)}" title="Hide this group from duplicate warnings">
-                            ✓ Keep All (Not Duplicate)
-                          </button>
+                          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                            <button class="btn sm" type="button" data-move-idx-group="${gIdx}" title="Move duplicate copy/copies in this group to _Duplicates_Review / Trash">📁 Move Copy to Review</button>
+                            <button class="btn sm danger" type="button" data-del-idx-group="${gIdx}" title="Permanently delete duplicate copy/copies in this group from disk / Drive">🗑️ Delete Copy Permanently</button>
+                            <button class="btn sm" type="button" data-ignore-idx-dup="${esc(g.key)}" title="Hide this group from duplicate warnings">✓ Keep All (Not Duplicate)</button>
+                          </div>
                         </div>
                         <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;padding:12px;">
                           ${copiesHtml}
@@ -6965,7 +7358,62 @@
                       </div>`;
                   }).join('');
 
-                  resultsEl.innerHTML = `${pagerHtml}${cardsHtml}${totalPages > 1 ? pagerHtml : ''}`;
+                  resultsEl.innerHTML = `${bulkBarHtml}${pagerHtml}${cardsHtml}${totalPages > 1 ? pagerHtml : ''}`;
+
+                  const collectCopies = (groups) => {
+                    const out = [];
+                    groups.forEach((g) => {
+                      for (let k = 1; k < g.items.length; k++) out.push(g.items[k]);
+                    });
+                    return out;
+                  };
+                  const btnMovePage = resultsEl.querySelector('#btn-idx-move-page');
+                  if (btnMovePage) btnMovePage.onclick = () => executeIndexedDuplicateAction(collectCopies(pageGroups), 'review', { label: 'this page' });
+                  const btnDelPage = resultsEl.querySelector('#btn-idx-del-page');
+                  if (btnDelPage) btnDelPage.onclick = () => executeIndexedDuplicateAction(collectCopies(pageGroups), 'delete', { label: 'this page' });
+                  const btnMoveAll = resultsEl.querySelector('#btn-idx-move-all');
+                  if (btnMoveAll) btnMoveAll.onclick = () => executeIndexedDuplicateAction(collectCopies(filtered), 'review', { label: 'all filtered groups' });
+                  const btnDelAll = resultsEl.querySelector('#btn-idx-del-all');
+                  if (btnDelAll) btnDelAll.onclick = () => executeIndexedDuplicateAction(collectCopies(filtered), 'delete', { label: 'all filtered groups' });
+
+                  resultsEl.querySelectorAll('[data-move-idx-group]').forEach((b) => {
+                    b.onclick = () => {
+                      const g = pageGroups[Number(b.getAttribute('data-move-idx-group'))];
+                      if (g) executeIndexedDuplicateAction(g.items.slice(1), 'review', { label: g.master.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-del-idx-group]').forEach((b) => {
+                    b.onclick = () => {
+                      const g = pageGroups[Number(b.getAttribute('data-del-idx-group'))];
+                      if (g) executeIndexedDuplicateAction(g.items.slice(1), 'delete', { label: g.master.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-move-idx-item]').forEach((b) => {
+                    b.onclick = () => {
+                      const [gi, ci] = String(b.getAttribute('data-move-idx-item') || '').split(':').map(Number);
+                      const it = pageGroups[gi] && pageGroups[gi].items[ci];
+                      if (it) executeIndexedDuplicateAction([it], 'review', { label: it.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-del-idx-item]').forEach((b) => {
+                    b.onclick = () => {
+                      const [gi, ci] = String(b.getAttribute('data-del-idx-item') || '').split(':').map(Number);
+                      const it = pageGroups[gi] && pageGroups[gi].items[ci];
+                      if (it) executeIndexedDuplicateAction([it], 'delete', { label: it.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-swap-idx-master]').forEach((b) => {
+                    b.onclick = () => {
+                      const gk = b.getAttribute('data-swap-idx-master');
+                      const rk = b.getAttribute('data-swap-rec');
+                      if (gk && rk) {
+                        idxDupMasterOverrides.set(gk, rk);
+                        _idxDupOverrideVersion++;
+                        notify('Updated master photo for this duplicate group.');
+                        render();
+                      }
+                    };
+                  });
 
                   resultsEl.querySelectorAll('.idx-dup-prev').forEach((b) => {
                     b.onclick = () => { if (idxDupPage > 1) { idxDupPage--; renderIdxDupResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
@@ -21143,7 +21591,8 @@
             if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
             if (window._activeGedcomData) {
               await refreshGedcomIndexMatches();
-            } else if (mode === 'catalog' && layout === 'people') {
+            }
+            if ((mode === 'catalog' && (layout === 'people' || activeQueue === 'duplicates')) || mode === 'gather') {
               render();
             }
           }
