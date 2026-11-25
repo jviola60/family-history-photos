@@ -426,6 +426,8 @@ export async function searchGoogleDriveImages(token, rawQueryTerms, options = {}
 export async function scanGoogleDriveFolder(token, folderId = 'root', folderName = 'Google Drive', onProgress = null) {
   const results = [];
   const queue = [{ id: folderId, path: folderName }];
+  const visitedFolders = new Set([folderId]);
+  const seenFileIds = new Set();
   let foldersScanned = 0;
 
   while (queue.length > 0) {
@@ -434,10 +436,12 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
     let pageToken = '';
 
     do {
-      const q = `'${current.id}' in parents and trashed = false`;
+      const q = current.id === '__shared_with_me__'
+        ? 'sharedWithMe = true and trashed = false'
+        : `'${current.id}' in parents and trashed = false`;
       const params = new URLSearchParams({
         q,
-        fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink)',
+        fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,shortcutDetails(targetId,targetMimeType))',
         pageSize: '1000',
         supportsAllDrives: 'true',
         includeItemsFromAllDrives: 'true'
@@ -446,6 +450,10 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
 
       const res = await fetchDriveWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, token);
       if (!res.ok) {
+        if ((res.status === 403 || res.status === 404) && foldersScanned > 1) {
+          console.warn(`Skipping inaccessible Drive subfolder "${current.path}" (${res.status})`);
+          break;
+        }
         throw new Error(`Google Drive scan failed (${res.status})`);
       }
       const data = await res.json();
@@ -453,8 +461,43 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
 
       for (const f of files) {
         if (f.mimeType === 'application/vnd.google-apps.folder') {
-          queue.push({ id: f.id, path: `${current.path}/${f.name}` });
-        } else if (isImageFile(f.name, f.mimeType)) {
+          if (!visitedFolders.has(f.id)) {
+            visitedFolders.add(f.id);
+            queue.push({ id: f.id, path: `${current.path}/${f.name}` });
+          }
+        } else if (f.mimeType === 'application/vnd.google-apps.shortcut' && f.shortcutDetails && f.shortcutDetails.targetId) {
+          const targetId = f.shortcutDetails.targetId;
+          const targetMime = f.shortcutDetails.targetMimeType || '';
+          if (targetMime === 'application/vnd.google-apps.folder') {
+            if (!visitedFolders.has(targetId)) {
+              visitedFolders.add(targetId);
+              queue.push({ id: targetId, path: `${current.path}/${f.name}` });
+            }
+          } else if (isImageFile(f.name, targetMime) && !seenFileIds.has(targetId)) {
+            seenFileIds.add(targetId);
+            const sizeBytes = Number(f.size) || 0;
+            const modMs = f.modifiedTime ? new Date(f.modifiedTime).getTime() : Date.now();
+            const relPath = `${current.path}/${f.name}`;
+            const rec = {
+              isCloudFile: true,
+              provider: 'gdrive',
+              source: 'gdrive',
+              cloudId: targetId,
+              id: targetId,
+              name: f.name,
+              description: f.description || '',
+              size: sizeBytes,
+              type: targetMime || 'image/jpeg',
+              lastModified: modMs,
+              thumbnailLink: f.thumbnailLink || '',
+              path: current.path,
+              webkitRelativePath: relPath
+            };
+            rec.fetchFile = () => downloadGoogleDriveFile(token, rec);
+            results.push(rec);
+          }
+        } else if (isImageFile(f.name, f.mimeType) && !seenFileIds.has(f.id)) {
+          seenFileIds.add(f.id);
           const sizeBytes = Number(f.size) || 0;
           const modMs = f.modifiedTime ? new Date(f.modifiedTime).getTime() : Date.now();
           const relPath = `${current.path}/${f.name}`;

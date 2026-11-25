@@ -17727,18 +17727,21 @@
             type: f.type || 'image/jpeg',
             thumbnailLink: f.thumbnailLink || ''
           }));
-          if (gdriveRecords.length >= photoLibraryIndex.gdrive.length) {
-            photoLibraryIndex.gdrive = gdriveRecords;
-            photoLibraryIndex.gdriveScannedAt = Date.now();
+          const mergedGdrive = typeof mergeIntoGdriveIndex === 'function'
+            ? mergeIntoGdriveIndex(gdriveRecords)
+            : gdriveRecords;
+          photoLibraryIndex.gdrive = mergedGdrive;
+          photoLibraryIndex.gdriveScannedAt = Date.now();
+          if (!photoLibraryIndex.gdriveFolderName || mergedGdrive.length === gdriveRecords.length) {
             photoLibraryIndex.gdriveFolderName = sourceLabel || 'Google Drive';
-            photoLibraryIndex.indexVersion++;
-            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
-            if (typeof saveGdriveIndexToDb === 'function') {
-              saveGdriveIndexToDb(gdriveRecords, photoLibraryIndex.gdriveFolderName).catch(() => {});
-            }
-            if (typeof refreshGedcomIndexMatches === 'function') {
-              refreshGedcomIndexMatches().catch(() => {});
-            }
+          }
+          photoLibraryIndex.indexVersion++;
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+          if (typeof saveGdriveIndexToDb === 'function') {
+            saveGdriveIndexToDb(mergedGdrive, photoLibraryIndex.gdriveFolderName).catch(() => {});
+          }
+          if (typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
           }
         }
         rootFolderName = sourceLabel || 'Cloud_Photos';
@@ -17812,6 +17815,7 @@
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
                 <button type="button" class="btn primary sm" id="btn-gdrive-connect">${gdriveToken ? '✓ Connected — Refresh Folders' : '🔗 Connect Google Drive'}</button>
                 ${gdriveToken ? `<button type="button" class="btn accent sm" id="btn-gdrive-scan-cur">📂 Scan "${esc(gdriveStack[gdriveStack.length - 1].name)}"</button>` : ''}
+                ${gdriveToken && typeof hub.scanGoogleDriveAllImages === 'function' ? `<button type="button" class="btn success sm" id="btn-gdrive-scan-all" title="Index every photo across My Drive, Computers, and Shared with me without downloading files">☁️ Scan All Drive + Shared</button>` : ''}
               </div>
               <div class="muted" style="font-size:11px;margin-bottom:10px;">🔒 Runs 100% in your browser — your files stay between your computer and Google Drive (nothing is sent to GitHub).</div>
               <details style="margin-bottom:10px;font-size:11.5px;">
@@ -17871,9 +17875,21 @@
                     const fname = b.getAttribute('data-name');
                     status.textContent = `Scanning "${fname}" for photos...`;
                     try {
-                      const files = await hub.scanGoogleDriveFolder(gdriveToken, fid, fname, (p) => {
-                        status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
-                      });
+                      let files;
+                      try {
+                        files = await hub.scanGoogleDriveFolder(gdriveToken, fid, fname, (p) => {
+                          status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                        });
+                      } catch (scanErr) {
+                        if (String(scanErr.message || '').includes('session expired')) {
+                          gdriveToken = await ensureGoogleDriveToken(true);
+                          files = await hub.scanGoogleDriveFolder(gdriveToken, fid, fname, (p) => {
+                            status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                          });
+                        } else {
+                          throw scanErr;
+                        }
+                      }
                       closeModal();
                       await loadCloudFilesIntoArchive(files, `GDrive_${fname}`);
                     } catch (e) {
@@ -17906,13 +17922,84 @@
                 const status = body.querySelector('#gdrive-status');
                 status.textContent = `Scanning "${folder.name}"...`;
                 try {
-                  const files = await hub.scanGoogleDriveFolder(gdriveToken, folder.id, folder.name, (p) => {
-                    status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
-                  });
+                  let files;
+                  try {
+                    files = await hub.scanGoogleDriveFolder(gdriveToken, folder.id, folder.name, (p) => {
+                      status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                    });
+                  } catch (scanErr) {
+                    if (String(scanErr.message || '').includes('session expired')) {
+                      gdriveToken = await ensureGoogleDriveToken(true);
+                      files = await hub.scanGoogleDriveFolder(gdriveToken, folder.id, folder.name, (p) => {
+                        status.textContent = `Scanning ${p.currentFolder}... (${p.photosFound.toLocaleString()} photos found)`;
+                      });
+                    } else {
+                      throw scanErr;
+                    }
+                  }
                   closeModal();
                   await loadCloudFilesIntoArchive(files, `GDrive_${folder.name}`);
                 } catch (e) {
                   status.textContent = e.message;
+                }
+              };
+            }
+            const scanAllBtn = body.querySelector('#btn-gdrive-scan-all');
+            if (scanAllBtn) {
+              scanAllBtn.onclick = async () => {
+                const status = body.querySelector('#gdrive-status');
+                scanAllBtn.disabled = true;
+                if (scanCur) scanCur.disabled = true;
+                status.textContent = 'Indexing all photos across My Drive, Computers, and Shared with me...';
+                try {
+                  let files;
+                  try {
+                    files = await hub.scanGoogleDriveAllImages(gdriveToken, {
+                      onProgress: (p) => {
+                        if (p.phase === 'folders') {
+                          status.textContent = `Indexing Drive folders (${p.foldersFound.toLocaleString()} folders)...`;
+                        } else {
+                          status.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos so far...`;
+                        }
+                      }
+                    });
+                  } catch (scanErr) {
+                    if (String(scanErr.message || '').includes('session expired')) {
+                      gdriveToken = await ensureGoogleDriveToken(true);
+                      files = await hub.scanGoogleDriveAllImages(gdriveToken, {
+                        onProgress: (p) => {
+                          status.textContent = `Indexed ${p.photosFound.toLocaleString()} Google Drive photos so far...`;
+                        }
+                      });
+                    } else {
+                      throw scanErr;
+                    }
+                  }
+                  photoLibraryIndex.gdrive = files;
+                  photoLibraryIndex.gdriveScannedAt = Date.now();
+                  photoLibraryIndex.gdriveFolderName = 'My Drive + Shared';
+                  photoLibraryIndex.indexVersion++;
+                  if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+                  if (typeof saveGdriveIndexToDb === 'function') {
+                    await saveGdriveIndexToDb(files, photoLibraryIndex.gdriveFolderName);
+                  }
+                  if (typeof refreshGedcomIndexMatches === 'function') {
+                    await refreshGedcomIndexMatches();
+                  }
+                  closeModal();
+                  render();
+                  notify(`✓ Indexed ${files.length.toLocaleString()} Google Drive photos (My Drive + Shared)!`);
+                  const gd = window._activeGedcomData;
+                  const matchCnt = (gedcomIndexMatches.strongMatches?.length || 0) + (gedcomIndexMatches.possibleMatches?.length || 0);
+                  if (gd && matchCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
+                    openGedcomMatchReviewModal(gedcomIndexMatches, 'Google Drive');
+                  } else if (typeof openPhotoIndexBrowserModal === 'function') {
+                    openPhotoIndexBrowserModal('', { initialSource: 'gdrive' });
+                  }
+                } catch (e) {
+                  status.textContent = e.message;
+                  scanAllBtn.disabled = false;
+                  if (scanCur) scanCur.disabled = false;
                 }
               };
             }
@@ -20042,6 +20129,38 @@
       const GDRIVE_INDEX_CHUNK_SIZE = 10000;
       let _gdriveIndexRestoreStarted = false;
 
+      function mergeIntoGdriveIndex(newRecords) {
+        const existing = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive : [];
+        if (!Array.isArray(newRecords) || newRecords.length === 0) return existing;
+        if (existing.length === 0) return newRecords.slice();
+        const merged = existing.slice();
+        const idxByKey = new Map();
+        for (let i = 0; i < merged.length; i++) {
+          const r = merged[i];
+          if (!r) continue;
+          const k = r.cloudId || r.id || '';
+          if (k) idxByKey.set(k, i);
+        }
+        for (let i = 0; i < newRecords.length; i++) {
+          const rec = newRecords[i];
+          if (!rec) continue;
+          const k = rec.cloudId || rec.id || '';
+          if (k && idxByKey.has(k)) {
+            const pos = idxByKey.get(k);
+            merged[pos] = {
+              ...merged[pos],
+              ...rec,
+              thumbnailLink: rec.thumbnailLink || merged[pos].thumbnailLink || '',
+              path: rec.path || merged[pos].path || ''
+            };
+          } else {
+            if (k) idxByKey.set(k, merged.length);
+            merged.push(rec);
+          }
+        }
+        return merged;
+      }
+
       async function saveGdriveIndexToDb(records, folderName = 'My Drive') {
         if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
         try {
@@ -20902,7 +21021,7 @@
           stopBtn.textContent = 'Stopping...';
         };
 
-        const finishDriveIndex = async (driveFiles, label) => {
+        const finishDriveIndex = async (driveFiles, label, { isFullScan = false } = {}) => {
           if (!driveFiles || driveFiles.length === 0) {
             progressBox.hidden = true;
             errEl.hidden = false;
@@ -20910,14 +21029,20 @@
             if (onStatus) onStatus(`No images found in <strong>${esc(label)}</strong>.`);
             return;
           }
-          statusEl.textContent = `Saving searchable index of ${driveFiles.length.toLocaleString()} photos locally...`;
+          const finalIndex = (isFullScan || photoLibraryIndex.gdrive.length === 0)
+            ? driveFiles
+            : mergeIntoGdriveIndex(driveFiles);
+          const finalLabel = (isFullScan || photoLibraryIndex.gdrive.length === 0)
+            ? label
+            : (photoLibraryIndex.gdriveFolderName || label);
+          statusEl.textContent = `Saving searchable index of ${finalIndex.length.toLocaleString()} photos locally...`;
           barEl.style.width = '78%';
-          photoLibraryIndex.gdrive = driveFiles;
+          photoLibraryIndex.gdrive = finalIndex;
           photoLibraryIndex.gdriveScannedAt = Date.now();
-          photoLibraryIndex.gdriveFolderName = label;
+          photoLibraryIndex.gdriveFolderName = finalLabel;
           photoLibraryIndex.indexVersion++;
           if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
-          await saveGdriveIndexToDb(driveFiles, label);
+          await saveGdriveIndexToDb(finalIndex, finalLabel);
 
           statusEl.textContent = `Matching ${driveFiles.length.toLocaleString()} Drive photos against ${gd.peopleList.length.toLocaleString()} relatives...`;
           const matchRes = await gp.batchMatchPhotosToGedcom(gd, driveFiles, (p) => {
@@ -20928,9 +21053,9 @@
 
           const strongCnt = matchRes.strongMatches.length;
           const possCnt = matchRes.possibleMatches.length;
-          const doneMsg = `✓ Indexed <strong>${driveFiles.length.toLocaleString()}</strong> Google Drive photos (${esc(label)}) — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}! Search all ${driveFiles.length.toLocaleString()} Drive photos anytime via <strong>🔍 Find &amp; Link Photo</strong>.`;
+          const doneMsg = `✓ Indexed <strong>${finalIndex.length.toLocaleString()}</strong> Google Drive photos (${esc(finalLabel)}) — found <strong>${strongCnt.toLocaleString()}</strong> strong match${strongCnt === 1 ? '' : 'es'} and <strong>${possCnt.toLocaleString()}</strong> close / possible match${possCnt === 1 ? '' : 'es'}! Search all ${finalIndex.length.toLocaleString()} Drive photos anytime via <strong>🔍 Find &amp; Link Photo</strong>.`;
           if (onStatus) onStatus(doneMsg);
-          notify(`Indexed ${driveFiles.length.toLocaleString()} Google Drive photos (${strongCnt} strong, ${possCnt} possible matches)!`);
+          notify(`Indexed ${finalIndex.length.toLocaleString()} Google Drive photos (${strongCnt} strong, ${possCnt} possible matches)!`);
           closeModal();
           render();
           if (strongCnt + possCnt > 0 && typeof openGedcomMatchReviewModal === 'function') {
@@ -20946,7 +21071,7 @@
             rematchBtn.disabled = true;
             progressBox.hidden = false;
             errEl.hidden = true;
-            await finishDriveIndex(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
+            await finishDriveIndex(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive', { isFullScan: true });
           };
         }
 
@@ -20988,7 +21113,7 @@
               }
             }
             if (closed) return;
-            await finishDriveIndex(driveFiles, stopRequested ? 'My Drive (Partial Scan)' : 'My Drive');
+            await finishDriveIndex(driveFiles, stopRequested ? 'My Drive (Partial Scan)' : 'My Drive', { isFullScan: !stopRequested });
           } catch (err) {
             progressBox.hidden = true;
             errEl.hidden = false;
@@ -21020,7 +21145,7 @@
                 <span style="font-size:12.5px;font-weight:600;">${esc(driveStack.map((x) => x.name).join(' / '))}</span>
                 <div style="display:flex;gap:6px;">
                   ${driveStack.length > 1 ? '<button type="button" class="btn sm" id="gd-fp-up">⬅️ Up</button>' : ''}
-                  ${cur.id !== '__shared_with_me__' ? `<button type="button" class="btn sm primary" id="gd-fp-scan-cur">✓ Scan "${esc(cur.name)}"</button>` : ''}
+                  <button type="button" class="btn sm primary" id="gd-fp-scan-cur">✓ Scan "${esc(cur.name)}"</button>
                 </div>
               </div>
               ${sharedRow}
