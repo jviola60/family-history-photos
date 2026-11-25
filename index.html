@@ -3008,7 +3008,7 @@
           <span data-icon="folder"></span><span>Local Folder Indexed</span><span class="nav-count" id="q-local-indexed">0</span>
         </button>
         <button class="nav-item" type="button" id="nav-index-matches" hidden title="Review suggested PAF / GEDCOM matches found across your indexed photos">
-          <span data-icon="tree"></span><span>Suggested Matches</span><span class="nav-count" id="q-index-matches" style="background:#dcfce7;color:#166534;">0</span>
+          <span data-icon="tree"></span><span id="nav-index-matches-label">Matches Left to Link</span><span class="nav-count" id="q-index-matches" style="background:#dcfce7;color:#166534;">0</span>
         </button>
       </div>
 
@@ -5472,6 +5472,106 @@
         render();
       }
 
+      function buildLoadedPhotoLookup(photoList) {
+        const byId = new Map();
+        const byCloudId = new Map();
+        const byFileName = new Map();
+        if (Array.isArray(photoList)) {
+          for (let i = 0; i < photoList.length; i++) {
+            const ph = photoList[i];
+            if (!ph || ph.inReview) continue;
+            if (ph.id) byId.set(ph.id, ph);
+            if (ph.cloudId) byCloudId.set(ph.cloudId, ph);
+            if (ph.file) {
+              const fn = String(ph.file).trim().toLowerCase();
+              if (fn && !byFileName.has(fn)) byFileName.set(fn, ph);
+            }
+          }
+        }
+        return { byId, byCloudId, byFileName };
+      }
+
+      function checkMatchAlreadyLinked(matchItem, lookup) {
+        const rec = matchItem && matchItem.record;
+        if (!rec) return { linked: false, photo: null, matchedPersonIdx: -1 };
+        let photo = null;
+        if (matchItem.importedPhotoId && lookup.byId.has(matchItem.importedPhotoId)) {
+          photo = lookup.byId.get(matchItem.importedPhotoId);
+        } else if (rec.source === 'loaded' && rec.photoItem && !rec.photoItem.inReview) {
+          photo = rec.photoItem;
+        } else if (rec.alreadyLoadedId && lookup.byId.has(rec.alreadyLoadedId)) {
+          photo = lookup.byId.get(rec.alreadyLoadedId);
+        } else if (rec.cloudId && lookup.byCloudId.has(rec.cloudId)) {
+          photo = lookup.byCloudId.get(rec.cloudId);
+        } else if (rec.name) {
+          const fn = String(rec.name).trim().toLowerCase();
+          if (fn && lookup.byFileName.has(fn)) photo = lookup.byFileName.get(fn);
+        }
+        if (!photo || !Array.isArray(photo.people) || photo.people.length === 0) {
+          return { linked: false, photo, matchedPersonIdx: -1 };
+        }
+        const photoGedIds = new Set();
+        const photoNames = new Set();
+        for (let i = 0; i < photo.people.length; i++) {
+          const pr = photo.people[i];
+          if (!pr) continue;
+          if (pr.gedId) photoGedIds.add(String(pr.gedId));
+          const nm = typeof pr === 'string' ? pr : pr.name;
+          if (nm) {
+            const norm = typeof normalizeSyncPersonName === 'function'
+              ? normalizeSyncPersonName(nm)
+              : String(nm).trim().toLowerCase();
+            if (norm) photoNames.add(norm);
+          }
+        }
+        const cands = Array.isArray(matchItem.people) ? matchItem.people : [];
+        for (let i = 0; i < cands.length; i++) {
+          const gp = cands[i];
+          if (!gp) continue;
+          if (gp.id && photoGedIds.has(String(gp.id))) {
+            return { linked: true, photo, matchedPersonIdx: i };
+          }
+          if (gp.name) {
+            const norm = typeof normalizeSyncPersonName === 'function'
+              ? normalizeSyncPersonName(gp.name)
+              : String(gp.name).trim().toLowerCase();
+            if (norm && photoNames.has(norm)) {
+              return { linked: true, photo, matchedPersonIdx: i };
+            }
+          }
+        }
+        return { linked: false, photo, matchedPersonIdx: -1 };
+      }
+
+      function getGedcomMatchProgressCounts(matchObj, photoList) {
+        const strong = (matchObj && Array.isArray(matchObj.strongMatches)) ? matchObj.strongMatches : [];
+        const possible = (matchObj && Array.isArray(matchObj.possibleMatches)) ? matchObj.possibleMatches : [];
+        const lookup = buildLoadedPhotoLookup(photoList);
+        let strongLinked = 0;
+        for (let i = 0; i < strong.length; i++) {
+          if (checkMatchAlreadyLinked(strong[i], lookup).linked) strongLinked++;
+        }
+        let possibleLinked = 0;
+        for (let i = 0; i < possible.length; i++) {
+          if (checkMatchAlreadyLinked(possible[i], lookup).linked) possibleLinked++;
+        }
+        const strongTotal = strong.length;
+        const possibleTotal = possible.length;
+        const strongRemaining = strongTotal - strongLinked;
+        const possibleRemaining = possibleTotal - possibleLinked;
+        return {
+          strongTotal,
+          strongLinked,
+          strongRemaining,
+          possibleTotal,
+          possibleLinked,
+          possibleRemaining,
+          totalMatches: strongTotal + possibleTotal,
+          linkedMatches: strongLinked + possibleLinked,
+          remainingMatches: strongRemaining + possibleRemaining
+        };
+      }
+
       let _cachedGdriveSidebar = { version: -1, renderedVersion: -1, topFolders: [], totalFolders: 0 };
 
       function renderSidebarCounts() {
@@ -5568,8 +5668,7 @@
 
             const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
             const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
-            const matchCount = (gedcomIndexMatches && Array.isArray(gedcomIndexMatches.strongMatches) ? gedcomIndexMatches.strongMatches.length : 0)
-              + (gedcomIndexMatches && Array.isArray(gedcomIndexMatches.possibleMatches) ? gedcomIndexMatches.possibleMatches.length : 0);
+            const matchProg = getGedcomMatchProgressCounts(gedcomIndexMatches, items);
 
             const idxSection = document.getElementById('sidebar-index-section');
             const navGd = document.getElementById('nav-gdrive-indexed');
@@ -5577,11 +5676,12 @@
             const navLoc = document.getElementById('nav-local-indexed');
             const qLoc = document.getElementById('q-local-indexed');
             const navMatches = document.getElementById('nav-index-matches');
+            const navMatchesLbl = document.getElementById('nav-index-matches-label');
             const qMatches = document.getElementById('q-index-matches');
             const wsLabel = document.getElementById('sidebar-workspace-label');
             const allBtn = document.querySelector('[data-queue="all"]');
 
-            if (idxSection) idxSection.hidden = (driveCount === 0 && localCount === 0 && matchCount === 0);
+            if (idxSection) idxSection.hidden = (driveCount === 0 && localCount === 0 && matchProg.totalMatches === 0);
             if (navGd && qGd) {
               navGd.hidden = driveCount === 0;
               qGd.textContent = driveCount.toLocaleString();
@@ -5599,8 +5699,12 @@
               };
             }
             if (navMatches && qMatches) {
-              navMatches.hidden = matchCount === 0;
-              qMatches.textContent = matchCount.toLocaleString();
+              navMatches.hidden = matchProg.totalMatches === 0;
+              qMatches.textContent = matchProg.remainingMatches > 0 ? matchProg.remainingMatches.toLocaleString() : '✓';
+              if (navMatchesLbl) {
+                navMatchesLbl.textContent = matchProg.remainingMatches > 0 ? 'Matches Left to Link' : 'All Matches Linked';
+              }
+              navMatches.title = `${matchProg.remainingMatches.toLocaleString()} left to link · ${matchProg.linkedMatches.toLocaleString()} already linked (${matchProg.totalMatches.toLocaleString()} total)`;
               navMatches.onclick = () => {
                 document.getElementById('sidebar').classList.remove('open');
                 if (typeof openGedcomMatchReviewModal === 'function') {
@@ -5839,8 +5943,8 @@
             const driveIndexedCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
             const localIndexedCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
             const totalIndexedCount = activePhotos.length + driveIndexedCount + localIndexedCount;
-            const totalMatchCandidates = (gedcomIndexMatches.strongMatches ? gedcomIndexMatches.strongMatches.length : 0)
-              + (gedcomIndexMatches.possibleMatches ? gedcomIndexMatches.possibleMatches.length : 0);
+            const matchProgress = getGedcomMatchProgressCounts(gedcomIndexMatches, activePhotos);
+            const totalMatchCandidates = matchProgress.totalMatches;
             const hasExternalIndex = driveIndexedCount > 0 || localIndexedCount > 0;
             const step1Done = Boolean(gd);
             const step2Done = hasExternalIndex;
@@ -5905,7 +6009,9 @@
                       </div>
                       <div style="font-size:13.5px;color:#334155;margin-top:5px;line-height:1.45;">
                         ${totalMatchCandidates > 0
-                          ? `We found <strong>${totalMatchCandidates.toLocaleString()} photo name match${totalMatchCandidates === 1 ? '' : 'es'}</strong> ready to connect to your family tree!`
+                          ? (matchProgress.remainingMatches > 0
+                            ? `<strong>${matchProgress.remainingMatches.toLocaleString()} photo match${matchProgress.remainingMatches === 1 ? '' : 'es'} left to link</strong> · <strong style="color:#15803d;">${matchProgress.linkedMatches.toLocaleString()} already linked</strong>.`
+                            : `<strong style="color:#15803d;">✓ All ${matchProgress.linkedMatches.toLocaleString()} suggested photo matches are linked!</strong>`)
                           : (step2Done
                             ? `Search all <strong>${totalIndexedCount.toLocaleString()}</strong> indexed photos by name, or click <strong>Find Photos</strong> beside any relative below.`
                             : `After Step 2 scans your Drive or folder, matching photos and name search will appear right here.`)}
@@ -5913,7 +6019,7 @@
                     </div>
                     <div style="display:flex;flex-direction:column;gap:7px;">
                       ${totalMatchCandidates > 0
-                        ? `<button type="button" class="btn success" id="btn-pv-review-matches" style="width:100%;font-size:14.5px;">✓ Review ${totalMatchCandidates.toLocaleString()} Suggested Match${totalMatchCandidates === 1 ? '' : 'es'}</button>`
+                        ? `<button type="button" class="btn ${matchProgress.remainingMatches > 0 ? 'success' : 'primary'}" id="btn-pv-review-matches" style="width:100%;font-size:14.5px;">${matchProgress.remainingMatches > 0 ? `✓ Review ${matchProgress.remainingMatches.toLocaleString()} Unlinked Match${matchProgress.remainingMatches === 1 ? '' : 'es'}` : `✓ View ${matchProgress.linkedMatches.toLocaleString()} Linked Match${matchProgress.linkedMatches === 1 ? '' : 'es'}`}</button>`
                         : (step2Done
                           ? `<button type="button" class="btn primary" id="btn-pv-browse-index" style="width:100%;">🔍 Search All ${totalIndexedCount.toLocaleString()} Photos</button>`
                           : `<button type="button" class="btn" id="btn-pv-browse-index" ${totalIndexedCount ? '' : 'disabled'} style="width:100%;">🔍 Search ${totalIndexedCount} Album Photo${totalIndexedCount === 1 ? '' : 's'}</button>`)}
@@ -22572,30 +22678,43 @@
       function openGedcomMatchReviewModal(matchResult, sourceLabel = 'Photo Index') {
         const gd = window._activeGedcomData;
         if (!gd || !matchResult) return;
-        const strongRows = (matchResult.strongMatches || []).map((m, i) => ({
-          ...m,
-          kind: 'strong',
-          rowId: `s:${i}`,
-          chosenPersonIdx: 0,
-          extraPeople: [],
-          importedPhotoId: null,
-          pickerOpen: false,
-          pickerQuery: '',
-          status: 'pending'
-        }));
-        const possibleRows = (matchResult.possibleMatches || []).map((m, i) => ({
-          ...m,
-          kind: 'possible',
-          rowId: `p:${i}`,
-          chosenPersonIdx: 0,
-          extraPeople: [],
-          importedPhotoId: null,
-          pickerOpen: false,
-          pickerQuery: '',
-          status: 'pending'
-        }));
+        const initLookup = buildLoadedPhotoLookup(items);
+        const strongRows = (matchResult.strongMatches || []).map((m, i) => {
+          const chk = checkMatchAlreadyLinked(m, initLookup);
+          return {
+            ...m,
+            kind: 'strong',
+            rowId: `s:${i}`,
+            chosenPersonIdx: chk.matchedPersonIdx >= 0 ? chk.matchedPersonIdx : 0,
+            extraPeople: [],
+            importedPhotoId: chk.photo ? chk.photo.id : null,
+            pickerOpen: false,
+            pickerQuery: '',
+            status: chk.linked ? 'linked' : 'pending',
+            linkedJustNow: false
+          };
+        });
+        const possibleRows = (matchResult.possibleMatches || []).map((m, i) => {
+          const chk = checkMatchAlreadyLinked(m, initLookup);
+          return {
+            ...m,
+            kind: 'possible',
+            rowId: `p:${i}`,
+            chosenPersonIdx: chk.matchedPersonIdx >= 0 ? chk.matchedPersonIdx : 0,
+            extraPeople: [],
+            importedPhotoId: chk.photo ? chk.photo.id : null,
+            pickerOpen: false,
+            pickerQuery: '',
+            status: chk.linked ? 'linked' : 'pending',
+            linkedJustNow: false
+          };
+        });
 
-        let activeTab = strongRows.length > 0 ? 'strong' : 'possible';
+        const hasPendingStrong = strongRows.some((r) => r.status === 'pending');
+        const hasPendingPossible = possibleRows.some((r) => r.status === 'pending');
+        const hasAnyLinked = strongRows.some((r) => r.status === 'linked') || possibleRows.some((r) => r.status === 'linked');
+        let activeTab = hasPendingStrong ? 'strong' : (hasPendingPossible ? 'possible' : (hasAnyLinked ? 'linked' : 'all'));
+        let showAlreadyLinked = false;
         let qFilter = '';
         let pageLimit = 50;
         const tempUrls = [];
@@ -22608,16 +22727,20 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔗 PAF / GEDCOM Photo Match Review (${esc(sourceLabel)})</h2>
-                <p class="muted" style="font-size:13px;margin:3px 0 0;">Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${strongRows.length.toLocaleString()}</strong> strong matches · <strong>${possibleRows.length.toLocaleString()}</strong> close / possible matches. Hover over any photo to enlarge · click for full size.</p>
+                <p id="gmr-subtitle" class="muted" style="font-size:13px;margin:3px 0 0;"></p>
               </div>
               <button type="button" class="btn-close-prominent" id="gmr-close">✕ Close</button>
             </div>
             <div style="padding:10px 20px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="btn sm" data-gmr-tab="strong">✓ Strong Matches (${strongRows.length.toLocaleString()})</button>
-              <button type="button" class="btn sm" data-gmr-tab="possible">💡 Possible / Close Matches (${possibleRows.length.toLocaleString()})</button>
-              <button type="button" class="btn sm" data-gmr-tab="all">All (${(strongRows.length + possibleRows.length).toLocaleString()})</button>
-              <input type="search" id="gmr-search" placeholder="Filter by filename or relative name..." style="flex:1;min-width:190px;padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;">
-              <button type="button" class="btn sm success" id="gmr-link-all-strong" ${strongRows.length ? '' : 'hidden'}>✓ Link All Strong Matches (${strongRows.length})</button>
+              <button type="button" class="btn sm" data-gmr-tab="strong">Strong</button>
+              <button type="button" class="btn sm" data-gmr-tab="possible">💡 Possible</button>
+              <button type="button" class="btn sm" data-gmr-tab="linked">✓ Linked</button>
+              <button type="button" class="btn sm" data-gmr-tab="all">All</button>
+              <label style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:#334155;cursor:pointer;white-space:nowrap;">
+                <input type="checkbox" id="gmr-show-linked"> Show already linked
+              </label>
+              <input type="search" id="gmr-search" placeholder="Filter by filename or relative name..." style="flex:1;min-width:175px;padding:7px 10px;border:1px solid var(--control);border-radius:7px;font-size:13.5px;">
+              <button type="button" class="btn sm success" id="gmr-link-all-strong" hidden>✓ Link All Strong Matches</button>
             </div>
             <div id="gmr-progress" hidden style="padding:8px 20px;background:#eff6ff;border-bottom:1px solid #bfdbfe;font-size:13px;font-weight:600;color:#1e3a8a;"></div>
             <div id="gmr-list" style="padding:14px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px;"></div>
@@ -22774,6 +22897,7 @@
             row.record.alreadyLoadedId = photo.id;
             if (photo.people && photo.people.length > 0) {
               row.status = 'linked';
+              row.linkedJustNow = true;
             }
             selectedId = photo.id;
             render();
@@ -22791,6 +22915,7 @@
               onClose: () => {
                 if (photo.people && photo.people.length > 0) {
                   row.status = 'linked';
+                  row.linkedJustNow = true;
                 }
                 if (typeof saveArchiveToDb === 'function' && isCustomFolder) {
                   saveArchiveToDb(items, rootFolderName).catch(() => {});
@@ -22825,11 +22950,27 @@
           };
         }, { enableClickLightbox: true });
 
+        const subEl = overlay.querySelector('#gmr-subtitle');
+        const showLinkedChk = overlay.querySelector('#gmr-show-linked');
+
         const renderRows = ({ preserveScroll = false } = {}) => {
           const prevScroll = preserveScroll ? listEl.scrollTop : 0;
           hidePhotoHoverPreview();
           cleanupUrls();
           const pendingStrong = strongRows.filter((r) => r.status === 'pending' && r.people && r.people.length > 0);
+          const strongRemaining = strongRows.filter((r) => r.status === 'pending').length;
+          const strongLinked = strongRows.filter((r) => r.status === 'linked').length;
+          const possibleRemaining = possibleRows.filter((r) => r.status === 'pending').length;
+          const possibleLinked = possibleRows.filter((r) => r.status === 'linked').length;
+          const remainingTotal = strongRemaining + possibleRemaining;
+          const linkedTotal = strongLinked + possibleLinked;
+
+          if (subEl) {
+            subEl.innerHTML = `Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${remainingTotal.toLocaleString()} left to link</strong> (${strongRemaining.toLocaleString()} strong · ${possibleRemaining.toLocaleString()} possible) · <strong style="color:#15803d;">${linkedTotal.toLocaleString()} already linked</strong>. Hover over any photo to enlarge · click for full size.`;
+          }
+          if (showLinkedChk) {
+            showLinkedChk.disabled = activeTab === 'linked';
+          }
           if (bulkBtn) {
             bulkBtn.hidden = pendingStrong.length === 0;
             bulkBtn.textContent = `✓ Link All Strong Matches (${pendingStrong.length.toLocaleString()})`;
@@ -22837,20 +22978,45 @@
           overlay.querySelectorAll('[data-gmr-tab]').forEach((b) => {
             const t = b.getAttribute('data-gmr-tab');
             b.className = `btn sm ${activeTab === t ? 'primary' : ''}`;
+            if (t === 'strong') {
+              b.textContent = showAlreadyLinked
+                ? `Strong (${(strongRemaining + strongLinked).toLocaleString()})`
+                : `Strong (${strongRemaining.toLocaleString()} left)`;
+            } else if (t === 'possible') {
+              b.textContent = showAlreadyLinked
+                ? `💡 Possible (${(possibleRemaining + possibleLinked).toLocaleString()})`
+                : `💡 Possible (${possibleRemaining.toLocaleString()} left)`;
+            } else if (t === 'linked') {
+              b.textContent = `✓ Linked (${linkedTotal.toLocaleString()})`;
+            } else if (t === 'all') {
+              b.textContent = showAlreadyLinked
+                ? `All (${(remainingTotal + linkedTotal).toLocaleString()})`
+                : `All Left (${remainingTotal.toLocaleString()})`;
+            }
           });
 
           const base = activeTab === 'strong'
             ? strongRows
             : (activeTab === 'possible' ? possibleRows : [...strongRows, ...possibleRows]);
           const filtered = base.filter((row) => {
-            if (row.status === 'skipped') return false;
+            if (activeTab === 'linked') {
+              if (row.status !== 'linked') return false;
+            } else {
+              if (row.status === 'skipped') return false;
+              if (!showAlreadyLinked && row.status === 'linked' && !row.linkedJustNow) return false;
+            }
             if (!qFilter) return true;
             const hay = `${row.record.name || ''} ${row.record.path || ''} ${row.reason || ''} ${(row.people || []).map((p) => p.name).join(' ')}`.toLowerCase();
             return hay.includes(qFilter);
           });
 
           if (filtered.length === 0) {
-            listEl.innerHTML = '<div class="muted" style="padding:26px;text-align:center;font-size:14px;">No matches in this view. Try switching tabs or using <strong>🔍 Search All Indexed Photos</strong> below.</div>';
+            const emptyMsg = activeTab === 'linked'
+              ? 'No linked matches yet in this session or album.'
+              : (remainingTotal === 0 && linkedTotal > 0 && !qFilter
+                ? `🎉 All ${linkedTotal.toLocaleString()} matched photos here are already linked! Click the <strong>✓ Linked (${linkedTotal.toLocaleString()})</strong> tab to view them, or click <strong>🔍 Search All Indexed Photos</strong> below.`
+                : 'No unlinked matches in this view. Try switching tabs, checking <strong>Show already linked</strong>, or using <strong>🔍 Search All Indexed Photos</strong> below.');
+            listEl.innerHTML = `<div class="muted" style="padding:26px;text-align:center;font-size:14px;">${emptyMsg}</div>`;
             return;
           }
 
@@ -23071,6 +23237,7 @@
                   row.record.alreadyLoadedId = res.firstPhotoId;
                 }
                 row.status = 'linked';
+                row.linkedJustNow = true;
                 row.pickerOpen = false;
                 renderRows({ preserveScroll: true });
                 render();
@@ -23115,6 +23282,13 @@
           pageLimit = 50;
           renderRows();
         };
+        if (showLinkedChk) {
+          showLinkedChk.onchange = () => {
+            showAlreadyLinked = Boolean(showLinkedChk.checked);
+            pageLimit = 50;
+            renderRows();
+          };
+        }
 
         if (bulkBtn) {
           bulkBtn.onclick = async () => {
@@ -23133,7 +23307,10 @@
               const res = await importAndLinkMatchPairs(pairs, (p) => {
                 progEl.textContent = `Downloading Google Drive matches (${p.done} / ${p.total}): ${p.currentName}...`;
               });
-              toProcess.forEach((r) => { r.status = 'linked'; });
+              toProcess.forEach((r) => {
+                r.status = 'linked';
+                r.linkedJustNow = true;
+              });
               progEl.textContent = `✓ Linked ${res.linkedCount} photo${res.linkedCount === 1 ? '' : 's'} (${res.newlyImportedCount} newly imported)!${pendingStrong.length > batchCap ? ` Click again to link the next ${batchCap}.` : ''}`;
               renderRows();
               render();
