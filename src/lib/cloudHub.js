@@ -59,31 +59,40 @@ function isImageFile(name, mimeType) {
 const GOOGLE_TOKEN_CACHE_KEY = 'fhp_gdrive_token_cache_v1';
 let _memoryGoogleToken = null;
 
-function readGoogleTokenCache() {
-  if (_memoryGoogleToken && _memoryGoogleToken.token) return _memoryGoogleToken;
+function readGoogleTokenStore() {
+  if (_memoryGoogleToken && _memoryGoogleToken.byScope) return _memoryGoogleToken;
   try {
     const raw = sessionStorage.getItem(GOOGLE_TOKEN_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.token && parsed.expiresAt) {
-      _memoryGoogleToken = parsed;
-      return parsed;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.byScope && typeof parsed.byScope === 'object') {
+        _memoryGoogleToken = parsed;
+        return parsed;
+      }
+      if (parsed && parsed.token && parsed.expiresAt) {
+        const migrated = { byScope: { [parsed.scope || 'default']: parsed } };
+        _memoryGoogleToken = migrated;
+        return migrated;
+      }
     }
   } catch {
     // ignore storage errors
   }
-  return null;
+  return { byScope: {} };
 }
 
 function saveGoogleTokenCache(token, scope, expiresInSec = 3500) {
+  const store = readGoogleTokenStore();
+  const key = scope || 'default';
   const rec = {
     token,
-    scope: scope || '',
+    scope: key,
     expiresAt: Date.now() + Math.max(60, Number(expiresInSec) || 3500) * 1000
   };
-  _memoryGoogleToken = rec;
+  store.byScope[key] = rec;
+  _memoryGoogleToken = store;
   try {
-    sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(rec));
+    sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
   } catch {
     // ignore storage errors
   }
@@ -91,24 +100,41 @@ function saveGoogleTokenCache(token, scope, expiresInSec = 3500) {
 }
 
 export function getCachedGoogleToken(requiredScope = 'https://www.googleapis.com/auth/drive.readonly') {
-  const cached = readGoogleTokenCache();
-  if (!cached || !cached.token) return '';
-  if (cached.expiresAt - Date.now() <= 120_000) return '';
-  const have = cached.scope || '';
-  if (!requiredScope) return cached.token;
-  if (have === requiredScope) return cached.token;
-  if (requiredScope === 'https://www.googleapis.com/auth/drive.readonly' && have.includes('https://www.googleapis.com/auth/drive')) {
-    return cached.token;
+  const store = readGoogleTokenStore();
+  const entries = Object.values(store.byScope || {});
+  const now = Date.now();
+  for (let i = 0; i < entries.length; i++) {
+    const cached = entries[i];
+    if (!cached || !cached.token) continue;
+    if (cached.expiresAt - now <= 120_000) continue;
+    const have = cached.scope || '';
+    if (!requiredScope || have === requiredScope) return cached.token;
+    if (requiredScope === 'https://www.googleapis.com/auth/drive.readonly' && have.includes('https://www.googleapis.com/auth/drive')) {
+      return cached.token;
+    }
   }
   return '';
 }
 
-export function clearCachedGoogleToken() {
-  _memoryGoogleToken = null;
-  try {
-    sessionStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
-  } catch {
-    // ignore
+export function clearCachedGoogleToken(scope = '') {
+  if (!scope) {
+    _memoryGoogleToken = null;
+    try {
+      sessionStorage.removeItem(GOOGLE_TOKEN_CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  const store = readGoogleTokenStore();
+  if (store.byScope && store.byScope[scope]) {
+    delete store.byScope[scope];
+    _memoryGoogleToken = store;
+    try {
+      sessionStorage.setItem(GOOGLE_TOKEN_CACHE_KEY, JSON.stringify(store));
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -535,15 +561,13 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
   return results;
 }
 
-export async function launchGooglePhotosPicker(clientId, onStatus = null) {
+export async function launchGooglePhotosPicker(clientId, onStatus = null, options = {}) {
+  const gpScope = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
   if (onStatus) onStatus('Signing in to Google Photos...');
-  const token = await requestGoogleToken(
-    clientId,
-    'https://www.googleapis.com/auth/photospicker.mediaitems.readonly'
-  );
+  const token = await requestGoogleToken(clientId, gpScope);
 
   if (onStatus) onStatus('Creating Google Photos picker session...');
-  const sessRes = await fetch('https://photospicker.googleapis.com/v1/sessions', {
+  let sessRes = await fetch('https://photospicker.googleapis.com/v1/sessions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -551,23 +575,55 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null) {
     },
     body: '{}'
   });
+  if (sessRes.status === 401) {
+    clearCachedGoogleToken(gpScope);
+    const freshToken = await requestGoogleToken(clientId, gpScope, { forcePrompt: true });
+    sessRes = await fetch('https://photospicker.googleapis.com/v1/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${freshToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: '{}'
+    });
+  }
   if (!sessRes.ok) {
     const errText = await sessRes.text().catch(() => '');
-    throw new Error(`Google Photos Picker failed (${sessRes.status}): ${errText || sessRes.statusText}`);
+    let errMsg = errText || sessRes.statusText;
+    try {
+      const parsed = JSON.parse(errText);
+      if (parsed && parsed.error && parsed.error.message) errMsg = parsed.error.message;
+    } catch {}
+    if (sessRes.status === 403 && /SERVICE_DISABLED|Photos Picker API|has not been used/i.test(errMsg)) {
+      throw new Error('Google Photos Picker API is not enabled on this Google Cloud OAuth project yet. Enable "Google Photos Picker API" in Google Cloud Console (or import a Google Photos / Takeout .zip file below).');
+    }
+    throw new Error(`Google Photos Picker failed (${sessRes.status}): ${errMsg}`);
   }
   const session = await sessRes.json();
   const pickerUrl = `${session.pickerUri}/autoclose`;
   const popup = window.open(pickerUrl, 'fhp_gphotos_picker', 'width=980,height=740');
   if (!popup) {
-    throw new Error('Popup was blocked. Please allow popups for this site and try again.');
+    if (typeof options.onPickerUrl === 'function') {
+      options.onPickerUrl(pickerUrl);
+    } else {
+      throw new Error('Popup was blocked. Please allow popups for this site and try again.');
+    }
+  } else if (typeof options.onPickerUrl === 'function') {
+    options.onPickerUrl(pickerUrl);
   }
 
-  if (onStatus) onStatus('Select your photos or album in the Google Photos window, then click Done...');
+  if (onStatus) onStatus(popup ? 'Select your photos or album in the Google Photos window, then click Done...' : 'Click "Open Google Photos Window" below to select your photos, then click Done...');
 
   // Poll session until mediaItemsSet is true or popup closed
   let ready = false;
   for (let attempt = 0; attempt < 300; attempt++) {
+    if (typeof options.shouldStop === 'function' && options.shouldStop()) {
+      throw new Error('Google Photos import cancelled.');
+    }
     await new Promise((r) => setTimeout(r, 2000));
+    if (typeof options.shouldStop === 'function' && options.shouldStop()) {
+      throw new Error('Google Photos import cancelled.');
+    }
     const checkRes = await fetch(`https://photospicker.googleapis.com/v1/sessions/${encodeURIComponent(session.id)}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -578,7 +634,7 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null) {
         break;
       }
     }
-    if (popup.closed) {
+    if (popup && popup.closed) {
       // One final check in case they clicked Done right as window closed
       const finalCheck = await fetch(`https://photospicker.googleapis.com/v1/sessions/${encodeURIComponent(session.id)}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -591,7 +647,7 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null) {
     }
   }
 
-  try { if (!popup.closed) popup.close(); } catch {}
+  try { if (popup && !popup.closed) popup.close(); } catch {}
   if (!ready) {
     throw new Error('No photos were selected in Google Photos.');
   }

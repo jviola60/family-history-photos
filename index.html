@@ -5472,6 +5472,90 @@
         render();
       }
 
+      const LINKED_PHOTOS_LEDGER_KEY = 'fhp_gedcom_linked_photos_v1';
+      let _linkedPhotosLedgerCache = null;
+
+      function loadLinkedPhotosLedger() {
+        if (_linkedPhotosLedgerCache) return _linkedPhotosLedgerCache;
+        try {
+          const raw = localStorage.getItem(LINKED_PHOTOS_LEDGER_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              _linkedPhotosLedgerCache = {
+                byCloudId: (parsed.byCloudId && typeof parsed.byCloudId === 'object') ? parsed.byCloudId : {},
+                byFileName: (parsed.byFileName && typeof parsed.byFileName === 'object') ? parsed.byFileName : {}
+              };
+              return _linkedPhotosLedgerCache;
+            }
+          }
+        } catch (_) {}
+        _linkedPhotosLedgerCache = { byCloudId: {}, byFileName: {} };
+        return _linkedPhotosLedgerCache;
+      }
+
+      function saveLinkedPhotosLedger(ledger) {
+        _linkedPhotosLedgerCache = ledger;
+        try {
+          localStorage.setItem(LINKED_PHOTOS_LEDGER_KEY, JSON.stringify(ledger));
+        } catch (_) {}
+      }
+
+      function _upsertLinkedPhotoEntry(ledger, cloudId, fileName, personObj) {
+        if (!personObj) return false;
+        const rawName = String(personObj.name || '').trim();
+        const gedId = String(personObj.gedId || personObj.id || '').trim();
+        const normName = rawName
+          ? (typeof normalizeSyncPersonName === 'function' ? normalizeSyncPersonName(rawName) : rawName.toLowerCase())
+          : '';
+        if (!gedId && !normName) return false;
+
+        let changed = false;
+        const addToBucket = (bucket, key) => {
+          if (!key) return;
+          if (!Array.isArray(bucket[key])) bucket[key] = [];
+          const arr = bucket[key];
+          const exists = arr.some((x) => (gedId && x.gedId === gedId) || (normName && x.normName === normName));
+          if (!exists) {
+            arr.push({ gedId, normName, name: rawName, linkedAt: Date.now() });
+            changed = true;
+          }
+        };
+        if (cloudId) addToBucket(ledger.byCloudId, String(cloudId).trim());
+        if (fileName) addToBucket(ledger.byFileName, String(fileName).trim().toLowerCase());
+        return changed;
+      }
+
+      function recordPhotoPersonLinked(photoOrRec, personObj) {
+        if (!photoOrRec || !personObj) return;
+        const ledger = loadLinkedPhotosLedger();
+        const cloudId = photoOrRec.cloudId || '';
+        const fileName = photoOrRec.file || photoOrRec.name || '';
+        if (_upsertLinkedPhotoEntry(ledger, cloudId, fileName, personObj)) {
+          saveLinkedPhotosLedger(ledger);
+        }
+      }
+
+      function seedLinkedPhotosLedgerFromItems(photoList) {
+        if (!Array.isArray(photoList) || photoList.length === 0) return;
+        const ledger = loadLinkedPhotosLedger();
+        let changed = false;
+        for (let i = 0; i < photoList.length; i++) {
+          const ph = photoList[i];
+          if (!ph || ph.inReview || !Array.isArray(ph.people) || ph.people.length === 0) continue;
+          const cloudId = ph.cloudId || '';
+          const fileName = ph.file || ph.name || '';
+          for (let j = 0; j < ph.people.length; j++) {
+            const pr = ph.people[j];
+            const personObj = typeof pr === 'string' ? { name: pr } : pr;
+            if (_upsertLinkedPhotoEntry(ledger, cloudId, fileName, personObj)) {
+              changed = true;
+            }
+          }
+        }
+        if (changed) saveLinkedPhotosLedger(ledger);
+      }
+
       function buildLoadedPhotoLookup(photoList) {
         const byId = new Map();
         const byCloudId = new Map();
@@ -5507,40 +5591,61 @@
           const fn = String(rec.name).trim().toLowerCase();
           if (fn && lookup.byFileName.has(fn)) photo = lookup.byFileName.get(fn);
         }
-        if (!photo || !Array.isArray(photo.people) || photo.people.length === 0) {
-          return { linked: false, photo, matchedPersonIdx: -1 };
-        }
+
         const photoGedIds = new Set();
         const photoNames = new Set();
-        for (let i = 0; i < photo.people.length; i++) {
-          const pr = photo.people[i];
-          if (!pr) continue;
-          if (pr.gedId) photoGedIds.add(String(pr.gedId));
-          const nm = typeof pr === 'string' ? pr : pr.name;
-          if (nm) {
-            const norm = typeof normalizeSyncPersonName === 'function'
-              ? normalizeSyncPersonName(nm)
-              : String(nm).trim().toLowerCase();
-            if (norm) photoNames.add(norm);
+        if (photo && Array.isArray(photo.people) && photo.people.length > 0) {
+          for (let i = 0; i < photo.people.length; i++) {
+            const pr = photo.people[i];
+            if (!pr) continue;
+            if (pr.gedId) photoGedIds.add(String(pr.gedId));
+            const nm = typeof pr === 'string' ? pr : pr.name;
+            if (nm) {
+              const norm = typeof normalizeSyncPersonName === 'function'
+                ? normalizeSyncPersonName(nm)
+                : String(nm).trim().toLowerCase();
+              if (norm) photoNames.add(norm);
+            }
           }
+        }
+
+        const ledger = loadLinkedPhotosLedger();
+        const ledgerEntries = [];
+        const cloudKey = String(rec.cloudId || (rec.source === 'gdrive' ? rec.id : '') || '').trim();
+        const fnKey = rec.name ? String(rec.name).trim().toLowerCase() : '';
+        if (cloudKey && Array.isArray(ledger.byCloudId[cloudKey])) {
+          ledger.byCloudId[cloudKey].forEach((e) => ledgerEntries.push(e));
+        }
+        if (fnKey && Array.isArray(ledger.byFileName[fnKey])) {
+          ledger.byFileName[fnKey].forEach((e) => ledgerEntries.push(e));
+        }
+        for (let i = 0; i < ledgerEntries.length; i++) {
+          const e = ledgerEntries[i];
+          if (!e) continue;
+          if (e.gedId) photoGedIds.add(String(e.gedId));
+          if (e.normName) photoNames.add(String(e.normName));
+        }
+
+        if (photoGedIds.size === 0 && photoNames.size === 0) {
+          return { linked: false, photo, matchedPersonIdx: -1, ledgerPeople: [] };
         }
         const cands = Array.isArray(matchItem.people) ? matchItem.people : [];
         for (let i = 0; i < cands.length; i++) {
           const gp = cands[i];
           if (!gp) continue;
           if (gp.id && photoGedIds.has(String(gp.id))) {
-            return { linked: true, photo, matchedPersonIdx: i };
+            return { linked: true, photo, matchedPersonIdx: i, ledgerPeople: ledgerEntries };
           }
           if (gp.name) {
             const norm = typeof normalizeSyncPersonName === 'function'
               ? normalizeSyncPersonName(gp.name)
               : String(gp.name).trim().toLowerCase();
             if (norm && photoNames.has(norm)) {
-              return { linked: true, photo, matchedPersonIdx: i };
+              return { linked: true, photo, matchedPersonIdx: i, ledgerPeople: ledgerEntries };
             }
           }
         }
-        return { linked: false, photo, matchedPersonIdx: -1 };
+        return { linked: false, photo, matchedPersonIdx: -1, ledgerPeople: ledgerEntries };
       }
 
       function getGedcomMatchProgressCounts(matchObj, photoList) {
@@ -15588,13 +15693,16 @@
             ? ` · PAF batch: ${gedFast.synced}/${gedFast.linked} synced`
             : ` · PAF tree: ${gd.fileName} (${gedFast.total.toLocaleString()} people)`)
           : '';
+        const matchProg = (mode === 'catalog' && typeof getGedcomMatchProgressCounts === 'function')
+          ? getGedcomMatchProgressCounts(gedcomIndexMatches, items)
+          : null;
 
         let info;
         if (mode === 'gather') {
           info = {
-            badge: 'STEP 1 OF 4 — GATHER YOUR SOURCES',
-            what: 'Load your photo sources below (a few photos, a whole computer folder, Cloud albums) and your PAF / GEDCOM (.ged) family tree. Then move to Step 2 to re-link photos, run facial recognition, and tag people.',
-            why: 'Step 1 only loads your sources privately on your computer — all matching, re-linking, face recognition, and tagging happen cleanly in Step 2.',
+            badge: 'STEP 1 OF 4 — CONNECT & GATHER SOURCES',
+            what: 'Connect your accounts (FamilySearch, Google Drive) and load your photo sources and PAF / GEDCOM (.ged) family tree below. Then move to Step 2.',
+            why: 'Step 1 checks your connected accounts and loads your sources privately on your computer — photo matching, re-linking, face recognition, and tagging happen cleanly in Step 2.',
             progress: `${activeCount > 0 ? `${activeCount} photo${activeCount === 1 ? '' : 's'} currently loaded (${rootFolderName}).` : 'No photos loaded yet.'}${gd ? ` · Saved PAF tree: ${gd.fileName} (${gd.peopleList.length.toLocaleString()} people imported)` : ''}`,
             nextLabel: `Continue to Step 2: Identify, Re-Link & Tag (${activeCount}) →`,
             nextMode: 'catalog',
@@ -15645,6 +15753,7 @@
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <button type="button" class="btn sm" id="btn-toggle-coach">Show Step Instructions</button>
+              ${(mode === 'catalog' && matchProg && matchProg.totalMatches > 0) ? `<button type="button" class="btn sm success" id="coach-match-review">🔗 Match Review (${matchProg.remainingMatches.toLocaleString()} left)</button>` : ''}
               ${(mode === 'catalog' && activeCount > 0) ? `<button type="button" class="btn sm accent" id="coach-face-rec">🧠 Match Faces</button>` : ''}
               ${(mode === 'catalog' && gd && layout !== 'people') ? `<button type="button" class="btn sm" id="coach-open-people">🌳 People &amp; PAF Re-Link</button>` : ''}
               ${info.nextMode ? `<button type="button" class="btn sm success" id="coach-next-step">${esc(info.nextLabel)}</button>` : `<button type="button" class="btn sm primary" id="coach-all-photos">Back to Step 2: All Photos</button>`}
@@ -15668,6 +15777,7 @@
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                 <button type="button" class="btn sm" id="btn-toggle-coach" title="Minimize this instruction box">Hide Guide</button>
+                ${(mode === 'catalog' && matchProg && matchProg.totalMatches > 0) ? `<button type="button" class="btn sm success" id="coach-match-review" title="Open PAF / GEDCOM Photo Match Review to inspect and link suggested photo matches">🔗 PAF / GEDCOM Match Review (${matchProg.remainingMatches.toLocaleString()} left)</button>` : ''}
                 ${(mode === 'catalog' && activeCount > 0) ? `<button type="button" class="btn sm accent" id="coach-face-rec" title="Learn faces from already-tagged photos and match unnamed faces across your batch">🧠 Match Faces Across Photos</button>` : ''}
                 ${(mode === 'catalog' && gd && layout !== 'people') ? `<button type="button" class="btn sm" id="coach-open-people" title="Browse all ${gd.peopleList.length.toLocaleString()} relatives and re-link PAF photos from local or Google Drive folders">🌳 People &amp; PAF Re-Link (${gd.peopleList.length.toLocaleString()})</button>` : ''}
                 ${(mode === 'catalog' && p) ? `<button type="button" class="btn sm primary" id="coach-tag-faces">👤 Tag Faces on Selected Photo</button>` : ''}
@@ -15685,6 +15795,15 @@
             coachCollapsed = !coachCollapsed;
             try { localStorage.setItem('fhp_coach_collapsed', coachCollapsed ? '1' : '0'); } catch (_) {}
             renderStageCoachBanner(currentPhoto());
+          };
+        }
+        const matchReviewCoachBtn = banner.querySelector('#coach-match-review');
+        if (matchReviewCoachBtn) {
+          matchReviewCoachBtn.onclick = () => {
+            if (typeof openGedcomMatchReviewModal === 'function') {
+              const srcLbl = (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0) ? 'Google Drive' : 'Indexed Photos';
+              openGedcomMatchReviewModal(gedcomIndexMatches, srcLbl);
+            }
           };
         }
         const faceRecBtn = banner.querySelector('#coach-face-rec');
@@ -15740,24 +15859,108 @@
         const activeCount = activePhotos.length;
         const gd = window._activeGedcomData;
         const gedStats = gd ? countLinkedGedcomPeopleFast(gd, activePhotos) : null;
+        const hub = window.CloudImportHub;
+        const fsSignedIn = Boolean(fsUser);
+        const driveSignedIn = Boolean(hub && typeof hub.getCachedGoogleToken === 'function' && hub.getCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly'));
+        const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+        const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const matchProg = typeof getGedcomMatchProgressCounts === 'function'
+          ? getGedcomMatchProgressCounts(gedcomIndexMatches, items)
+          : { totalMatches: 0, linkedMatches: 0, remainingMatches: 0 };
+
+        const acctCardStyle = (ok, comingSoon = false) => {
+          if (ok) return 'border:1.5px solid #22c55e;background:#f0fdf4;';
+          if (comingSoon) return 'border:1.5px solid #fca5a5;background:#fef2f2;';
+          return 'border:1.5px solid #ef4444;background:#fef2f2;';
+        };
+        const summaryChipStyle = (ok) => ok
+          ? 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#dcfce7;border:1px solid #86efac;color:#14532d;'
+          : 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;';
 
         host.innerHTML = `
-          <div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
-            <div>
-              <div style="font-size:15px;font-weight:700;color:#0f172a;">
-                Current Collection: <span>${esc(rootFolderName)}</span> (${activeCount} active photo${activeCount === 1 ? '' : 's'})
-              </div>
-              <div style="font-size:13.5px;color:#334155;margin-top:2px;">
-                ${items.length > 0 ? 'Your sources are loaded! Add more sources below, or continue to Step 2 to re-link PAF photos, recognize faces, and tag people.' : 'Load your photo sources and PAF / GEDCOM (.ged) family tree below to begin.'}
+          <div style="background:#ffffff;border:1.5px solid #cbd5e1;border-radius:12px;padding:14px 18px;margin-bottom:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+              <div>
+                <div style="font-size:15.5px;font-weight:800;color:#0f172a;">Connected Accounts</div>
+                <div class="muted" style="font-size:12.5px;">Sign in to your genealogy &amp; cloud accounts before moving to Step 2 (red = not signed in, green = connected).</div>
               </div>
             </div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;">
-              ${items.length > 0 ? `
-                <button type="button" class="btn success" id="gather-continue-step2">Continue to Step 2: Identify, Re-Link &amp; Tag (${activeCount}) →</button>
-                <button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>
-              ` : `
-                <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
-              `}
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:10px;">
+              <div style="${acctCardStyle(fsSignedIn)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">🌳 FamilySearch</strong>
+                    <span style="font-size:11.5px;font-weight:700;color:${fsSignedIn ? '#15803d' : '#b91c1c'};">${fsSignedIn ? '● Connected' : '● Signed Out'}</span>
+                  </div>
+                  <div style="font-size:12px;color:#334155;margin-top:3px;">${fsSignedIn ? `Signed in as ${esc(fsUser.name || 'User')}` : 'Required to match PIDs, create relatives & upload memories.'}</div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <button type="button" class="btn sm ${fsSignedIn ? '' : 'primary'}" id="gather-acct-fs" style="flex:1;">${fsSignedIn ? '✓ FamilySearch Connected' : 'Sign in: FamilySearch'}</button>
+                  <button type="button" class="btn sm" id="gather-acct-fs-settings" title="FamilySearch Connection Settings">⚙️</button>
+                </div>
+              </div>
+
+              <div style="${acctCardStyle(driveSignedIn)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">☁️ Google Drive</strong>
+                    <span style="font-size:11.5px;font-weight:700;color:${driveSignedIn ? '#15803d' : '#b91c1c'};">${driveSignedIn ? '● Connected' : (driveCount > 0 ? '● Session Expired' : '● Not Connected')}</span>
+                  </div>
+                  <div style="font-size:12px;color:#334155;margin-top:3px;">${driveSignedIn ? (driveCount > 0 ? `${driveCount.toLocaleString()} Drive photos indexed & ready.` : 'Connected — ready to scan Drive folders.') : (driveCount > 0 ? `${driveCount.toLocaleString()} cached; reconnect to load thumbnails or rescan.` : 'Connect to index Drive & shared family photos.')}</div>
+                </div>
+                <button type="button" class="btn sm ${driveSignedIn ? '' : 'primary'}" id="gather-acct-gdrive" style="width:100%;">${driveSignedIn ? '✓ Connected — Browse / Rescan' : 'Connect Google Drive'}</button>
+              </div>
+
+              <div style="${acctCardStyle(false, true)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">🌿 Ancestry</strong>
+                    <span style="font-size:11.5px;font-weight:700;color:#b91c1c;">● Not Connected</span>
+                  </div>
+                  <div style="font-size:12px;color:#475569;margin-top:3px;">Direct API connector coming soon. Export an Ancestry <code>.ged</code> file and load it below today.</div>
+                </div>
+                <button type="button" class="btn sm" id="gather-acct-ancestry" style="width:100%;">Use Ancestry .ged Import ↓</button>
+              </div>
+
+              <div style="${acctCardStyle(false, true)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <strong style="font-size:13.5px;color:#0f172a;">🧬 MyHeritage</strong>
+                    <span style="font-size:11.5px;font-weight:700;color:#b91c1c;">● Not Connected</span>
+                  </div>
+                  <div style="font-size:12px;color:#475569;margin-top:3px;">Direct API connector coming soon. Export a MyHeritage <code>.ged</code> file and load it below today.</div>
+                </div>
+                <button type="button" class="btn sm" id="gather-acct-myheritage" style="width:100%;">Use MyHeritage .ged Import ↓</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div>
+                <div style="font-size:15px;font-weight:700;color:#0f172a;">
+                  Loaded Sources Summary
+                </div>
+                <div style="font-size:13px;color:#334155;margin-top:2px;">
+                  Collection: <strong>${esc(rootFolderName)}</strong> (${activeCount} active print${activeCount === 1 ? '' : 's'})
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                ${matchProg.totalMatches > 0 ? `<button type="button" class="btn sm primary" id="gather-open-match-review">🔗 Step 2 Match Review (${matchProg.remainingMatches.toLocaleString()} left)</button>` : ''}
+                ${(items.length > 0 || gd || driveCount > 0 || localCount > 0) ? `
+                  <button type="button" class="btn success" id="gather-continue-step2">Continue to Step 2: Identify, Re-Link &amp; Tag (${activeCount}) →</button>
+                ` : `
+                  <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
+                `}
+                ${items.length > 0 ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              <span style="${summaryChipStyle(Boolean(gd))}">${gd ? `✓ Family Tree: ${esc(gd.fileName || '.ged')} (${gd.peopleList.length.toLocaleString()} people)` : '✕ Family Tree (.ged): Not loaded'}</span>
+              <span style="${summaryChipStyle(driveCount > 0)}">${driveCount > 0 ? `✓ Google Drive Index: ${driveCount.toLocaleString()} photos` : '✕ Google Drive Index: Not scanned'}</span>
+              <span style="${summaryChipStyle(localCount > 0)}">${localCount > 0 ? `✓ Local Folder Index: ${localCount.toLocaleString()} photos` : '✕ Local Folder Index: None scanned'}</span>
+              <span style="${summaryChipStyle(activeCount > 0)}">${activeCount > 0 ? `✓ Working Album: ${activeCount} photo${activeCount === 1 ? '' : 's'}` : '✕ Working Album: Empty'}</span>
+              ${matchProg.totalMatches > 0 ? `<span style="${summaryChipStyle(matchProg.remainingMatches === 0)}">${matchProg.remainingMatches === 0 ? `✓ All ${matchProg.linkedMatches.toLocaleString()} PAF Matches Linked` : `⏳ PAF Matches: ${matchProg.remainingMatches.toLocaleString()} left · ${matchProg.linkedMatches.toLocaleString()} linked`}</span>` : ''}
             </div>
           </div>
 
@@ -15812,6 +16015,55 @@
             </div>
           </div>
         `;
+
+        const acctFsBtn = host.querySelector('#gather-acct-fs');
+        if (acctFsBtn) {
+          acctFsBtn.onclick = () => {
+            if (!fsUser) signInFamilySearch();
+            else notify(`✓ Already signed in to FamilySearch as ${fsUser.name || 'User'}.`);
+          };
+        }
+        const acctFsSetBtn = host.querySelector('#gather-acct-fs-settings');
+        if (acctFsSetBtn) {
+          acctFsSetBtn.onclick = () => {
+            const topSet = document.getElementById('btn-fs-settings');
+            if (topSet) topSet.click();
+          };
+        }
+        const acctGdBtn = host.querySelector('#gather-acct-gdrive');
+        if (acctGdBtn) {
+          acctGdBtn.onclick = async () => {
+            if (driveSignedIn) {
+              document.getElementById('btn-open-cloud-hub').click();
+              return;
+            }
+            acctGdBtn.disabled = true;
+            acctGdBtn.textContent = 'Connecting...';
+            try {
+              await ensureGoogleDriveToken(false);
+              notify('✓ Connected to Google Drive!');
+              render();
+            } catch (err) {
+              acctGdBtn.disabled = false;
+              acctGdBtn.textContent = 'Connect Google Drive';
+              notify(`Google Drive sign-in failed: ${err.message}`);
+            }
+          };
+        }
+        const acctAncBtn = host.querySelector('#gather-acct-ancestry');
+        if (acctAncBtn) acctAncBtn.onclick = () => document.getElementById('btn-open-gedcom-hub').click();
+        const acctMhBtn = host.querySelector('#gather-acct-myheritage');
+        if (acctMhBtn) acctMhBtn.onclick = () => document.getElementById('btn-open-gedcom-hub').click();
+        const openMatchRevBtn = host.querySelector('#gather-open-match-review');
+        if (openMatchRevBtn) {
+          openMatchRevBtn.onclick = () => {
+            mode = 'catalog';
+            render();
+            if (typeof openGedcomMatchReviewModal === 'function') {
+              openGedcomMatchReviewModal(gedcomIndexMatches, driveCount > 0 ? 'Google Drive' : 'Indexed Photos');
+            }
+          };
+        }
 
         const contBtn = host.querySelector('#gather-continue-step2');
         if (contBtn) {
@@ -15900,10 +16152,10 @@
 
         const isPeopleLayout = isCatalog && layout === 'people';
         const viewSwitchEl = document.getElementById('catalog-view-switch');
-        if (viewSwitchEl) viewSwitchEl.style.display = 'inline-flex';
+        if (viewSwitchEl) viewSwitchEl.style.display = isCatalog ? 'inline-flex' : 'none';
         const toggleChartsBtn = document.getElementById('btn-toggle-charts');
         if (toggleChartsBtn) {
-          toggleChartsBtn.style.display = isPeopleLayout ? 'none' : 'inline-flex';
+          toggleChartsBtn.style.display = (isCatalog && !isPeopleLayout) ? 'inline-flex' : 'none';
           toggleChartsBtn.setAttribute('aria-pressed', (isCatalog && showCharts) ? 'true' : 'false');
         }
         const coachBannerEl = document.getElementById('stage-coach-banner');
@@ -18015,7 +18267,8 @@
                   <div class="muted" style="font-size:11px;margin-top:4px;">Pre-configured for Google Photos Picker API. Override only if using your own Google Cloud project.</div>
                 </div>
               </details>
-              <div id="gphotos-status" class="muted" style="font-size:12px;margin-bottom:12px;"></div>
+              <div id="gphotos-picker-link" style="margin-bottom:10px;"></div>
+              <div id="gphotos-status" class="muted" style="font-size:12.5px;margin-bottom:12px;"></div>
               <div style="border-top:1px solid var(--border);padding-top:12px;">
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Or import a Google Photos / Takeout .zip archive:</label>
                 <input type="file" id="inp-gphotos-zip" accept=".zip">
@@ -18027,12 +18280,28 @@
               const cid = cidInput.value.trim();
               hub.saveCloudSettings({ googleClientId: cid });
               const status = body.querySelector('#gphotos-status');
+              const linkHost = body.querySelector('#gphotos-picker-link');
+              const pickBtn = body.querySelector('#btn-gphotos-pick');
+              status.style.color = '';
+              if (linkHost) linkHost.innerHTML = '';
+              if (pickBtn) pickBtn.disabled = true;
               try {
-                const picked = await hub.launchGooglePhotosPicker(cid, (msg) => { status.textContent = msg; });
+                const picked = await hub.launchGooglePhotosPicker(cid, (msg) => {
+                  status.style.color = '';
+                  status.textContent = msg;
+                }, {
+                  shouldStop: () => !overlay.isConnected,
+                  onPickerUrl: (url) => {
+                    if (!linkHost) return;
+                    linkHost.innerHTML = `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="btn sm success" style="display:inline-flex;width:100%;justify-content:center;text-decoration:none;">📷 Open Google Photos Selection Window ↗</a>`;
+                  }
+                });
                 closeModal();
                 await loadCloudFilesIntoArchive(picked, 'Google_Photos');
               } catch (err) {
+                status.style.color = '#991b1b';
                 status.textContent = err.message;
+                if (pickBtn) pickBtn.disabled = false;
               }
             };
             body.querySelector('#inp-gphotos-zip').onchange = async (e) => {
@@ -19833,6 +20102,9 @@
         });
 
         if (changed) saveGedcomSyncLedger(ledger);
+        if (typeof seedLinkedPhotosLedgerFromItems === 'function') {
+          seedLinkedPhotosLedgerFromItems(photoItems);
+        }
       }
 
       function stripRelHonorificPrefix(raw) {
@@ -19956,6 +20228,9 @@
         p.unnamedFaces = getUnnamedFaceCount(p);
         sanitizePhotoPersonPids(p);
         saveItemMetadata(p);
+        if (typeof recordPhotoPersonLinked === 'function') {
+          recordPhotoPersonLinked(p, entry);
+        }
         if (opts.persistArchive !== false && typeof saveArchiveToDb === 'function' && isCustomFolder) {
           await saveArchiveToDb(items, rootFolderName);
         }
@@ -22999,6 +23274,7 @@
       function openGedcomMatchReviewModal(matchResult, sourceLabel = 'Photo Index') {
         const gd = window._activeGedcomData;
         if (!gd || !matchResult) return;
+        seedLinkedPhotosLedgerFromItems(items);
         const initLookup = buildLoadedPhotoLookup(items);
         const strongRows = (matchResult.strongMatches || []).map((m, i) => {
           const chk = checkMatchAlreadyLinked(m, initLookup);
@@ -23009,6 +23285,7 @@
             chosenPersonIdx: chk.matchedPersonIdx >= 0 ? chk.matchedPersonIdx : 0,
             extraPeople: [],
             importedPhotoId: chk.photo ? chk.photo.id : null,
+            ledgerPeople: chk.ledgerPeople || [],
             pickerOpen: false,
             pickerQuery: '',
             status: chk.linked ? 'linked' : 'pending',
@@ -23024,6 +23301,7 @@
             chosenPersonIdx: chk.matchedPersonIdx >= 0 ? chk.matchedPersonIdx : 0,
             extraPeople: [],
             importedPhotoId: chk.photo ? chk.photo.id : null,
+            ledgerPeople: chk.ledgerPeople || [],
             pickerOpen: false,
             pickerQuery: '',
             status: chk.linked ? 'linked' : 'pending',
@@ -23289,7 +23567,10 @@
           const linkedTotal = strongLinked + possibleLinked;
 
           if (subEl) {
-            subEl.innerHTML = `Scanned ${(matchResult.totalScanned || 0).toLocaleString()} photos — <strong>${remainingTotal.toLocaleString()} left to link</strong> (${strongRemaining.toLocaleString()} strong · ${possibleRemaining.toLocaleString()} possible) · <strong style="color:#15803d;">${linkedTotal.toLocaleString()} already linked</strong>. Hover over any photo to enlarge · click for full size.`;
+            const totalScanned = matchResult.totalScanned
+              || matchResult.scannedCount
+              || ((photoLibraryIndex.gdrive.length + photoLibraryIndex.local.length + items.length) || 0);
+            subEl.innerHTML = `Scanned ${totalScanned.toLocaleString()} photos — <strong>${remainingTotal.toLocaleString()} left to link</strong> (${strongRemaining.toLocaleString()} strong · ${possibleRemaining.toLocaleString()} possible) · <strong style="color:#15803d;">${linkedTotal.toLocaleString()} already linked</strong>. Hover over any photo to enlarge · click for full size.`;
           }
           if (showLinkedChk) {
             showLinkedChk.disabled = activeTab === 'linked';
@@ -23384,6 +23665,11 @@
                   return `<span class="gmr-extra-chip ${hasFace ? 'is-face-tagged' : ''}" title="${hasFace ? 'Tagged on a face box' : 'Linked to photo'}">${hasFace ? '👤 ' : '✓ '}${esc(pr.name)}</span>`;
                 });
               chipsHtml = extraChips.join('');
+            } else if (isLinked && Array.isArray(row.ledgerPeople) && row.ledgerPeople.length > 0) {
+              chipsHtml = row.ledgerPeople
+                .filter((lp) => lp && lp.name)
+                .map((lp) => `<span class="gmr-extra-chip" title="Previously linked in this browser">✓ ${esc(lp.name)}</span>`)
+                .join('');
             } else if ((row.extraPeople || []).length > 0) {
               chipsHtml = row.extraPeople.map((ep, eidx) => (
                 `<span class="gmr-extra-chip">+ ${esc(ep.name)} <button type="button" class="gmr-chip-rm" data-ridx="${idx}" data-eidx="${eidx}" title="Remove ${esc(ep.name)}">×</button></span>`
