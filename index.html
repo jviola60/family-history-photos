@@ -2866,6 +2866,70 @@
       background: #eff6ff;
       border-color: #60a5fa;
     }
+    .fs-rel-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .fs-rel-selected-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1.5px solid #2563eb;
+      background: #eff6ff;
+      color: #1e3a8a;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .fs-rel-selected-pill.is-create {
+      border-color: #059669;
+      background: #ecfdf5;
+      color: #065f46;
+    }
+    .fs-rel-results {
+      max-height: 180px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+    .fs-rel-group-hdr {
+      position: sticky;
+      top: 0;
+      padding: 4px 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      background: var(--raised);
+      border-bottom: 1px solid var(--border);
+    }
+    .fs-rel-option {
+      text-align: left;
+      padding: 6px 9px;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .fs-rel-option:last-child {
+      border-bottom: none;
+    }
+    .fs-rel-option:hover {
+      background: #eff6ff;
+    }
   </style>
 </head>
 
@@ -17969,33 +18033,63 @@
 
         const seenCandPids = new Set();
         const candNameByPid = new Map();
+        const allFsCandidates = [];
+        const pushFsCandidate = (pid, name, sub, group) => {
+          const clean = String(pid || '').trim().toUpperCase();
+          const cleanName = String(name || '').trim();
+          if (!clean || !cleanName) return;
+          if (cleanName.toLowerCase() === selfNameLower) return;
+          if (seenCandPids.has(clean)) return;
+          seenCandPids.add(clean);
+          candNameByPid.set(clean, `${cleanName} (${clean})`);
+          allFsCandidates.push({ pid: clean, name: cleanName, sub: sub || '', group });
+        };
+
         const photoRelCandidates = (p.people || []).filter((pr) => {
           if (!pr || pr === personObj || !pr.fsId) return false;
           if ((pr.name || '').trim().toLowerCase() === selfNameLower) return false;
           const clean = String(pr.fsId).trim().toUpperCase();
-          if (!clean || seenCandPids.has(clean)) return false;
-          seenCandPids.add(clean);
-          candNameByPid.set(clean, `${pr.name} (${clean})`);
-          return true;
+          return Boolean(clean);
         });
+        photoRelCandidates.forEach((c) => pushFsCandidate(c.fsId, c.name, c.rel || 'In This Photo', 'In This Photo'));
 
-        let treeRelCandidates = [];
         if (typeof fs.loadSignedInUserFamily === 'function') {
           try {
             const loadedFam = await fs.loadSignedInUserFamily(token);
-            treeRelCandidates = (loadedFam || []).filter((tp) => {
-              if (!tp || !tp.id || !tp.name) return false;
-              if (tp.name.trim().toLowerCase() === selfNameLower) return false;
-              const clean = String(tp.id).trim().toUpperCase();
-              if (!clean || seenCandPids.has(clean)) return false;
-              seenCandPids.add(clean);
-              candNameByPid.set(clean, `${tp.name} (${clean})`);
-              return true;
+            (loadedFam || []).forEach((tp) => {
+              if (!tp || !tp.id || !tp.name) return;
+              pushFsCandidate(tp.id, tp.name, tp.lifespan || '', 'In Your FamilySearch Tree');
             });
-          } catch (_famErr) {
-            treeRelCandidates = [];
-          }
+          } catch (_famErr) {}
         }
+
+        if (Array.isArray(items)) {
+          items.forEach((ph) => {
+            if (!ph || !Array.isArray(ph.people)) return;
+            ph.people.forEach((pr) => {
+              if (pr && pr.fsId && pr.name) {
+                pushFsCandidate(pr.fsId, pr.name, pr.rel || 'Album Relative', 'Previously Linked Relatives');
+              }
+            });
+          });
+        }
+        if (typeof loadGedcomSyncLedger === 'function') {
+          try {
+            const ledger = loadGedcomSyncLedger();
+            const addLedgerEntry = (ent) => {
+              if (ent && ent.fsPid && ent.name) {
+                pushFsCandidate(ent.fsPid, ent.name, ent.summary || 'Synced Relative', 'Previously Linked Relatives');
+              }
+            };
+            Object.values((ledger && ledger.byGedId) || {}).forEach(addLedgerEntry);
+            Object.values((ledger && ledger.byName) || {}).forEach(addLedgerEntry);
+          } catch (_) {}
+        }
+
+        const allGedcomPeople = (window._activeGedcomData && Array.isArray(window._activeGedcomData.peopleList))
+          ? window._activeGedcomData.peopleList
+          : [];
+        const liveFsCandidates = [];
 
         let defaultConnType = 'spouse';
         let defaultTargetPid = '';
@@ -18027,27 +18121,11 @@
             (photoRelCandidates.length === 1 ? String(photoRelCandidates[0].fsId).trim().toUpperCase() : '');
         }
 
-        const buildRelOptionsHtml = (selectedPid, emptyLabel) => {
-          const photoOpts = photoRelCandidates.map((c) => {
-            const cPid = String(c.fsId).trim().toUpperCase();
-            return `<option value="${esc(cPid)}" ${cPid === selectedPid ? 'selected' : ''}>${esc(c.name)} (${esc(c.rel || 'Relative')}) · ${esc(cPid)}</option>`;
-          }).join('');
-          const treeOpts = treeRelCandidates.map((t) => {
-            const tPid = String(t.id).trim().toUpperCase();
-            return `<option value="${esc(tPid)}" ${tPid === selectedPid ? 'selected' : ''}>${esc(t.name)}${t.lifespan ? ` (${esc(t.lifespan)})` : ''} · ${esc(tPid)}</option>`;
-          }).join('');
-          return `
-            <option value="">${esc(emptyLabel)}</option>
-            ${photoOpts ? `<optgroup label="In This Photo">${photoOpts}</optgroup>` : ''}
-            ${treeOpts ? `<optgroup label="In Your FamilySearch Tree">${treeOpts}</optgroup>` : ''}
-          `;
-        };
-
         const overlay = document.createElement('div');
         overlay.className = 'modal-backdrop';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:100010;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:100020;display:flex;align-items:center;justify-content:center;padding:16px;';
         overlay.innerHTML = `
-          <div id="create-fs-dialog" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:540px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.34);overflow:hidden;">
+          <div id="create-fs-dialog" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.34);overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:16px;font-weight:700;margin:0;">Add Relative to FamilySearch Beta</h2>
@@ -18085,7 +18163,10 @@
                 </div>
               </div>
               <div style="padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:var(--raised);display:flex;flex-direction:column;gap:8px;">
-                <div style="font-size:12.5px;font-weight:700;">Connect to FamilySearch Tree</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div style="font-size:12.5px;font-weight:700;">Connect to FamilySearch Tree</div>
+                  <button type="button" class="link-btn" id="create-fs-quick-standalone" style="font-size:11.5px;font-weight:600;">Relative not in FamilySearch yet? Create Standalone</button>
+                </div>
                 <div>
                   <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">How is this person related to an existing person in your tree?</label>
                   <select id="create-fs-conn-type" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-weight:600;">
@@ -18099,9 +18180,7 @@
                 <div id="create-fs-rel-wrap" style="display:flex;flex-direction:column;gap:8px;">
                   <div>
                     <label id="create-fs-rel-label" style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Connected Relative on FamilySearch</label>
-                    <select id="create-fs-rel-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
-                      ${buildRelOptionsHtml(defaultTargetPid, '— Choose a relative to connect —')}
-                    </select>
+                    <div id="create-fs-rel-picker"></div>
                   </div>
                   <div>
                     <label style="display:block;font-size:11px;font-weight:600;margin-bottom:3px;">Or Enter Relative's PID directly</label>
@@ -18119,9 +18198,7 @@
                   </div>
                   <div id="create-fs-child-fields" style="display:none;flex-direction:column;gap:4px;">
                     <label style="display:block;font-size:11px;font-weight:600;">Second Parent (optional)</label>
-                    <select id="create-fs-parent2-select" style="width:100%;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
-                      ${buildRelOptionsHtml('', '— Only link to 1 parent —')}
-                    </select>
+                    <div id="create-fs-parent2-picker"></div>
                   </div>
                   <div id="create-fs-parent-note" class="muted" style="display:none;font-size:11.5px;line-height:1.4;">
                     Links this new person as a parent of the selected relative (or fills an open parent slot if they only have one parent listed).
@@ -18159,6 +18236,310 @@
         const parentNoteEl = overlay.querySelector('#create-fs-parent-note');
         const siblingNoteEl = overlay.querySelector('#create-fs-sibling-note');
         const noneNoteEl = overlay.querySelector('#create-fs-none-note');
+        const quickStandaloneBtn = overlay.querySelector('#create-fs-quick-standalone');
+        const manualPidInput = overlay.querySelector('#create-fs-rel-pid');
+        const submitBtn = overlay.querySelector('#create-fs-submit');
+        const statusEl = overlay.querySelector('#create-fs-status');
+
+        const mountSearchableRelPicker = (hostEl, { initialPid = '', placeholder = 'Type a name or PID to search...', allowCreateNew = false, allowLiveFsSearch = false, onChange = null } = {}) => {
+          let selected = null;
+          if (initialPid) {
+            const cleanInit = String(initialPid).trim().toUpperCase();
+            selected = { mode: 'pid', pid: cleanInit, label: candNameByPid.get(cleanInit) || cleanInit };
+          }
+          let query = '';
+          let listExpanded = !selected;
+          let liveSearchBusy = false;
+          let liveSearchMsg = '';
+
+          const notifyChange = () => {
+            if (typeof onChange === 'function') onChange(selected);
+          };
+
+          const renderPicker = () => {
+            const qTrim = query.trim();
+            const qLow = qTrim.toLowerCase();
+
+            let selectedHtml = '';
+            if (selected) {
+              const isCreate = selected.mode === 'create';
+              const badgeTxt = isCreate
+                ? `Will also create ${selected.person.name} on FamilySearch & connect`
+                : selected.label;
+              selectedHtml = `
+                <div class="fs-rel-selected-pill ${isCreate ? 'is-create' : ''}">
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">✓ ${esc(badgeTxt)}</span>
+                  <button type="button" class="link-btn fs-rel-clear" style="font-size:11.5px;flex-shrink:0;">✕ ${listExpanded ? 'Clear' : 'Change'}</button>
+                </div>
+              `;
+            }
+
+            let resultsHtml = '';
+            if (listExpanded) {
+              const combinedFs = [...allFsCandidates, ...liveFsCandidates];
+              const seenInList = new Set();
+              const matchedFs = combinedFs.filter((c) => {
+                if (!c || !c.pid || seenInList.has(c.pid)) return false;
+                if (qLow) {
+                  const hay = `${c.name} ${c.sub || ''} ${c.pid}`.toLowerCase();
+                  if (!hay.includes(qLow)) return false;
+                }
+                seenInList.add(c.pid);
+                return true;
+              });
+
+              const maxShow = 40;
+              const shownFs = matchedFs.slice(0, maxShow);
+              const grouped = new Map();
+              shownFs.forEach((c) => {
+                const grp = c.group || 'Relatives';
+                if (!grouped.has(grp)) grouped.set(grp, []);
+                grouped.get(grp).push(c);
+              });
+
+              let listBody = '';
+              grouped.forEach((arr, grpName) => {
+                listBody += `<div class="fs-rel-group-hdr">${esc(grpName)}</div>`;
+                listBody += arr.map((c) => `
+                  <button type="button" class="fs-rel-option" data-pick-pid="${esc(c.pid)}" data-pick-label="${esc(`${c.name} (${c.pid})`)}">
+                    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                      <strong>${esc(c.name)}</strong>${c.sub ? ` <span class="muted">(${esc(c.sub)})</span>` : ''}
+                    </span>
+                    <span class="mono" style="font-size:11px;color:#1d4ed8;font-weight:700;flex-shrink:0;">${esc(c.pid)}</span>
+                  </button>
+                `).join('');
+              });
+
+              if (matchedFs.length > maxShow) {
+                listBody += `<div class="muted" style="padding:5px 9px;font-size:11px;background:var(--raised);border-top:1px solid var(--border);">Showing ${maxShow} of ${matchedFs.length} matches — type a name or PID to narrow.</div>`;
+              }
+
+              if (allowCreateNew && qLow.length >= 2) {
+                const fsNamesLow = new Set(matchedFs.map((c) => c.name.toLowerCase()));
+                const gedHits = allGedcomPeople.filter((gp) => {
+                  if (!gp || !gp.name) return false;
+                  const gLow = gp.name.trim().toLowerCase();
+                  if (gLow === selfNameLower || fsNamesLow.has(gLow)) return false;
+                  return `${gp.name} ${gp.id || ''} ${gp.birthDate || ''}`.toLowerCase().includes(qLow);
+                }).slice(0, 8);
+
+                if (gedHits.length > 0) {
+                  listBody += `<div class="fs-rel-group-hdr">In Your PAF / GEDCOM Tree (Not on FamilySearch Yet)</div>`;
+                  listBody += gedHits.map((gp, gi) => {
+                    const life = [gp.birthDate ? `b. ${gp.birthDate}` : '', gp.deathDate ? `d. ${gp.deathDate}` : ''].filter(Boolean).join(' · ');
+                    return `
+                      <button type="button" class="fs-rel-option" data-pick-ged="${gi}" style="background:#f0fdf4;">
+                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                          <strong>${esc(gp.name)}</strong>${life ? ` <span class="muted">(${esc(life)})</span>` : ''}
+                        </span>
+                        <span style="font-size:11px;color:#047857;font-weight:700;flex-shrink:0;">+ Create &amp; Connect</span>
+                      </button>
+                    `;
+                  }).join('');
+                }
+
+                const hasExactFsOrGed = fsNamesLow.has(qLow) || gedHits.some((gp) => gp.name.trim().toLowerCase() === qLow);
+                if (!hasExactFsOrGed) {
+                  listBody += `
+                    <button type="button" class="fs-rel-option" data-pick-custom="${esc(qTrim)}" style="background:#eff6ff;border-top:1px dashed #93c5fd;">
+                      <span>+ Create "<strong>${esc(qTrim)}</strong>" on FamilySearch &amp; Connect</span>
+                      <span style="font-size:11px;color:#1d4ed8;font-weight:700;flex-shrink:0;">+ Create</span>
+                    </button>
+                  `;
+                }
+              }
+
+              if (!listBody) {
+                listBody = `<div class="muted" style="padding:8px 10px;font-size:12px;">No matching relatives in your cached list.${allowLiveFsSearch ? ' Click <strong>🔍 Search FS</strong> to check FamilySearch directly.' : ''}</div>`;
+              }
+
+              resultsHtml = `
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <input type="search" class="fs-rel-search-inp" value="${esc(query)}" placeholder="${esc(placeholder)}" style="flex:1;min-width:0;font-size:12.5px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                  ${allowLiveFsSearch && typeof fs.searchPersons === 'function' ? `<button type="button" class="btn sm fs-rel-live-btn" ${liveSearchBusy ? 'disabled' : ''} title="Search FamilySearch directly for this name or PID">${liveSearchBusy ? 'Searching...' : '🔍 Search FS'}</button>` : ''}
+                </div>
+                ${liveSearchMsg ? `<div class="muted" style="font-size:11.5px;">${esc(liveSearchMsg)}</div>` : ''}
+                <div class="fs-rel-results">${listBody}</div>
+              `;
+
+              hostEl.innerHTML = `<div class="fs-rel-picker">${selectedHtml}${resultsHtml}</div>`;
+
+              const gedHitsCached = (allowCreateNew && qLow.length >= 2) ? (() => {
+                const fsNamesLow = new Set(matchedFs.map((c) => c.name.toLowerCase()));
+                return allGedcomPeople.filter((gp) => {
+                  if (!gp || !gp.name) return false;
+                  const gLow = gp.name.trim().toLowerCase();
+                  if (gLow === selfNameLower || fsNamesLow.has(gLow)) return false;
+                  return `${gp.name} ${gp.id || ''} ${gp.birthDate || ''}`.toLowerCase().includes(qLow);
+                }).slice(0, 8);
+              })() : [];
+
+              hostEl.querySelectorAll('[data-pick-pid]').forEach((b) => {
+                b.onclick = () => {
+                  const pid = b.getAttribute('data-pick-pid');
+                  const label = b.getAttribute('data-pick-label') || pid;
+                  selected = { mode: 'pid', pid, label };
+                  listExpanded = false;
+                  notifyChange();
+                  renderPicker();
+                };
+              });
+              hostEl.querySelectorAll('[data-pick-ged]').forEach((b) => {
+                b.onclick = () => {
+                  const gp = gedHitsCached[Number(b.getAttribute('data-pick-ged'))];
+                  if (!gp) return;
+                  selected = {
+                    mode: 'create',
+                    person: {
+                      name: gp.name.trim(),
+                      id: gp.id || '',
+                      sex: gp.sex || '',
+                      birthDate: gp.birthDate || '',
+                      birthPlace: gp.birthPlace || '',
+                      deathDate: gp.deathDate || ''
+                    }
+                  };
+                  listExpanded = false;
+                  notifyChange();
+                  renderPicker();
+                };
+              });
+              const customBtn = hostEl.querySelector('[data-pick-custom]');
+              if (customBtn) {
+                customBtn.onclick = () => {
+                  const nm = customBtn.getAttribute('data-pick-custom') || '';
+                  if (!nm) return;
+                  selected = { mode: 'create', person: { name: nm } };
+                  listExpanded = false;
+                  notifyChange();
+                  renderPicker();
+                };
+              }
+
+              const inp = hostEl.querySelector('.fs-rel-search-inp');
+              if (inp) {
+                inp.oninput = () => {
+                  const selStart = inp.selectionStart;
+                  query = inp.value || '';
+                  liveSearchMsg = '';
+                  renderPicker();
+                  const fresh = hostEl.querySelector('.fs-rel-search-inp');
+                  if (fresh) {
+                    fresh.focus();
+                    if (typeof selStart === 'number') {
+                      try { fresh.setSelectionRange(selStart, selStart); } catch (_) {}
+                    }
+                  }
+                };
+              }
+              const liveBtn = hostEl.querySelector('.fs-rel-live-btn');
+              if (liveBtn) {
+                liveBtn.onclick = async () => {
+                  const qSearch = query.trim();
+                  if (!qSearch) {
+                    liveSearchMsg = 'Type a name or PID in the search box first.';
+                    renderPicker();
+                    const fresh = hostEl.querySelector('.fs-rel-search-inp');
+                    if (fresh) fresh.focus();
+                    return;
+                  }
+                  liveSearchBusy = true;
+                  liveSearchMsg = `Searching FamilySearch for "${qSearch}"...`;
+                  renderPicker();
+                  try {
+                    const hits = await fs.searchPersons(qSearch);
+                    let added = 0;
+                    (hits || []).slice(0, 15).forEach((m) => {
+                      if (!m || !m.id || !m.name) return;
+                      const pid = String(m.id).trim().toUpperCase();
+                      if (!pid || m.name.trim().toLowerCase() === selfNameLower) return;
+                      candNameByPid.set(pid, `${m.name.trim()} (${pid})`);
+                      if (!seenCandPids.has(pid) && !liveFsCandidates.some((x) => x.pid === pid)) {
+                        liveFsCandidates.push({
+                          pid,
+                          name: m.name.trim(),
+                          sub: [m.lifespan || '', m.birthPlace || ''].filter(Boolean).join(' · '),
+                          group: 'FamilySearch Live Search'
+                        });
+                        added++;
+                      }
+                    });
+                    liveSearchMsg = (hits && hits.length > 0)
+                      ? `Found ${hits.length} match${hits.length === 1 ? '' : 'es'} on FamilySearch${added ? ` (${added} shown below)` : ''}.`
+                      : `No existing FamilySearch record found for "${qSearch}".`;
+                  } catch (err) {
+                    liveSearchMsg = `FamilySearch search failed: ${err && err.message ? err.message : err}`;
+                  } finally {
+                    liveSearchBusy = false;
+                    renderPicker();
+                  }
+                };
+              }
+            } else {
+              hostEl.innerHTML = `<div class="fs-rel-picker">${selectedHtml}</div>`;
+            }
+
+            const clearBtn = hostEl.querySelector('.fs-rel-clear');
+            if (clearBtn) {
+              clearBtn.onclick = () => {
+                if (listExpanded) {
+                  selected = null;
+                  notifyChange();
+                } else {
+                  listExpanded = true;
+                }
+                renderPicker();
+                const fresh = hostEl.querySelector('.fs-rel-search-inp');
+                if (fresh) fresh.focus();
+              };
+            }
+          };
+
+          renderPicker();
+          return {
+            getValue: () => selected,
+            setPid: (pid) => {
+              const clean = String(pid || '').trim().toUpperCase();
+              if (!clean) {
+                selected = null;
+                listExpanded = true;
+              } else {
+                selected = { mode: 'pid', pid: clean, label: candNameByPid.get(clean) || clean };
+                listExpanded = false;
+              }
+              notifyChange();
+              renderPicker();
+            }
+          };
+        };
+
+        const updateSubmitLabel = () => {
+          const ct = connTypeEl.value;
+          const manualVal = (manualPidInput.value || '').trim();
+          const relVal = primaryRelPicker ? primaryRelPicker.getValue() : null;
+          if (ct === 'none') {
+            submitBtn.textContent = 'Create Standalone on FamilySearch';
+          } else if (!manualVal && relVal && relVal.mode === 'create') {
+            submitBtn.textContent = 'Create Both & Connect on FamilySearch';
+          } else {
+            submitBtn.textContent = 'Create & Connect on FamilySearch';
+          }
+        };
+
+        const primaryRelPicker = mountSearchableRelPicker(overlay.querySelector('#create-fs-rel-picker'), {
+          initialPid: defaultTargetPid,
+          placeholder: 'Search relative by name or PID (e.g. Renae Ann Viola)...',
+          allowCreateNew: true,
+          allowLiveFsSearch: true,
+          onChange: updateSubmitLabel
+        });
+        const parent2Picker = mountSearchableRelPicker(overlay.querySelector('#create-fs-parent2-picker'), {
+          initialPid: '',
+          placeholder: 'Search optional second parent by name or PID...',
+          allowCreateNew: false,
+          allowLiveFsSearch: true
+        });
+        manualPidInput.oninput = updateSubmitLabel;
 
         const syncConnUi = () => {
           const ct = connTypeEl.value;
@@ -18168,16 +18549,22 @@
           childFieldsEl.style.display = ct === 'child' ? 'flex' : 'none';
           parentNoteEl.style.display = ct === 'parent' ? 'block' : 'none';
           siblingNoteEl.style.display = ct === 'sibling' ? 'block' : 'none';
+          if (quickStandaloneBtn) quickStandaloneBtn.hidden = (ct === 'none');
           if (ct === 'spouse') relLabelEl.textContent = 'Spouse on FamilySearch (Married to)';
           else if (ct === 'child') relLabelEl.textContent = 'First Parent on FamilySearch';
           else if (ct === 'parent') relLabelEl.textContent = 'Child on FamilySearch (Parent of)';
           else if (ct === 'sibling') relLabelEl.textContent = 'Sibling on FamilySearch (Shares Parents with)';
+          updateSubmitLabel();
         };
         connTypeEl.onchange = syncConnUi;
+        if (quickStandaloneBtn) {
+          quickStandaloneBtn.onclick = () => {
+            connTypeEl.value = 'none';
+            syncConnUi();
+          };
+        }
         syncConnUi();
 
-        const submitBtn = overlay.querySelector('#create-fs-submit');
-        const statusEl = overlay.querySelector('#create-fs-status');
         submitBtn.onclick = async () => {
           const fullName = overlay.querySelector('#create-fs-name').value.trim();
           if (!fullName) {
@@ -18186,12 +18573,13 @@
             return;
           }
           const connType = connTypeEl.value;
-          const relSelectVal = overlay.querySelector('#create-fs-rel-select').value.trim();
-          const relManualVal = overlay.querySelector('#create-fs-rel-pid').value.trim();
-          const targetPid = (relManualVal || relSelectVal || '').toUpperCase();
-          if (connType !== 'none' && !targetPid) {
+          const relVal = primaryRelPicker.getValue();
+          const relManualVal = manualPidInput.value.trim().toUpperCase();
+          let targetPid = relManualVal || (relVal && relVal.mode === 'pid' ? relVal.pid : '');
+          const createConnectedPerson = (!relManualVal && relVal && relVal.mode === 'create') ? relVal.person : null;
+          if (connType !== 'none' && !targetPid && !createConnectedPerson) {
             statusEl.style.color = '#991b1b';
-            statusEl.textContent = 'Choose a relative to connect to, or switch to "Standalone" if you don\'t want to connect them yet.';
+            statusEl.textContent = 'Search & pick a relative to connect, choose "+ Create & Connect", or click "Create Standalone".';
             return;
           }
 
@@ -18201,7 +18589,8 @@
           const birthPlace = overlay.querySelector('#create-fs-bplace').value.trim();
           const marriageDate = overlay.querySelector('#create-fs-mdate').value.trim();
           const marriagePlace = overlay.querySelector('#create-fs-mplace').value.trim();
-          const parent2Pid = overlay.querySelector('#create-fs-parent2-select').value.trim().toUpperCase();
+          const p2Val = parent2Picker.getValue();
+          const parent2Pid = (p2Val && p2Val.mode === 'pid' ? p2Val.pid : '').toUpperCase();
 
           submitBtn.disabled = true;
           submitBtn.textContent = 'Creating...';
@@ -18220,6 +18609,50 @@
             const newPid = String((created && created.id) || '').trim().toUpperCase();
             if (!newPid) {
               throw new Error('FamilySearch created the person but did not return a PID.');
+            }
+
+            let createdConnectedRel = null;
+            if (connType !== 'none' && !targetPid && createConnectedPerson) {
+              let relSex = 'U';
+              if (createConnectedPerson.sex) {
+                if (/^m/i.test(createConnectedPerson.sex)) relSex = 'M';
+                else if (/^f/i.test(createConnectedPerson.sex)) relSex = 'F';
+              } else if (connType === 'spouse') {
+                if (sex === 'M') relSex = 'F';
+                else if (sex === 'F') relSex = 'M';
+              }
+              const relLiving = !(createConnectedPerson.deathDate && String(createConnectedPerson.deathDate).trim());
+              statusEl.textContent = `Created ${fullName} (${newPid}). Also creating ${createConnectedPerson.name} on FamilySearch...`;
+              const relCreated = await fs.createPerson({
+                name: createConnectedPerson.name,
+                sex: relSex,
+                living: relLiving,
+                birthDate: createConnectedPerson.birthDate || '',
+                birthPlace: createConnectedPerson.birthPlace || '',
+                notes: ''
+              });
+              const relNewPid = String((relCreated && relCreated.id) || '').trim().toUpperCase();
+              if (!relNewPid) {
+                throw new Error(`Created ${fullName} (${newPid}), but FamilySearch did not return a PID for ${createConnectedPerson.name}.`);
+              }
+              targetPid = relNewPid;
+              candNameByPid.set(relNewPid, `${createConnectedPerson.name} (${relNewPid})`);
+              createdConnectedRel = {
+                name: createConnectedPerson.name,
+                pid: relNewPid,
+                url: (relCreated && relCreated.url) || `${(fs.WEB_BASE || 'https://beta.familysearch.org')}/tree/person/details/${encodeURIComponent(relNewPid)}`
+              };
+              recordGedcomPersonSynced(
+                { id: createConnectedPerson.id || '', name: createConnectedPerson.name },
+                { fsPid: relNewPid, memoryId: p.fsMemoryId || '', summary: 'Created on FamilySearch Beta' }
+              );
+              const relNameLow = createConnectedPerson.name.trim().toLowerCase();
+              (p.people || []).forEach((pr) => {
+                if (pr && String(pr.name || '').trim().toLowerCase() === relNameLow) pr.fsId = relNewPid;
+              });
+              (p.faces || []).forEach((fc) => {
+                if (fc && String(fc.name || '').trim().toLowerCase() === relNameLow) fc.fsId = relNewPid;
+              });
             }
 
             let connSuccessText = '';
@@ -18292,6 +18725,7 @@
             }
 
             const toastMsg = `✓ Created ${fullName} (${newPid})` +
+              (createdConnectedRel ? ` & ${createdConnectedRel.name} (${createdConnectedRel.pid})` : '') +
               (connSuccessText ? ` — ${connSuccessText}` : (connWarning ? `, but tree link failed: ${connWarning}` : ''));
             notify(toastMsg);
 
@@ -18303,6 +18737,12 @@
                 <strong>✓ Created ${esc(fullName)} on FamilySearch Beta</strong><br>
                 New Person ID (PID): <code style="font-weight:700;">${esc(newPid)}</code>
               </div>
+              ${createdConnectedRel ? `
+                <div style="padding:10px 12px;border-radius:8px;background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.28);color:#14532d;font-size:13px;line-height:1.45;">
+                  <strong>✓ Also Created ${esc(createdConnectedRel.name)}</strong><br>
+                  New Person ID (PID): <code style="font-weight:700;">${esc(createdConnectedRel.pid)}</code>
+                </div>
+              ` : ''}
               ${connSuccessText ? `
                 <div style="padding:10px 12px;border-radius:8px;background:rgba(37,99,235,0.1);border:1px solid rgba(37,99,235,0.3);font-size:13px;">
                   🌳 ${esc(connSuccessText)}
@@ -18318,6 +18758,11 @@
                 <a href="${esc(personUrl)}" target="_blank" rel="noopener noreferrer" class="btn sm primary" style="text-align:center;text-decoration:none;font-weight:600;">
                   Open ${esc(newPid)} on FamilySearch Beta ↗
                 </a>
+                ${createdConnectedRel ? `
+                  <a href="${esc(createdConnectedRel.url)}" target="_blank" rel="noopener noreferrer" class="btn sm" style="text-align:center;text-decoration:none;font-weight:600;">
+                    Open ${esc(createdConnectedRel.name)} (${esc(createdConnectedRel.pid)}) on FamilySearch Beta ↗
+                  </a>
+                ` : ''}
                 ${(p.fsSynced && p.fsMemoryId) ? `
                   <button type="button" class="btn sm" id="create-fs-update-mem" style="font-weight:600;">
                     🔄 Update Photo Memory #${esc(p.fsMemoryId)} Now
@@ -18339,7 +18784,7 @@
             statusEl.style.color = '#991b1b';
             statusEl.textContent = err && err.message ? err.message : 'Could not create person on FamilySearch Beta.';
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Create & Connect on FamilySearch';
+            updateSubmitLabel();
           }
         };
       }
