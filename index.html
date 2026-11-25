@@ -3032,7 +3032,7 @@
         <span data-icon="tree"></span><span>PAF / GEDCOM matched</span><span class="nav-count" id="q-gedcom-matched">0</span>
       </button>
 
-      <div class="group-label">Batch Cleanup &amp; Repairs</div>
+      <div class="group-label" id="sidebar-cleanup-label">Batch Cleanup &amp; Repairs</div>
       <button class="nav-item" type="button" data-queue="lowres">
         <span data-icon="spark"></span><span>Needs 4K restore</span><span class="nav-count" id="q-lowres">4</span>
       </button>
@@ -3046,7 +3046,7 @@
         <span data-icon="folder"></span><span>Review &amp; Cleanup</span><span class="nav-count" id="q-review">1</span>
       </button>
 
-      <div class="group-label">Subfolders on Disk</div>
+      <div class="group-label" id="sidebar-subfolders-label">Subfolders on Disk</div>
       <div id="folder-nav"></div>
       <div id="gdrive-folder-nav-wrap" hidden>
         <div class="group-label" id="gdrive-folder-nav-label">Google Drive Folders</div>
@@ -5439,6 +5439,272 @@
         return pairs;
       }
 
+      const IGNORED_INDEX_DUP_GROUPS_KEY = 'fhp_ignored_index_dup_groups_v1';
+
+      function loadIgnoredIndexDupGroups() {
+        try {
+          const raw = localStorage.getItem(IGNORED_INDEX_DUP_GROUPS_KEY);
+          const arr = raw ? JSON.parse(raw) : [];
+          return new Set(Array.isArray(arr) ? arr : []);
+        } catch (_) {
+          return new Set();
+        }
+      }
+
+      let ignoredIndexDupGroups = loadIgnoredIndexDupGroups();
+
+      function saveIgnoredIndexDupGroups() {
+        try {
+          localStorage.setItem(IGNORED_INDEX_DUP_GROUPS_KEY, JSON.stringify(Array.from(ignoredIndexDupGroups)));
+        } catch (_) {}
+      }
+
+      let dupSourceTab = 'auto';
+      let idxDupFilter = 'all';
+      let idxDupQuery = '';
+      let idxDupPage = 1;
+      let _idxDupObjectUrls = [];
+      let _cachedIndexedLibraryStats = { version: -1, ignoredSize: -1, data: null };
+
+      function getIndexedLibraryStats() {
+        if (
+          _cachedIndexedLibraryStats.data
+          && _cachedIndexedLibraryStats.version === photoLibraryIndex.indexVersion
+          && _cachedIndexedLibraryStats.ignoredSize === ignoredIndexDupGroups.size
+        ) {
+          return _cachedIndexedLibraryStats.data;
+        }
+
+        const gdriveList = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive : [];
+        const localList = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local : [];
+
+        if (gdriveList.length + localList.length === 0) {
+          const emptyStats = {
+            totalIndexed: 0,
+            duplicateGroups: [],
+            duplicateGroupCount: 0,
+            duplicateExtraCount: 0,
+            duplicateWastedBytes: 0,
+            driveOnlyGroupCount: 0,
+            localOnlyGroupCount: 0,
+            crossSourceGroupCount: 0,
+            indexedScreenshotCount: 0,
+            indexedLowResCount: 0
+          };
+          _cachedIndexedLibraryStats = {
+            version: photoLibraryIndex.indexVersion,
+            ignoredSize: ignoredIndexDupGroups.size,
+            data: emptyStats
+          };
+          return emptyStats;
+        }
+
+        const all = [];
+        const seenRecKeys = new Set();
+        let indexedScreenshotCount = 0;
+        let indexedLowResCount = 0;
+
+        const ingestList = (list, src) => {
+          for (let i = 0; i < list.length; i++) {
+            const r = list[i];
+            if (!r || !r.name) continue;
+            const recKey = `${src === 'gdrive' ? 'g' : 'l'}:${r.cloudId || r.id || i}`;
+            if (seenRecKeys.has(recKey)) continue;
+            seenRecKeys.add(recKey);
+            const size = Number(r.size) || 0;
+            const isShot = isScreenshotPhoto({ file: r.name, title: r.name, mimeType: r.type });
+            if (isShot) indexedScreenshotCount++;
+            else if (size > 0 && size < 150 * 1024) indexedLowResCount++;
+            const normName = normalizeFileNameForDup(r.name);
+            all.push({
+              recKey,
+              source: src,
+              rec: { ...r, source: src },
+              name: r.name,
+              path: r.path || (src === 'gdrive' ? 'My Drive' : 'Local Folder'),
+              size,
+              lastModified: Number(r.lastModified) || 0,
+              md5: String(r.md5Checksum || '').trim().toLowerCase(),
+              normName
+            });
+          }
+        };
+
+        ingestList(gdriveList, 'gdrive');
+        ingestList(localList, 'local');
+
+        const assigned = new Set();
+        const duplicateGroups = [];
+        const genericCameraRe = /^(?:img|dsc|dscn|dscf|p|pxl|mvimg|vid|photo|image|scan|pic|picture|file|clip|dcim|100)?[-_\s]*\d{1,8}$/i;
+        const copyMarkerRe = /(?:\(\d+\)|[-_\s]copy\d*|_dup\d*)\.[^.]+$/i;
+        const copyPathRe = /(_duplicates_review|duplicates|backup|trash|old\s+copy)/i;
+
+        const scoreMasterSort = (a, b) => {
+          const aIsCopyName = copyMarkerRe.test(a.name) ? 1 : 0;
+          const bIsCopyName = copyMarkerRe.test(b.name) ? 1 : 0;
+          if (aIsCopyName !== bIsCopyName) return aIsCopyName - bIsCopyName;
+          const aPenPath = copyPathRe.test(a.path) ? 1 : 0;
+          const bPenPath = copyPathRe.test(b.path) ? 1 : 0;
+          if (aPenPath !== bPenPath) return aPenPath - bPenPath;
+          if (b.size !== a.size) return b.size - a.size;
+          return a.path.length - b.path.length;
+        };
+
+        const runBucketPass = (bucketMap, { confidence, reasonBuilder, validateBucket = null }) => {
+          bucketMap.forEach((bucket, key) => {
+            if (!bucket || bucket.length < 2) return;
+            if (validateBucket && !validateBucket(bucket)) return;
+            if (ignoredIndexDupGroups.has(key)) {
+              for (let i = 0; i < bucket.length; i++) assigned.add(bucket[i].recKey);
+              return;
+            }
+            const sorted = bucket.slice().sort(scoreMasterSort);
+            let hasDrive = false;
+            let hasLocal = false;
+            for (let i = 0; i < sorted.length; i++) {
+              assigned.add(sorted[i].recKey);
+              if (sorted[i].source === 'gdrive') hasDrive = true;
+              else hasLocal = true;
+            }
+            const master = sorted[0];
+            const scopeType = (hasDrive && hasLocal) ? 'cross' : (hasDrive ? 'gdrive' : 'local');
+            const extraCopies = sorted.length - 1;
+            const wastedBytes = extraCopies * (master.size || 0);
+            duplicateGroups.push({
+              key,
+              confidence,
+              reason: reasonBuilder(master, sorted),
+              scopeType,
+              extraCopies,
+              wastedBytes,
+              master,
+              items: sorted
+            });
+          });
+        };
+
+        // Pass 1: Exact MD5 checksum (Drive)
+        const md5Map = new Map();
+        for (let i = 0; i < all.length; i++) {
+          const item = all[i];
+          if (item.md5 && item.size > 0) {
+            const k = `md5:${item.md5}`;
+            let arr = md5Map.get(k);
+            if (!arr) { arr = []; md5Map.set(k, arr); }
+            arr.push(item);
+          }
+        }
+        runBucketPass(md5Map, {
+          confidence: 100,
+          reasonBuilder: () => '100% identical file content (exact MD5 checksum)'
+        });
+
+        // Pass 2: Normalized filename + exact byte size
+        const nameSizeMap = new Map();
+        for (let i = 0; i < all.length; i++) {
+          const item = all[i];
+          if (assigned.has(item.recKey)) continue;
+          if (item.size > 0 && item.normName) {
+            const k = `ns:${item.normName}|${item.size}`;
+            let arr = nameSizeMap.get(k);
+            if (!arr) { arr = []; nameSizeMap.set(k, arr); }
+            arr.push(item);
+          }
+        }
+        runBucketPass(nameSizeMap, {
+          confidence: 99,
+          reasonBuilder: (m) => `Same filename & exact byte size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB)`
+        });
+
+        // Pass 3: Exact byte size (>= 30 KB) + exact modified second
+        const sizeTimeMap = new Map();
+        for (let i = 0; i < all.length; i++) {
+          const item = all[i];
+          if (assigned.has(item.recKey)) continue;
+          if (item.size >= 30720 && item.lastModified > 0) {
+            const k = `st:${item.size}|${Math.floor(item.lastModified / 1000)}`;
+            let arr = sizeTimeMap.get(k);
+            if (!arr) { arr = []; sizeTimeMap.set(k, arr); }
+            arr.push(item);
+          }
+        }
+        runBucketPass(sizeTimeMap, {
+          confidence: 97,
+          reasonBuilder: (m) => `Exact file size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB) & timestamp`
+        });
+
+        // Pass 4: Descriptive normalized filename copy variants
+        const nameMap = new Map();
+        for (let i = 0; i < all.length; i++) {
+          const item = all[i];
+          if (assigned.has(item.recKey)) continue;
+          if (item.normName && item.normName.length >= 6 && !genericCameraRe.test(item.normName)) {
+            const k = `nm:${item.normName}`;
+            let arr = nameMap.get(k);
+            if (!arr) { arr = []; nameMap.set(k, arr); }
+            arr.push(item);
+          }
+        }
+        runBucketPass(nameMap, {
+          confidence: 93,
+          validateBucket: (bucket) => {
+            const seenPaths = new Set();
+            let sameFolder = false;
+            let hasCopyName = false;
+            let minSz = Infinity;
+            let maxSz = 0;
+            for (let i = 0; i < bucket.length; i++) {
+              const it = bucket[i];
+              if (seenPaths.has(it.path)) sameFolder = true;
+              seenPaths.add(it.path);
+              if (copyMarkerRe.test(it.name)) hasCopyName = true;
+              if (it.size > 0) {
+                if (it.size < minSz) minSz = it.size;
+                if (it.size > maxSz) maxSz = it.size;
+              }
+            }
+            const closeSize = maxSz > 0 && minSz < Infinity && ((maxSz - minSz) / maxSz) <= 0.02;
+            return sameFolder || hasCopyName || closeSize;
+          },
+          reasonBuilder: () => 'Matching filename / copy variant'
+        });
+
+        duplicateGroups.sort((a, b) => (b.wastedBytes || b.extraCopies * 100000) - (a.wastedBytes || a.extraCopies * 100000));
+
+        let duplicateExtraCount = 0;
+        let duplicateWastedBytes = 0;
+        let driveOnlyGroupCount = 0;
+        let localOnlyGroupCount = 0;
+        let crossSourceGroupCount = 0;
+        for (let i = 0; i < duplicateGroups.length; i++) {
+          const g = duplicateGroups[i];
+          duplicateExtraCount += g.extraCopies;
+          duplicateWastedBytes += g.wastedBytes;
+          if (g.scopeType === 'cross') crossSourceGroupCount++;
+          else if (g.scopeType === 'gdrive') driveOnlyGroupCount++;
+          else localOnlyGroupCount++;
+        }
+
+        const statsObj = {
+          totalIndexed: all.length,
+          duplicateGroups,
+          duplicateGroupCount: duplicateGroups.length,
+          duplicateExtraCount,
+          duplicateWastedBytes,
+          driveOnlyGroupCount,
+          localOnlyGroupCount,
+          crossSourceGroupCount,
+          indexedScreenshotCount,
+          indexedLowResCount
+        };
+        _cachedIndexedLibraryStats = {
+          version: photoLibraryIndex.indexVersion,
+          ignoredSize: ignoredIndexDupGroups.size,
+          data: statsObj
+        };
+        return statsObj;
+      }
+
       function filteredItems() {
         return items.filter((p) => {
           if (activeFolder) {
@@ -5725,7 +5991,16 @@
         const qGedMatched = document.getElementById('q-gedcom-matched');
         if (qGedMatched) qGedMatched.textContent = gedcomMatchedCount;
         document.getElementById('q-lowres').textContent = s.lowResCount;
-        document.getElementById('q-dups').textContent = findDuplicatePairs(items).length;
+        const wsDupPairs = findDuplicatePairs(items);
+        const idxStats = typeof getIndexedLibraryStats === 'function'
+          ? getIndexedLibraryStats()
+          : { totalIndexed: 0, duplicateGroupCount: 0, duplicateExtraCount: 0, indexedScreenshotCount: 0, indexedLowResCount: 0 };
+        const qDupsEl = document.getElementById('q-dups');
+        if (qDupsEl) {
+          qDupsEl.textContent = idxStats.totalIndexed > 0
+            ? (idxStats.duplicateExtraCount || wsDupPairs.length).toLocaleString()
+            : wsDupPairs.length;
+        }
         document.getElementById('q-junk').textContent = screenshotCount;
         document.getElementById('q-review').textContent = s.reviewCount;
 
@@ -5818,12 +6093,44 @@
               };
             }
             if (wsLabel) {
-              wsLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Workspace (Imported)' : 'Workspace';
+              wsLabel.textContent = (driveCount > 0 || localCount > 0) ? `Workspace (Active Batch: ${s.activeCount})` : 'Workspace';
+            }
+            const cleanupLabel = document.getElementById('sidebar-cleanup-label');
+            if (cleanupLabel) {
+              cleanupLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Library & Batch Cleanup' : 'Batch Cleanup & Repairs';
+            }
+            const subLabel = document.getElementById('sidebar-subfolders-label');
+            if (subLabel) {
+              subLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Active Batch Subfolders' : 'Subfolders on Disk';
             }
             if (allBtn) {
               allBtn.title = driveCount > 0
-                ? `Imported album prints (${s.activeCount}) — ${driveCount.toLocaleString()} Google Drive photos are indexed in "Google Drive Indexed" above`
+                ? `Active batch prints (${s.activeCount}) — ${driveCount.toLocaleString()} Google Drive photos are indexed in "Google Drive Indexed" above`
                 : 'All imported album prints';
+            }
+            const dupNavBtn = document.querySelector('[data-queue="duplicates"]');
+            if (dupNavBtn) {
+              dupNavBtn.title = idxStats.totalIndexed > 0
+                ? `${idxStats.duplicateExtraCount.toLocaleString()} duplicate copies across ${idxStats.duplicateGroupCount.toLocaleString()} groups in ${idxStats.totalIndexed.toLocaleString()} indexed photos (${wsDupPairs.length} in active batch)`
+                : `${wsDupPairs.length} duplicate pair${wsDupPairs.length === 1 ? '' : 's'} in active batch`;
+            }
+            const lowresNavBtn = document.querySelector('[data-queue="lowres"]');
+            if (lowresNavBtn) {
+              lowresNavBtn.title = idxStats.totalIndexed > 0
+                ? `${s.lowResCount} low-res in active batch (${idxStats.indexedLowResCount.toLocaleString()} small <150KB files across indexed library)`
+                : 'Photos needing 4K restoration in active batch';
+            }
+            const junkNavBtn = document.querySelector('[data-queue="screenshots"]');
+            if (junkNavBtn) {
+              junkNavBtn.title = idxStats.totalIndexed > 0
+                ? `${screenshotCount} screenshots in active batch (${idxStats.indexedScreenshotCount.toLocaleString()} screenshot filenames across indexed library)`
+                : 'Screenshots detected in active batch';
+            }
+            const gedNavBtn = document.querySelector('[data-queue="gedcom_matched"]');
+            if (gedNavBtn) {
+              gedNavBtn.title = idxStats.totalIndexed > 0
+                ? `${gedcomMatchedCount} matched in active batch (${matchProg.linkedMatches.toLocaleString()} linked & ${matchProg.remainingMatches.toLocaleString()} remaining across indexed library)`
+                : 'Photos linked to PAF / GEDCOM tree';
             }
 
             const gdWrap = document.getElementById('gdrive-folder-nav-wrap');
@@ -6424,8 +6731,12 @@
               return;
             }
 
+            const idxDupPreviewReady = !activeFolder && activeQueue === 'duplicates'
+              && typeof getIndexedLibraryStats === 'function'
+              && getIndexedLibraryStats().duplicateGroupCount > 0;
+
             /* Empty state when demo prints are cleared */
-            if (items.length === 0) {
+            if (items.length === 0 && !idxDupPreviewReady) {
               host.innerHTML = `
                 <div class="panel" style="padding:40px 20px;text-align:center;max-width:540px;margin:24px auto;">
                   <div style="width:60px;height:60px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">
@@ -6476,18 +6787,254 @@
             /* Special Batch Queue: Find Duplicates side-by-side comparison */
             if (!activeFolder && activeQueue === 'duplicates') {
               const dupPairs = findDuplicatePairs(items);
+              const idxStats = typeof getIndexedLibraryStats === 'function'
+                ? getIndexedLibraryStats()
+                : { totalIndexed: 0, duplicateGroups: [], duplicateGroupCount: 0, duplicateExtraCount: 0, duplicateWastedBytes: 0, driveOnlyGroupCount: 0, localOnlyGroupCount: 0, crossSourceGroupCount: 0 };
+              const activeDupTab = (dupSourceTab === 'workspace')
+                ? 'workspace'
+                : (idxStats.duplicateGroupCount > 0 || dupSourceTab === 'indexed' ? 'indexed' : 'workspace');
+
+              const dupTabBarHtml = idxStats.totalIndexed > 0 ? `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">
+                  <button class="btn sm ${activeDupTab === 'indexed' ? 'primary' : ''}" type="button" id="btn-dup-src-indexed">
+                    📚 Full Indexed Library (${idxStats.duplicateExtraCount.toLocaleString()} copies in ${idxStats.duplicateGroupCount.toLocaleString()} groups)
+                  </button>
+                  <button class="btn sm ${activeDupTab === 'workspace' ? 'primary' : ''}" type="button" id="btn-dup-src-workspace">
+                    🖼️ Active Workspace Batch (${dupPairs.length} pair${dupPairs.length === 1 ? '' : 's'} of ${items.length})
+                  </button>
+                </div>` : '';
+
+              if (activeDupTab === 'indexed' && idxStats.duplicateGroupCount > 0) {
+                const fmtBytes = (b) => {
+                  const n = Number(b) || 0;
+                  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+                  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+                  if (n >= 1024) return `${Math.round(n / 1024).toLocaleString()} KB`;
+                  return 'Size unknown';
+                };
+
+                host.innerHTML = `
+                  <div class="panel" style="margin-bottom:14px;padding:16px 18px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <span style="font-size:22px;">🔍</span>
+                          <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates Across Your ${idxStats.totalIndexed.toLocaleString()} Indexed Photos</h2>
+                        </div>
+                        <p class="muted" style="font-size:13px;margin:4px 0 0;">
+                          Found <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> extra duplicate copies across <strong>${idxStats.duplicateGroupCount.toLocaleString()}</strong> groups${idxStats.duplicateWastedBytes > 0 ? ` (~<strong>${fmtBytes(idxStats.duplicateWastedBytes)}</strong> reclaimable)` : ''}. Matched by exact MD5 checksum, filename + byte size, timestamp, and copy variants.
+                        </p>
+                        ${dupTabBarHtml}
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn sm accent" type="button" id="btn-idx-dup-drive-sync" title="Compare local folders against Google Drive and safely move Cloud-Only duplicates to Google Drive Trash">
+                          ☁️ Drive Sync &amp; Trash Cleanup
+                        </button>
+                      </div>
+                    </div>
+                    <div id="idx-dup-controls" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                      <button class="btn sm ${idxDupFilter === 'all' ? 'primary' : ''}" type="button" data-idx-dup-filter="all">All (${idxStats.duplicateGroupCount.toLocaleString()})</button>
+                      <button class="btn sm ${idxDupFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="gdrive">☁️ Google Drive Only (${idxStats.driveOnlyGroupCount.toLocaleString()})</button>
+                      <button class="btn sm ${idxDupFilter === 'local' ? 'primary' : ''}" type="button" data-idx-dup-filter="local">📁 Local Folder Only (${idxStats.localOnlyGroupCount.toLocaleString()})</button>
+                      <button class="btn sm ${idxDupFilter === 'cross' ? 'primary' : ''}" type="button" data-idx-dup-filter="cross">🔀 In Both Drive &amp; Local (${idxStats.crossSourceGroupCount.toLocaleString()})</button>
+                      <input type="search" id="inp-idx-dup-search" placeholder="Filter by filename or folder path..." value="${esc(idxDupQuery)}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);color:var(--text);">
+                    </div>
+                  </div>
+                  <div id="idx-dup-thumb-banner" style="display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:12px;font-size:12.5px;color:#1e3a8a;flex-wrap:wrap;"></div>
+                  <div id="idx-dup-results"></div>
+                `;
+
+                const srcWsBtn = host.querySelector('#btn-dup-src-workspace');
+                if (srcWsBtn) srcWsBtn.onclick = () => { dupSourceTab = 'workspace'; render(); };
+                const syncCleanupBtn = host.querySelector('#btn-idx-dup-drive-sync');
+                if (syncCleanupBtn) syncCleanupBtn.onclick = () => { if (typeof openDriveSyncModal === 'function') openDriveSyncModal(); };
+
+                const loadedLookup = typeof buildLoadedPhotoLookup === 'function' ? buildLoadedPhotoLookup(items) : null;
+                const resultsEl = host.querySelector('#idx-dup-results');
+                const bannerEl = host.querySelector('#idx-dup-thumb-banner');
+
+                const renderIdxDupResults = () => {
+                  if (_idxDupObjectUrls.length) {
+                    _idxDupObjectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+                    _idxDupObjectUrls = [];
+                  }
+
+                  const q = (idxDupQuery || '').trim().toLowerCase();
+                  const filtered = idxStats.duplicateGroups.filter((g) => {
+                    if (idxDupFilter !== 'all' && g.scopeType !== idxDupFilter) return false;
+                    if (!q) return true;
+                    for (let i = 0; i < g.items.length; i++) {
+                      const it = g.items[i];
+                      if ((it.name && it.name.toLowerCase().includes(q)) || (it.path && it.path.toLowerCase().includes(q))) {
+                        return true;
+                      }
+                    }
+                    return false;
+                  });
+
+                  const PER_PAGE = 25;
+                  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+                  if (idxDupPage > totalPages) idxDupPage = totalPages;
+                  if (idxDupPage < 1) idxDupPage = 1;
+
+                  if (filtered.length === 0) {
+                    resultsEl.innerHTML = `
+                      <div class="panel" style="padding:36px 20px;text-align:center;">
+                        <div style="font-size:28px;margin-bottom:8px;">✓</div>
+                        <div style="font-size:15px;font-weight:600;">No duplicate groups match your current filter.</div>
+                        <p class="muted" style="font-size:12.5px;margin-top:4px;">Try switching to All Groups or clearing the search box.</p>
+                      </div>`;
+                    return;
+                  }
+
+                  const start = (idxDupPage - 1) * PER_PAGE;
+                  const pageGroups = filtered.slice(start, start + PER_PAGE);
+                  const zoomMetaList = [];
+
+                  const pagerHtml = totalPages > 1 ? `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                      <span class="mono muted" style="font-size:12px;">Showing groups ${(start + 1).toLocaleString()}–${Math.min(start + pageGroups.length, filtered.length).toLocaleString()} of ${filtered.length.toLocaleString()}</span>
+                      <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn sm idx-dup-prev" type="button" ${idxDupPage <= 1 ? 'disabled' : ''}>← Previous</button>
+                        <span class="mono" style="font-size:12px;">Page ${idxDupPage} / ${totalPages}</span>
+                        <button class="btn sm idx-dup-next" type="button" ${idxDupPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                      </div>
+                    </div>` : '';
+
+                  const cardsHtml = pageGroups.map((g, gIdx) => {
+                    const copiesHtml = g.items.map((it, cIdx) => {
+                      const isMaster = cIdx === 0;
+                      let thumbSrc = '';
+                      let isDrive = it.source === 'gdrive';
+                      let cloudId = '';
+                      if (it.source === 'local' && it.rec && it.rec.fileObj) {
+                        try {
+                          thumbSrc = URL.createObjectURL(it.rec.fileObj);
+                          _idxDupObjectUrls.push(thumbSrc);
+                        } catch (_) {}
+                      } else {
+                        const tInfo = getBestThumbnailSrcForRecord(it.rec, loadedLookup);
+                        thumbSrc = tInfo.src;
+                        isDrive = tInfo.isDrive;
+                        cloudId = tInfo.cloudId;
+                      }
+                      const zoomIdx = zoomMetaList.length;
+                      zoomMetaList.push({
+                        src: thumbSrc,
+                        title: it.name,
+                        subtitle: `${isDrive ? 'Google Drive' : 'Local Folder'} · ${it.path} · ${fmtBytes(it.size)}`
+                      });
+                      const dateStr = it.lastModified ? new Date(it.lastModified).toISOString().slice(0, 10) : '';
+                      return `
+                        <div style="border:${isMaster ? '2px solid #22c55e' : '1px solid var(--border)'};border-radius:8px;padding:10px;background:${isMaster ? 'var(--surface)' : 'var(--raised)'};display:flex;flex-direction:column;gap:8px;">
+                          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <span class="pill ${isMaster ? 'pos' : 'warn'}" style="font-size:11px;font-weight:700;">${isMaster ? '★ Keep (Master)' : `⚠️ Duplicate Copy #${cIdx}`}</span>
+                            <span class="pill neu" style="font-size:10.5px;">${isDrive ? '☁️ Drive' : '📁 Local'}</span>
+                          </div>
+                          <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
+                            ${thumbSrc
+                              ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
+                              : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Google Drive Photo' : '📁 Local Folder Photo'}</div>`}
+                          </div>
+                          <div style="min-width:0;">
+                            <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
+                            <div class="muted" style="font-size:11px;margin-top:2px;word-break:break-word;" title="${esc(it.path)}">📂 ${esc(it.path)}</div>
+                            <div class="mono muted" style="font-size:11px;margin-top:2px;">${fmtBytes(it.size)}${dateStr ? ` · ${dateStr}` : ''}</div>
+                          </div>
+                        </div>`;
+                    }).join('');
+
+                    return `
+                      <div class="panel" style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                        <div style="background:var(--raised);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);">
+                          <div style="min-width:0;">
+                            <div style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                              <span>#${(start + gIdx + 1).toLocaleString()} · ${esc(g.master.name)}</span>
+                              <span class="pill warn" style="font-size:11px;">${g.items.length} copies · ${g.confidence}% match</span>
+                              ${g.wastedBytes > 0 ? `<span class="pill info" style="font-size:11px;">~${fmtBytes(g.wastedBytes)} extra</span>` : ''}
+                            </div>
+                            <div class="muted" style="font-size:12px;margin-top:2px;">${esc(g.reason)}</div>
+                          </div>
+                          <button class="btn sm" type="button" data-ignore-idx-dup="${esc(g.key)}" title="Hide this group from duplicate warnings">
+                            ✓ Keep All (Not Duplicate)
+                          </button>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;padding:12px;">
+                          ${copiesHtml}
+                        </div>
+                      </div>`;
+                  }).join('');
+
+                  resultsEl.innerHTML = `${pagerHtml}${cardsHtml}${totalPages > 1 ? pagerHtml : ''}`;
+
+                  resultsEl.querySelectorAll('.idx-dup-prev').forEach((b) => {
+                    b.onclick = () => { if (idxDupPage > 1) { idxDupPage--; renderIdxDupResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+                  });
+                  resultsEl.querySelectorAll('.idx-dup-next').forEach((b) => {
+                    b.onclick = () => { if (idxDupPage < totalPages) { idxDupPage++; renderIdxDupResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+                  });
+                  resultsEl.querySelectorAll('[data-ignore-idx-dup]').forEach((b) => {
+                    b.onclick = () => {
+                      const gk = b.getAttribute('data-ignore-idx-dup');
+                      if (gk) {
+                        ignoredIndexDupGroups.add(gk);
+                        saveIgnoredIndexDupGroups();
+                        notify('Marked group as distinct photos (hidden from duplicates).');
+                        render();
+                      }
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-idx-zoom]').forEach((el) => {
+                    el.onclick = () => {
+                      const zIdx = Number(el.getAttribute('data-idx-zoom'));
+                      const meta = zoomMetaList[zIdx];
+                      if (meta && meta.src && typeof openPhotoZoomLightbox === 'function') {
+                        openPhotoZoomLightbox(meta);
+                      }
+                    };
+                  });
+
+                  if (typeof attachDriveThumbAutoRefresh === 'function') {
+                    attachDriveThumbAutoRefresh(resultsEl, bannerEl);
+                  }
+                };
+
+                host.querySelectorAll('[data-idx-dup-filter]').forEach((b) => {
+                  b.onclick = () => {
+                    idxDupFilter = b.getAttribute('data-idx-dup-filter') || 'all';
+                    idxDupPage = 1;
+                    host.querySelectorAll('[data-idx-dup-filter]').forEach((x) => x.classList.toggle('primary', x === b));
+                    renderIdxDupResults();
+                  };
+                });
+                const searchBox = host.querySelector('#inp-idx-dup-search');
+                if (searchBox) {
+                  searchBox.oninput = () => {
+                    idxDupQuery = searchBox.value || '';
+                    idxDupPage = 1;
+                    renderIdxDupResults();
+                  };
+                }
+
+                renderIdxDupResults();
+                return;
+              }
+
               if (!dupPairs.length) {
                 host.innerHTML = `
-                  <div class="panel" style="padding:48px 24px;text-align:center;max-width:540px;margin:24px auto;">
+                  <div class="panel" style="padding:48px 24px;text-align:center;max-width:580px;margin:24px auto;">
                     <div style="font-size:36px;margin-bottom:12px;">🔍</div>
-                    <h2 style="font-size:18px;font-weight:600;margin-bottom:8px;">No Duplicates Found</h2>
+                    <h2 style="font-size:18px;font-weight:600;margin-bottom:8px;">No Duplicates in Active Workspace Batch</h2>
                     <p class="muted" style="font-size:13px;line-height:1.5;">
-                      Scanned all ${items.length} photos in your current collection. Every photo appears to be a unique print with no duplicate or twin copies detected.
+                      Scanned all ${items.length} photos currently loaded in your active workspace batch.${idxStats.duplicateGroupCount > 0 ? ` Your full indexed library has <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> duplicate copies ready to review.` : ''}
                     </p>
-                    <div style="margin-top:20px;">
+                    <div style="margin-top:20px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                      ${idxStats.duplicateGroupCount > 0 ? `<button class="btn success sm" type="button" id="btn-dup-go-indexed">📚 View ${idxStats.duplicateExtraCount.toLocaleString()} Library Duplicates</button>` : ''}
                       <button class="btn primary sm" type="button" id="btn-see-all">Return to All Photos</button>
                     </div>
                   </div>`;
+                const goIdxBtn = host.querySelector('#btn-dup-go-indexed');
+                if (goIdxBtn) goIdxBtn.onclick = () => { dupSourceTab = 'indexed'; render(); };
                 const seeAllBtn = host.querySelector('#btn-see-all');
                 if (seeAllBtn) seeAllBtn.onclick = () => { activeQueue = 'all'; render(); };
                 return;
@@ -6580,11 +7127,12 @@
                     <div>
                       <div style="display:flex;align-items:center;gap:8px;">
                         <span style="font-size:22px;">🔍</span>
-                        <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates (${dupPairs.length} pair${dupPairs.length === 1 ? '' : 's'} detected)</h2>
+                        <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates (${dupPairs.length} pair${dupPairs.length === 1 ? '' : 's'} in active batch)</h2>
                       </div>
                       <p class="muted" style="font-size:13px;margin-top:4px;">
                         Comparing twin scans, matching filenames, and identical files. Safely move duplicate copies to Review &amp; Cleanup or delete them below.
                       </p>
+                      ${dupTabBarHtml}
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                       <div class="btn-group" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
@@ -6618,6 +7166,9 @@
                 `}
               `;
               mountIcons(host);
+
+              const srcIndexedWsBtn = host.querySelector('#btn-dup-src-indexed');
+              if (srcIndexedWsBtn) srcIndexedWsBtn.onclick = () => { dupSourceTab = 'indexed'; render(); };
 
               const btnDupAll = host.querySelector('#btn-dup-mode-all');
               if (btnDupAll) btnDupAll.onclick = () => { dupViewMode = 'all'; render(); };
@@ -6825,16 +7376,20 @@
               </div>` : '';
 
             /* Top action banner for screenshots and review staging queues */
+            const screenIdxStats = (activeQueue === 'screenshots' && typeof getIndexedLibraryStats === 'function')
+              ? getIndexedLibraryStats()
+              : null;
             const queueActionBannerHtml = (activeQueue === 'screenshots') ? `
               <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
                 <div style="display:flex;align-items:center;gap:10px;">
                   <span style="font-size:22px;">📱</span>
                   <div>
-                    <div style="font-weight:600;font-size:14px;color:var(--text);">Clean Screenshots (${list.length} detected)</div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Clean Screenshots (${list.length} in active batch${screenIdxStats && screenIdxStats.indexedScreenshotCount > 0 ? ` · ${screenIdxStats.indexedScreenshotCount.toLocaleString()} in indexed library` : ''})</div>
                     <div class="muted" style="font-size:12px;margin-top:2px;">Phone screenshots and screen captures that clutter family albums. Move them to Review &amp; Cleanup or delete them below.</div>
                   </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  ${screenIdxStats && screenIdxStats.indexedScreenshotCount > 0 ? `<button class="btn sm" type="button" id="btn-browse-idx-screenshots">📚 Browse ${screenIdxStats.indexedScreenshotCount.toLocaleString()} Indexed</button>` : ''}
                   <button class="btn sm" type="button" id="btn-stage-all-screenshots" title="Move all detected screenshots into Review &amp; Cleanup">
                     Move All to Review &amp; Cleanup
                   </button>
@@ -7140,6 +7695,12 @@
               });
             });
 
+            const browseIdxScreenshotsBtn = host.querySelector('#btn-browse-idx-screenshots');
+            if (browseIdxScreenshotsBtn) {
+              browseIdxScreenshotsBtn.onclick = () => {
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('screenshot');
+              };
+            }
             const stageAllScreenshotsBtn = host.querySelector('#btn-stage-all-screenshots');
             if (stageAllScreenshotsBtn) stageAllScreenshotsBtn.onclick = stageAllScreenshots;
             const deleteAllScreenshotsBtn = host.querySelector('#btn-delete-all-screenshots');
@@ -15897,6 +16458,9 @@
         const matchProg = typeof getGedcomMatchProgressCounts === 'function'
           ? getGedcomMatchProgressCounts(gedcomIndexMatches, items)
           : { totalMatches: 0, linkedMatches: 0, remainingMatches: 0 };
+        const idxStats = typeof getIndexedLibraryStats === 'function'
+          ? getIndexedLibraryStats()
+          : { totalIndexed: 0, duplicateExtraCount: 0, duplicateGroupCount: 0 };
 
         const acctCardStyle = (ok) => ok
           ? 'border:1.5px solid #22c55e;background:#f0fdf4;'
@@ -16003,6 +16567,7 @@
               ${extraChipsHtml}
               <span style="${summaryChipStyle(activeCount > 0)}">${activeCount > 0 ? `✓ Working Album: ${activeCount} photo${activeCount === 1 ? '' : 's'}` : '✕ Working Album: Empty'}</span>
               ${matchProg.totalMatches > 0 ? `<span style="${summaryChipStyle(matchProg.remainingMatches === 0)}">${matchProg.remainingMatches === 0 ? `✓ All ${matchProg.linkedMatches.toLocaleString()} PAF Matches Linked` : `⏳ Ready for Step 2: ${matchProg.remainingMatches.toLocaleString()} matches to review · ${matchProg.linkedMatches.toLocaleString()} linked`}</span>` : ''}
+              ${idxStats.duplicateExtraCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;">⚠️ Duplicates Detected: ${idxStats.duplicateExtraCount.toLocaleString()} copies (${idxStats.duplicateGroupCount.toLocaleString()} groups)</span>` : ''}
             </div>
           </div>
 
@@ -18036,7 +18601,8 @@
             size: Number(f.size) || 0,
             lastModified: f.lastModified || Date.now(),
             type: f.type || 'image/jpeg',
-            thumbnailLink: f.thumbnailLink || ''
+            thumbnailLink: f.thumbnailLink || '',
+            md5Checksum: f.md5Checksum || ''
           }));
           const mergedGdrive = typeof mergeIntoGdriveIndex === 'function'
             ? mergeIntoGdriveIndex(gdriveRecords)
@@ -20512,7 +21078,8 @@
               Number(r.lastModified) || 0,
               r.type || 'image/jpeg',
               r.thumbnailLink || '',
-              r.description || ''
+              r.description || '',
+              r.md5Checksum || ''
             ]);
             await setMetaInDb(`${GDRIVE_INDEX_CHUNK_PREFIX}${c}`, compact);
           }
@@ -20563,7 +21130,8 @@
                 lastModified: Number(row[4]) || 0,
                 type: row[5] || 'image/jpeg',
                 thumbnailLink: row[6] || '',
-                description: row[7] || ''
+                description: row[7] || '',
+                md5Checksum: row[8] || ''
               });
             }
           }

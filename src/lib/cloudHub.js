@@ -494,7 +494,7 @@ export async function scanGoogleDriveAllImages(token, options = {}) {
     if (shouldStop()) break;
     const params = new URLSearchParams({
       q: "mimeType contains 'image/' and trashed = false",
-      fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,parents)',
+      fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,parents,md5Checksum)',
       pageSize: '1000',
       supportsAllDrives: 'true',
       includeItemsFromAllDrives: 'true'
@@ -529,6 +529,7 @@ export async function scanGoogleDriveAllImages(token, options = {}) {
         type: f.mimeType || 'image/jpeg',
         lastModified: modMs,
         thumbnailLink: f.thumbnailLink || '',
+        md5Checksum: f.md5Checksum || '',
         path: folderPath,
         webkitRelativePath: `${folderPath}/${f.name}`
       });
@@ -619,7 +620,7 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
         : `'${current.id}' in parents and trashed = false`;
       const params = new URLSearchParams({
         q,
-        fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,shortcutDetails(targetId,targetMimeType))',
+        fields: 'nextPageToken,files(id,name,description,mimeType,size,modifiedTime,thumbnailLink,md5Checksum,shortcutDetails(targetId,targetMimeType))',
         pageSize: '1000',
         supportsAllDrives: 'true',
         includeItemsFromAllDrives: 'true'
@@ -691,6 +692,7 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
             type: f.mimeType || 'image/jpeg',
             lastModified: modMs,
             thumbnailLink: f.thumbnailLink || '',
+            md5Checksum: f.md5Checksum || '',
             path: current.path,
             webkitRelativePath: relPath
           };
