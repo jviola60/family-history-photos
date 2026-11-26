@@ -5464,6 +5464,7 @@
       let idxDupQuery = '';
       let idxDupPage = 1;
       let _idxDupObjectUrls = [];
+      let selectedIdxDupKeys = new Set();
       let idxDupMasterOverrides = new Map();
       let _idxDupOverrideVersion = 0;
       let _writableLocalRootHandle = null;
@@ -5489,6 +5490,7 @@
             duplicateGroupCount: 0,
             duplicateExtraCount: 0,
             duplicateWastedBytes: 0,
+            exactMd5GroupCount: 0,
             driveOnlyGroupCount: 0,
             localOnlyGroupCount: 0,
             crossSourceGroupCount: 0,
@@ -5557,9 +5559,16 @@
           return a.path.length - b.path.length;
         };
 
-        const runBucketPass = (bucketMap, { confidence, reasonBuilder, validateBucket = null }) => {
+        const runBucketPass = (bucketMap, { confidence, reasonBuilder, validateBucket = null, requireConsistentMd5 = false }) => {
           bucketMap.forEach((bucket, key) => {
             if (!bucket || bucket.length < 2) return;
+            if (requireConsistentMd5) {
+              const md5Set = new Set();
+              for (let i = 0; i < bucket.length; i++) {
+                if (bucket[i].md5) md5Set.add(bucket[i].md5);
+              }
+              if (md5Set.size > 1) return;
+            }
             if (validateBucket && !validateBucket(bucket)) return;
             if (ignoredIndexDupGroups.has(key)) {
               for (let i = 0; i < bucket.length; i++) assigned.add(bucket[i].recKey);
@@ -5614,7 +5623,7 @@
           reasonBuilder: () => '100% identical file content (exact MD5 checksum)'
         });
 
-        // Pass 2: Normalized filename + exact byte size
+        // Pass 2: Normalized filename + exact byte size (never group conflicting MD5s)
         const nameSizeMap = new Map();
         for (let i = 0; i < all.length; i++) {
           const item = all[i];
@@ -5628,15 +5637,16 @@
         }
         runBucketPass(nameSizeMap, {
           confidence: 99,
+          requireConsistentMd5: true,
           reasonBuilder: (m) => `Same filename & exact byte size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB)`
         });
 
-        // Pass 3: Exact byte size (>= 30 KB) + exact modified second
+        // Pass 3: Exact byte size (>= 50 KB) + exact modified second (never group conflicting MD5s)
         const sizeTimeMap = new Map();
         for (let i = 0; i < all.length; i++) {
           const item = all[i];
           if (assigned.has(item.recKey)) continue;
-          if (item.size >= 30720 && item.lastModified > 0) {
+          if (item.size >= 51200 && item.lastModified > 0) {
             const k = `st:${item.size}|${Math.floor(item.lastModified / 1000)}`;
             let arr = sizeTimeMap.get(k);
             if (!arr) { arr = []; sizeTimeMap.set(k, arr); }
@@ -5645,49 +5655,15 @@
         }
         runBucketPass(sizeTimeMap, {
           confidence: 97,
+          requireConsistentMd5: true,
           reasonBuilder: (m) => `Exact file size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB) & timestamp`
-        });
-
-        // Pass 4: Descriptive normalized filename copy variants
-        const nameMap = new Map();
-        for (let i = 0; i < all.length; i++) {
-          const item = all[i];
-          if (assigned.has(item.recKey)) continue;
-          if (item.normName && item.normName.length >= 6 && !genericCameraRe.test(item.normName)) {
-            const k = `nm:${item.normName}`;
-            let arr = nameMap.get(k);
-            if (!arr) { arr = []; nameMap.set(k, arr); }
-            arr.push(item);
-          }
-        }
-        runBucketPass(nameMap, {
-          confidence: 93,
-          validateBucket: (bucket) => {
-            const seenPaths = new Set();
-            let sameFolder = false;
-            let hasCopyName = false;
-            let minSz = Infinity;
-            let maxSz = 0;
-            for (let i = 0; i < bucket.length; i++) {
-              const it = bucket[i];
-              if (seenPaths.has(it.path)) sameFolder = true;
-              seenPaths.add(it.path);
-              if (copyMarkerRe.test(it.name)) hasCopyName = true;
-              if (it.size > 0) {
-                if (it.size < minSz) minSz = it.size;
-                if (it.size > maxSz) maxSz = it.size;
-              }
-            }
-            const closeSize = maxSz > 0 && minSz < Infinity && ((maxSz - minSz) / maxSz) <= 0.02;
-            return sameFolder || hasCopyName || closeSize;
-          },
-          reasonBuilder: () => 'Matching filename / copy variant'
         });
 
         duplicateGroups.sort((a, b) => (b.wastedBytes || b.extraCopies * 100000) - (a.wastedBytes || a.extraCopies * 100000));
 
         let duplicateExtraCount = 0;
         let duplicateWastedBytes = 0;
+        let exactMd5GroupCount = 0;
         let driveOnlyGroupCount = 0;
         let localOnlyGroupCount = 0;
         let crossSourceGroupCount = 0;
@@ -5695,6 +5671,7 @@
           const g = duplicateGroups[i];
           duplicateExtraCount += g.extraCopies;
           duplicateWastedBytes += g.wastedBytes;
+          if (g.confidence === 100) exactMd5GroupCount++;
           if (g.scopeType === 'cross') crossSourceGroupCount++;
           else if (g.scopeType === 'gdrive') driveOnlyGroupCount++;
           else localOnlyGroupCount++;
@@ -5706,6 +5683,7 @@
           duplicateGroupCount: duplicateGroups.length,
           duplicateExtraCount,
           duplicateWastedBytes,
+          exactMd5GroupCount,
           driveOnlyGroupCount,
           localOnlyGroupCount,
           crossSourceGroupCount,
@@ -6039,6 +6017,7 @@
         }
 
         if (succeeded > 0) {
+          uniqueTargets.forEach((e) => selectedIdxDupKeys.delete(e.recKey));
           photoLibraryIndex.indexVersion++;
           if (removedDriveIds.size > 0 && typeof saveGdriveIndexToDb === 'function') {
             await saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
@@ -7173,7 +7152,7 @@
                           <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates Across Your ${idxStats.totalIndexed.toLocaleString()} Indexed Photos</h2>
                         </div>
                         <p class="muted" style="font-size:13px;margin:4px 0 0;">
-                          Found <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> extra duplicate copies across <strong>${idxStats.duplicateGroupCount.toLocaleString()}</strong> groups${idxStats.duplicateWastedBytes > 0 ? ` (~<strong>${fmtBytes(idxStats.duplicateWastedBytes)}</strong> reclaimable)` : ''}. Matched by exact MD5 checksum, filename + byte size, timestamp, and copy variants.
+                          Found <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> extra duplicate copies across <strong>${idxStats.duplicateGroupCount.toLocaleString()}</strong> groups${idxStats.duplicateWastedBytes > 0 ? ` (~<strong>${fmtBytes(idxStats.duplicateWastedBytes)}</strong> reclaimable)` : ''}. Matched strictly by exact MD5 checksum (100%), identical filename + exact byte size (99%), or identical byte size + timestamp (97%) — never by filename alone.
                         </p>
                         ${dupTabBarHtml}
                       </div>
@@ -7189,6 +7168,7 @@
                     </div>
                     <div id="idx-dup-controls" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
                       <button class="btn sm ${idxDupFilter === 'all' ? 'primary' : ''}" type="button" data-idx-dup-filter="all">All (${idxStats.duplicateGroupCount.toLocaleString()})</button>
+                      ${idxStats.exactMd5GroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'md5' ? 'primary' : ''}" type="button" data-idx-dup-filter="md5">✓ 100% Exact MD5 (${idxStats.exactMd5GroupCount.toLocaleString()})</button>` : ''}
                       <button class="btn sm ${idxDupFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="gdrive">☁️ Google Drive Only (${idxStats.driveOnlyGroupCount.toLocaleString()})</button>
                       <button class="btn sm ${idxDupFilter === 'local' ? 'primary' : ''}" type="button" data-idx-dup-filter="local">📁 Local Folder Only (${idxStats.localOnlyGroupCount.toLocaleString()})</button>
                       <button class="btn sm ${idxDupFilter === 'cross' ? 'primary' : ''}" type="button" data-idx-dup-filter="cross">🔀 In Both Drive &amp; Local (${idxStats.crossSourceGroupCount.toLocaleString()})</button>
@@ -7221,6 +7201,17 @@
                 const resultsEl = host.querySelector('#idx-dup-results');
                 const bannerEl = host.querySelector('#idx-dup-thumb-banner');
 
+                const allCopyByRecKey = new Map();
+                for (let gi = 0; gi < idxStats.duplicateGroups.length; gi++) {
+                  const grp = idxStats.duplicateGroups[gi];
+                  for (let ci = 1; ci < grp.items.length; ci++) {
+                    allCopyByRecKey.set(grp.items[ci].recKey, grp.items[ci]);
+                  }
+                }
+                Array.from(selectedIdxDupKeys).forEach((rk) => {
+                  if (!allCopyByRecKey.has(rk)) selectedIdxDupKeys.delete(rk);
+                });
+
                 const renderIdxDupResults = () => {
                   if (_idxDupObjectUrls.length) {
                     _idxDupObjectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
@@ -7229,7 +7220,11 @@
 
                   const q = (idxDupQuery || '').trim().toLowerCase();
                   const filtered = idxStats.duplicateGroups.filter((g) => {
-                    if (idxDupFilter !== 'all' && g.scopeType !== idxDupFilter) return false;
+                    if (idxDupFilter === 'md5') {
+                      if (g.confidence !== 100) return false;
+                    } else if (idxDupFilter !== 'all' && g.scopeType !== idxDupFilter) {
+                      return false;
+                    }
                     if (!q) return true;
                     for (let i = 0; i < g.items.length; i++) {
                       const it = g.items[i];
@@ -7260,17 +7255,21 @@
                   const zoomMetaList = [];
                   const pageCopyCount = pageGroups.reduce((acc, g) => acc + Math.max(0, g.items.length - 1), 0);
                   const filteredCopyCount = filtered.reduce((acc, g) => acc + Math.max(0, g.items.length - 1), 0);
+                  const selCount = selectedIdxDupKeys.size;
 
                   const bulkBarHtml = `
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
-                      <span style="font-size:12.5px;color:var(--muted);">Bulk actions keep every <strong style="color:#15803d;">★ Keep (Master)</strong> copy safe:</span>
+                    <div id="idx-dup-sticky-bar" style="position:sticky;top:8px;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1.5px solid #cbd5e1;border-radius:10px;margin-bottom:12px;box-shadow:0 4px 14px rgba(15,23,42,0.08);flex-wrap:wrap;">
                       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <button class="btn sm" type="button" id="btn-idx-move-page" title="Move duplicate copies on this page to _Duplicates_Review / Trash">📁 Move Page Copies (${pageCopyCount.toLocaleString()})</button>
-                        <button class="btn sm danger" type="button" id="btn-idx-del-page" title="Permanently delete all duplicate copies on this page from disk / Drive">🗑️ Delete Page Copies (${pageCopyCount.toLocaleString()})</button>
-                        ${filtered.length > pageGroups.length ? `
-                          <button class="btn sm" type="button" id="btn-idx-move-all" title="Move all filtered duplicate copies to _Duplicates_Review / Trash">📁 Move All (${filteredCopyCount.toLocaleString()})</button>
-                          <button class="btn sm danger" type="button" id="btn-idx-del-all" title="Permanently delete all filtered duplicate copies from disk / Drive">🗑️ Delete All (${filteredCopyCount.toLocaleString()})</button>
-                        ` : ''}
+                        <button class="btn sm" type="button" id="btn-idx-select-page" title="Check or uncheck all duplicate copies shown on this page">☑ Select Page (${pageCopyCount.toLocaleString()})</button>
+                        <button class="btn sm" type="button" id="btn-idx-clear-selected" ${selCount === 0 ? 'disabled' : ''}>☐ Clear Selected</button>
+                        <span id="idx-dup-sel-badge" class="pill ${selCount > 0 ? 'info' : 'neu'}" style="font-size:12px;font-weight:700;">${selCount.toLocaleString()} checked</span>
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn sm primary" type="button" id="btn-idx-move-selected" ${selCount === 0 ? 'disabled' : ''} title="Move only your checked duplicate copies to _Duplicates_Review / Drive Trash">📁 Move Selected (${selCount.toLocaleString()})</button>
+                        <button class="btn sm danger" type="button" id="btn-idx-del-selected" ${selCount === 0 ? 'disabled' : ''} title="Permanently delete only your checked duplicate copies from disk / Drive">🗑️ Delete Selected (${selCount.toLocaleString()})</button>
+                        <span style="width:1px;height:20px;background:var(--border);margin:0 2px;"></span>
+                        <button class="btn sm" type="button" id="btn-idx-move-all" title="Move all ${filteredCopyCount.toLocaleString()} filtered duplicate copies (keeping every ★ Master)">📁 Move All (${filteredCopyCount.toLocaleString()})</button>
+                        <button class="btn sm danger" type="button" id="btn-idx-del-all" title="Permanently delete all ${filteredCopyCount.toLocaleString()} filtered duplicate copies (keeping every ★ Master)">🗑️ Delete All (${filteredCopyCount.toLocaleString()})</button>
                       </div>
                     </div>`;
 
@@ -7287,6 +7286,7 @@
                   const cardsHtml = pageGroups.map((g, gIdx) => {
                     const copiesHtml = g.items.map((it, cIdx) => {
                       const isMaster = cIdx === 0;
+                      const isChecked = !isMaster && selectedIdxDupKeys.has(it.recKey);
                       let thumbSrc = '';
                       let isDrive = it.source === 'gdrive';
                       let cloudId = '';
@@ -7308,11 +7308,24 @@
                         subtitle: `${isDrive ? 'Google Drive' : 'Local Folder'} · ${it.path} · ${fmtBytes(it.size)}`
                       });
                       const dateStr = it.lastModified ? new Date(it.lastModified).toISOString().slice(0, 10) : '';
+                      const cardBorder = isMaster
+                        ? '2px solid #22c55e'
+                        : (isChecked ? '2px solid #2563eb' : '1px solid var(--border)');
+                      const cardBg = isMaster
+                        ? 'var(--surface)'
+                        : (isChecked ? '#eff6ff' : 'var(--raised)');
                       return `
-                        <div style="border:${isMaster ? '2px solid #22c55e' : '1px solid var(--border)'};border-radius:8px;padding:10px;background:${isMaster ? 'var(--surface)' : 'var(--raised)'};display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                        <div ${!isMaster ? `data-copy-card-key="${esc(it.recKey)}"` : ''} style="border:${cardBorder};border-radius:8px;padding:10px;background:${cardBg};display:flex;flex-direction:column;justify-content:space-between;gap:8px;transition:border-color 0.12s,background 0.12s;">
                           <div style="display:flex;flex-direction:column;gap:8px;">
                             <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-                              <span class="pill ${isMaster ? 'pos' : 'warn'}" style="font-size:11px;font-weight:700;">${isMaster ? '★ Keep (Master)' : `⚠️ Duplicate Copy #${cIdx}`}</span>
+                              ${isMaster ? `
+                                <span class="pill pos" style="font-size:11px;font-weight:700;">★ Keep (Master)</span>
+                              ` : `
+                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;" title="Check to include in Move Selected / Delete Selected">
+                                  <input type="checkbox" class="idx-dup-copy-chk" data-rec-key="${esc(it.recKey)}" data-group-key="${esc(g.key)}" ${isChecked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
+                                  <span class="pill warn" style="font-size:11px;font-weight:700;">⚠️ Copy #${cIdx}</span>
+                                </label>
+                              `}
                               <span class="pill neu" style="font-size:10.5px;">${isDrive ? '☁️ Drive' : '📁 Local'}</span>
                             </div>
                             <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
@@ -7335,6 +7348,7 @@
                         </div>`;
                     }).join('');
 
+                    const copyCountLbl = g.items.length - 1;
                     return `
                       <div class="panel" style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
                         <div style="background:var(--raised);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);">
@@ -7347,6 +7361,10 @@
                             <div class="muted" style="font-size:12px;margin-top:2px;">${esc(g.reason)}</div>
                           </div>
                           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;padding:4px 9px;border-radius:6px;background:var(--surface);border:1px solid var(--border);" title="Check or uncheck all ${copyCountLbl} duplicate cop${copyCountLbl === 1 ? 'y' : 'ies'} in this group">
+                              <input type="checkbox" class="idx-dup-group-chk" data-group-key="${esc(g.key)}" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;">
+                              <span>Select ${copyCountLbl} ${copyCountLbl === 1 ? 'copy' : 'copies'}</span>
+                            </label>
                             <button class="btn sm" type="button" data-move-idx-group="${gIdx}" title="Move duplicate copy/copies in this group to _Duplicates_Review / Trash">📁 Move Copy to Review</button>
                             <button class="btn sm danger" type="button" data-del-idx-group="${gIdx}" title="Permanently delete duplicate copy/copies in this group from disk / Drive">🗑️ Delete Copy Permanently</button>
                             <button class="btn sm" type="button" data-ignore-idx-dup="${esc(g.key)}" title="Hide this group from duplicate warnings">✓ Keep All (Not Duplicate)</button>
@@ -7360,6 +7378,89 @@
 
                   resultsEl.innerHTML = `${bulkBarHtml}${pagerHtml}${cardsHtml}${totalPages > 1 ? pagerHtml : ''}`;
 
+                  const syncIdxDupSelectionUi = () => {
+                    const nSel = selectedIdxDupKeys.size;
+                    const badgeEl = resultsEl.querySelector('#idx-dup-sel-badge');
+                    if (badgeEl) {
+                      badgeEl.textContent = `${nSel.toLocaleString()} checked`;
+                      badgeEl.className = `pill ${nSel > 0 ? 'info' : 'neu'}`;
+                    }
+                    const clrBtn = resultsEl.querySelector('#btn-idx-clear-selected');
+                    if (clrBtn) clrBtn.disabled = nSel === 0;
+                    const mvSelBtn = resultsEl.querySelector('#btn-idx-move-selected');
+                    if (mvSelBtn) {
+                      mvSelBtn.disabled = nSel === 0;
+                      mvSelBtn.textContent = `📁 Move Selected (${nSel.toLocaleString()})`;
+                    }
+                    const delSelBtn = resultsEl.querySelector('#btn-idx-del-selected');
+                    if (delSelBtn) {
+                      delSelBtn.disabled = nSel === 0;
+                      delSelBtn.textContent = `🗑️ Delete Selected (${nSel.toLocaleString()})`;
+                    }
+                    const selPageBtn = resultsEl.querySelector('#btn-idx-select-page');
+                    if (selPageBtn) {
+                      let pageTotal = 0;
+                      let pageChecked = 0;
+                      pageGroups.forEach((g) => {
+                        for (let ci = 1; ci < g.items.length; ci++) {
+                          pageTotal++;
+                          if (selectedIdxDupKeys.has(g.items[ci].recKey)) pageChecked++;
+                        }
+                      });
+                      selPageBtn.textContent = (pageTotal > 0 && pageChecked === pageTotal)
+                        ? `☐ Unselect Page (${pageTotal.toLocaleString()})`
+                        : `☑ Select Page (${pageTotal.toLocaleString()})`;
+                    }
+                    resultsEl.querySelectorAll('.idx-dup-group-chk').forEach((gChk) => {
+                      const gk = gChk.getAttribute('data-group-key');
+                      const grp = pageGroups.find((x) => x.key === gk);
+                      if (!grp) return;
+                      const tot = Math.max(0, grp.items.length - 1);
+                      let chk = 0;
+                      for (let ci = 1; ci < grp.items.length; ci++) {
+                        if (selectedIdxDupKeys.has(grp.items[ci].recKey)) chk++;
+                      }
+                      gChk.checked = tot > 0 && chk === tot;
+                      gChk.indeterminate = chk > 0 && chk < tot;
+                    });
+                    resultsEl.querySelectorAll('[data-copy-card-key]').forEach((card) => {
+                      const rk = card.getAttribute('data-copy-card-key');
+                      const checked = selectedIdxDupKeys.has(rk);
+                      card.style.border = checked ? '2px solid #2563eb' : '1px solid var(--border)';
+                      card.style.background = checked ? '#eff6ff' : 'var(--raised)';
+                    });
+                  };
+
+                  resultsEl.querySelectorAll('.idx-dup-copy-chk').forEach((chkEl) => {
+                    chkEl.onchange = () => {
+                      const rk = chkEl.getAttribute('data-rec-key');
+                      if (!rk) return;
+                      if (chkEl.checked) selectedIdxDupKeys.add(rk);
+                      else selectedIdxDupKeys.delete(rk);
+                      syncIdxDupSelectionUi();
+                    };
+                  });
+                  resultsEl.querySelectorAll('.idx-dup-group-chk').forEach((gChk) => {
+                    gChk.onchange = () => {
+                      const gk = gChk.getAttribute('data-group-key');
+                      const grp = pageGroups.find((x) => x.key === gk);
+                      if (!grp) return;
+                      const want = gChk.checked;
+                      const recKeysInGroup = new Set();
+                      for (let ci = 1; ci < grp.items.length; ci++) {
+                        const rk = grp.items[ci].recKey;
+                        recKeysInGroup.add(rk);
+                        if (want) selectedIdxDupKeys.add(rk);
+                        else selectedIdxDupKeys.delete(rk);
+                      }
+                      resultsEl.querySelectorAll('.idx-dup-copy-chk').forEach((cEl) => {
+                        const rk = cEl.getAttribute('data-rec-key');
+                        if (recKeysInGroup.has(rk)) cEl.checked = want;
+                      });
+                      syncIdxDupSelectionUi();
+                    };
+                  });
+
                   const collectCopies = (groups) => {
                     const out = [];
                     groups.forEach((g) => {
@@ -7367,10 +7468,45 @@
                     });
                     return out;
                   };
-                  const btnMovePage = resultsEl.querySelector('#btn-idx-move-page');
-                  if (btnMovePage) btnMovePage.onclick = () => executeIndexedDuplicateAction(collectCopies(pageGroups), 'review', { label: 'this page' });
-                  const btnDelPage = resultsEl.querySelector('#btn-idx-del-page');
-                  if (btnDelPage) btnDelPage.onclick = () => executeIndexedDuplicateAction(collectCopies(pageGroups), 'delete', { label: 'this page' });
+                  const btnSelectPage = resultsEl.querySelector('#btn-idx-select-page');
+                  if (btnSelectPage) {
+                    btnSelectPage.onclick = () => {
+                      const pageCopies = collectCopies(pageGroups);
+                      const allOnPageSelected = pageCopies.length > 0 && pageCopies.every((c) => selectedIdxDupKeys.has(c.recKey));
+                      pageCopies.forEach((c) => {
+                        if (allOnPageSelected) selectedIdxDupKeys.delete(c.recKey);
+                        else selectedIdxDupKeys.add(c.recKey);
+                      });
+                      const pageKeySet = new Set(pageCopies.map((c) => c.recKey));
+                      resultsEl.querySelectorAll('.idx-dup-copy-chk').forEach((cEl) => {
+                        const rk = cEl.getAttribute('data-rec-key');
+                        if (pageKeySet.has(rk)) cEl.checked = !allOnPageSelected;
+                      });
+                      syncIdxDupSelectionUi();
+                    };
+                  }
+                  const btnClearSel = resultsEl.querySelector('#btn-idx-clear-selected');
+                  if (btnClearSel) {
+                    btnClearSel.onclick = () => {
+                      selectedIdxDupKeys.clear();
+                      resultsEl.querySelectorAll('.idx-dup-copy-chk').forEach((cEl) => { cEl.checked = false; });
+                      syncIdxDupSelectionUi();
+                    };
+                  }
+                  const btnMoveSel = resultsEl.querySelector('#btn-idx-move-selected');
+                  if (btnMoveSel) {
+                    btnMoveSel.onclick = () => {
+                      const entries = Array.from(selectedIdxDupKeys).map((rk) => allCopyByRecKey.get(rk)).filter(Boolean);
+                      executeIndexedDuplicateAction(entries, 'review', { label: `${entries.length.toLocaleString()} checked copies` });
+                    };
+                  }
+                  const btnDelSel = resultsEl.querySelector('#btn-idx-del-selected');
+                  if (btnDelSel) {
+                    btnDelSel.onclick = () => {
+                      const entries = Array.from(selectedIdxDupKeys).map((rk) => allCopyByRecKey.get(rk)).filter(Boolean);
+                      executeIndexedDuplicateAction(entries, 'delete', { label: `${entries.length.toLocaleString()} checked copies` });
+                    };
+                  }
                   const btnMoveAll = resultsEl.querySelector('#btn-idx-move-all');
                   if (btnMoveAll) btnMoveAll.onclick = () => executeIndexedDuplicateAction(collectCopies(filtered), 'review', { label: 'all filtered groups' });
                   const btnDelAll = resultsEl.querySelector('#btn-idx-del-all');
@@ -7407,6 +7543,7 @@
                       const gk = b.getAttribute('data-swap-idx-master');
                       const rk = b.getAttribute('data-swap-rec');
                       if (gk && rk) {
+                        selectedIdxDupKeys.delete(rk);
                         idxDupMasterOverrides.set(gk, rk);
                         _idxDupOverrideVersion++;
                         notify('Updated master photo for this duplicate group.');
@@ -7414,6 +7551,8 @@
                       }
                     };
                   });
+
+                  syncIdxDupSelectionUi();
 
                   resultsEl.querySelectorAll('.idx-dup-prev').forEach((b) => {
                     b.onclick = () => { if (idxDupPage > 1) { idxDupPage--; renderIdxDupResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
