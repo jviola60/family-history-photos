@@ -4128,6 +4128,15 @@
         localFolderName: '',
         indexVersion: 0
       };
+      const GDRIVE_INDEX_META_KEY = 'gdrive_photo_index_meta_v1';
+      const GDRIVE_INDEX_CHUNK_PREFIX = 'gdrive_photo_index_chunk_';
+      const GDRIVE_INDEX_CHUNK_SIZE = 10000;
+      let _gdriveIndexRestoreStarted = false;
+      const LOCAL_INDEX_META_KEY = 'local_photo_index_meta_v1';
+      const LOCAL_INDEX_CHUNK_PREFIX = 'local_photo_index_chunk_';
+      const LOCAL_INDEX_CHUNK_SIZE = 10000;
+      const LOCAL_ROOT_DIR_HANDLE_KEY = 'local_root_dir_handle_v1';
+      let _localIndexRestoreStarted = false;
       let gedcomIndexMatches = {
         strongMatches: [],
         possibleMatches: [],
@@ -5727,7 +5736,47 @@
           throw new Error(`Write permission to "${handle.name}" was declined.`);
         }
         _writableLocalRootHandle = handle;
+        if (typeof setMetaInDb === 'function') {
+          setMetaInDb(LOCAL_ROOT_DIR_HANDLE_KEY, handle).catch(() => {});
+        }
         return handle;
+      }
+
+      async function restoreLocalRootHandleFromDb() {
+        if (_writableLocalRootHandle || typeof getMetaFromDb !== 'function') return null;
+        try {
+          const saved = await getMetaFromDb(LOCAL_ROOT_DIR_HANDLE_KEY);
+          if (saved && typeof saved.getDirectoryHandle === 'function') {
+            _writableLocalRootHandle = saved;
+            return saved;
+          }
+        } catch (_) {}
+        return null;
+      }
+
+      async function resolveLocalRecordFile(rec, { promptIfNeeded = false } = {}) {
+        if (!rec) return null;
+        if (rec.fileObj) return rec.fileObj;
+        let rootHandle = _writableLocalRootHandle;
+        if (!rootHandle && promptIfNeeded) {
+          rootHandle = await ensureWritableLocalFolderHandle(photoLibraryIndex.localFolderName || rootFolderName || '');
+        }
+        if (!rootHandle) return null;
+        try {
+          if (typeof rootHandle.queryPermission === 'function') {
+            let perm = await rootHandle.queryPermission({ mode: 'read' });
+            if (perm !== 'granted' && promptIfNeeded && typeof rootHandle.requestPermission === 'function') {
+              perm = await rootHandle.requestPermission({ mode: 'read' });
+            }
+            if (perm !== 'granted') return null;
+          }
+          const { fileHandle } = await resolveLocalFileInRoot(rootHandle, rec);
+          const f = await fileHandle.getFile();
+          rec.fileObj = f;
+          return f;
+        } catch (_) {
+          return null;
+        }
       }
 
       async function getUniqueFileNameInDir(dirHandle, originalName) {
@@ -6022,6 +6071,9 @@
           if (removedDriveIds.size > 0 && typeof saveGdriveIndexToDb === 'function') {
             await saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
           }
+          if ((removedLocalIds.size > 0 || removedLocalRelPaths.size > 0) && typeof saveLocalIndexToDb === 'function') {
+            await saveLocalIndexToDb(photoLibraryIndex.local, photoLibraryIndex.localFolderName || 'Local Folder');
+          }
           if (window._activeGedcomData && typeof refreshGedcomIndexMatches === 'function') {
             refreshGedcomIndexMatches().catch(() => {});
           }
@@ -6292,10 +6344,13 @@
 
         const toggleDemoBtn = document.getElementById('btn-toggle-demo');
         const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
-        if (items.length === 0) {
+        const hasAnyPhotos = items.length > 0
+          || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
+          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0);
+        if (!hasAnyPhotos) {
           if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
           if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
-        } else if (isCustomFolder) {
+        } else if (isCustomFolder || photoLibraryIndex.gdrive.length > 0 || photoLibraryIndex.local.length > 0) {
           if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
           if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
         } else {
@@ -17144,7 +17199,7 @@
                 ` : `
                   <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
                 `}
-                ${items.length > 0 ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
+                ${(items.length > 0 || driveCount > 0 || localCount > 0) ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
               </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:7px;">
@@ -18425,6 +18480,9 @@
           }));
           photoLibraryIndex.localFolderName = rootFolderName;
           photoLibraryIndex.indexVersion++;
+          if (typeof saveLocalIndexToDb === 'function') {
+            saveLocalIndexToDb(photoLibraryIndex.local, rootFolderName).catch(() => {});
+          }
           if (typeof recordGatheredSource === 'function') {
             recordGatheredSource('local', { label: 'Computer Folder', count: imgFiles.length });
           }
@@ -18460,9 +18518,25 @@
       }
 
       async function clearAllPhotos() {
+        const driveCnt = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
+        const localCnt = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const activeCnt = items.length;
+        if (isCustomFolder || driveCnt > 0 || localCnt > 0) {
+          const parts = [
+            activeCnt > 0 ? `${activeCnt.toLocaleString()} active workspace print${activeCnt === 1 ? '' : 's'}` : '',
+            driveCnt > 0 ? `${driveCnt.toLocaleString()} indexed Google Drive photos` : '',
+            localCnt > 0 ? `${localCnt.toLocaleString()} indexed Local Folder photos` : ''
+          ].filter(Boolean);
+          const ok = window.confirm(`Clear ${parts.join(', ')}?\n\nYour Family Tree (.ged) and linked-photo history will stay safely saved.`);
+          if (!ok) return;
+        }
         await clearArchiveFromDb({ keepDemoCleared: true });
+        if (typeof clearGdriveIndexFromDb === 'function') await clearGdriveIndexFromDb();
+        if (typeof clearLocalIndexFromDb === 'function') await clearLocalIndexFromDb();
+        if (typeof setMetaInDb === 'function') await setMetaInDb(LOCAL_ROOT_DIR_HANDLE_KEY, null);
         try {
           localStorage.setItem('fhp_demo_cleared', '1');
+          localStorage.removeItem('fhp_gathered_sources_v1');
         } catch (e) {}
         await setMetaInDb('demoCleared', true);
         await setMetaInDb('isCustom', true);
@@ -18470,6 +18544,22 @@
         activeFolderBatchIndex = 0;
         duplicateResolved = false;
         ignoredDupPairKeys = new Set();
+        selectedIdxDupKeys.clear();
+        _writableLocalRootHandle = null;
+        photoLibraryIndex.gdrive = [];
+        photoLibraryIndex.gdriveScannedAt = 0;
+        photoLibraryIndex.gdriveFolderName = '';
+        photoLibraryIndex.local = [];
+        photoLibraryIndex.localFolderName = '';
+        photoLibraryIndex.indexVersion++;
+        gedcomIndexMatches = {
+          strongMatches: [],
+          possibleMatches: [],
+          byPersonId: new Map(),
+          scannedCount: 0,
+          indexVersion: -1,
+          gedFileName: ''
+        };
         items = [];
         rootFolderName = '(No folder opened)';
         isCustomFolder = true;
@@ -18477,12 +18567,15 @@
         activeQueue = 'all';
         catalogPage = 1;
         selectedId = null;
-        notify('Cleared sample photos. Choose a photo folder or pick photos to start working with your real photos.');
+        notify('Cleared all current photos and saved Drive/Local indexes. Your Family Tree (.ged) is still saved.');
         render();
       }
 
       function handleToggleDemo() {
-        if (items.length === 0) {
+        const hasAny = items.length > 0
+          || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
+          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0);
+        if (!hasAny) {
           resetToSampleArchive();
         } else {
           clearAllPhotos();
@@ -19155,8 +19248,10 @@
       setAppLoadingProgress(85, 'Rendering photo ledger...');
       render();
 
-      restoreSavedGedcomFromDb().catch(() => {});
-      restoreGdriveIndexFromDb().catch(() => {});
+      restoreSavedGedcomFromDb().catch((e) => console.warn('GEDCOM restore failed:', e));
+      restoreLocalRootHandleFromDb().catch(() => {});
+      restoreGdriveIndexFromDb().catch((e) => console.warn('Google Drive index restore failed:', e));
+      restoreLocalIndexFromDb().catch((e) => console.warn('Local folder index restore failed:', e));
       
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth().catch(() => {});
@@ -21643,10 +21738,6 @@
       /* =====================================================================
          UNIFIED PHOTO LIBRARY INDEX (Google Drive 17k-116k+ & Local Folder)
          ===================================================================== */
-      const GDRIVE_INDEX_META_KEY = 'gdrive_photo_index_meta_v1';
-      const GDRIVE_INDEX_CHUNK_PREFIX = 'gdrive_photo_index_chunk_';
-      const GDRIVE_INDEX_CHUNK_SIZE = 10000;
-      let _gdriveIndexRestoreStarted = false;
 
       function mergeIntoGdriveIndex(newRecords) {
         const existing = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive : [];
@@ -21763,12 +21854,118 @@
             if (window._activeGedcomData) {
               await refreshGedcomIndexMatches();
             }
-            if ((mode === 'catalog' && (layout === 'people' || activeQueue === 'duplicates')) || mode === 'gather') {
-              render();
-            }
+            render();
           }
         } catch (err) {
           console.warn('Could not restore Google Drive photo index:', err);
+        }
+      }
+
+      async function clearGdriveIndexFromDb() {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(GDRIVE_INDEX_META_KEY);
+          const chunks = (meta && Number(meta.chunkCount)) || 0;
+          for (let c = 0; c < chunks; c++) {
+            await setMetaInDb(`${GDRIVE_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(GDRIVE_INDEX_META_KEY, null);
+        } catch (err) {
+          console.warn('Could not clear saved Google Drive photo index:', err);
+        }
+      }
+
+      async function saveLocalIndexToDb(records, folderName = 'Local Folder') {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
+        try {
+          const prevMeta = await getMetaFromDb(LOCAL_INDEX_META_KEY);
+          const prevChunks = (prevMeta && Number(prevMeta.chunkCount)) || 0;
+          const totalCount = Array.isArray(records) ? records.length : 0;
+          const chunkCount = Math.ceil(totalCount / LOCAL_INDEX_CHUNK_SIZE);
+          for (let c = 0; c < chunkCount; c++) {
+            const slice = records.slice(c * LOCAL_INDEX_CHUNK_SIZE, (c + 1) * LOCAL_INDEX_CHUNK_SIZE);
+            const compact = slice.map((r) => [
+              r.id || '',
+              r.name || '',
+              r.path || '',
+              r.webkitRelativePath || '',
+              Number(r.size) || 0,
+              Number(r.lastModified) || 0,
+              r.type || 'image/jpeg'
+            ]);
+            await setMetaInDb(`${LOCAL_INDEX_CHUNK_PREFIX}${c}`, compact);
+          }
+          for (let c = chunkCount; c < prevChunks; c++) {
+            await setMetaInDb(`${LOCAL_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(LOCAL_INDEX_META_KEY, {
+            version: 1,
+            totalCount,
+            chunkCount,
+            scannedAt: Date.now(),
+            folderName: folderName || 'Local Folder'
+          });
+          return true;
+        } catch (err) {
+          console.warn('Could not persist local folder photo index:', err);
+          return false;
+        }
+      }
+
+      async function clearLocalIndexFromDb() {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(LOCAL_INDEX_META_KEY);
+          const chunks = (meta && Number(meta.chunkCount)) || 0;
+          for (let c = 0; c < chunks; c++) {
+            await setMetaInDb(`${LOCAL_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(LOCAL_INDEX_META_KEY, null);
+        } catch (err) {
+          console.warn('Could not clear saved local folder photo index:', err);
+        }
+      }
+
+      async function restoreLocalIndexFromDb() {
+        if (_localIndexRestoreStarted) return;
+        _localIndexRestoreStarted = true;
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(LOCAL_INDEX_META_KEY);
+          if (!meta || !meta.totalCount || !meta.chunkCount) return;
+          const restored = [];
+          for (let c = 0; c < meta.chunkCount; c++) {
+            const chunk = await getMetaFromDb(`${LOCAL_INDEX_CHUNK_PREFIX}${c}`);
+            if (!Array.isArray(chunk)) continue;
+            for (let i = 0; i < chunk.length; i++) {
+              const row = chunk[i];
+              if (!Array.isArray(row) || !row[1]) continue;
+              const path = row[2] || meta.folderName || 'Local Folder';
+              restored.push({
+                source: 'local',
+                id: row[0] || `local:${restored.length}:${row[1]}`,
+                name: row[1],
+                path,
+                webkitRelativePath: row[3] || `${path}/${row[1]}`,
+                size: Number(row[4]) || 0,
+                lastModified: Number(row[5]) || 0,
+                type: row[6] || 'image/jpeg',
+                fileObj: null
+              });
+            }
+          }
+          if (restored.length > 0) {
+            photoLibraryIndex.local = restored;
+            photoLibraryIndex.localFolderName = meta.folderName || 'Local Folder';
+            photoLibraryIndex.indexVersion++;
+            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+            if (window._activeGedcomData) {
+              await refreshGedcomIndexMatches();
+            }
+            render();
+          }
+        } catch (err) {
+          console.warn('Could not restore local folder photo index:', err);
         }
       }
 
@@ -21972,7 +22169,7 @@
             const existing = (entry.cloudId && byCloudId.get(entry.cloudId)) || byFileName.get(String(entry.name || '').toLowerCase());
             if (existing) loadedOnly.push(existing);
             else driveQueue.push(entry);
-          } else if (entry.source === 'local' && entry.fileObj) {
+          } else if (entry.source === 'local') {
             const existing = byFileName.get(String(entry.name || '').toLowerCase());
             if (existing) loadedOnly.push(existing);
             else localQueue.push(entry);
@@ -21989,7 +22186,10 @@
 
         for (let i = 0; i < localQueue.length; i++) {
           const entry = localQueue[i];
-          const f = entry.fileObj;
+          const f = entry.fileObj || (typeof resolveLocalRecordFile === 'function'
+            ? await resolveLocalRecordFile(entry, { promptIfNeeded: true })
+            : null);
+          if (!f) continue;
           const relParts = String(f.webkitRelativePath || entry.path || '').split(/[\\/]/).filter(Boolean);
           const subFolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : (photoLibraryIndex.localFolderName || rootFolderName);
           const rec = createLocalPhotoItem(f, makeUniqueId(), subFolder, {
@@ -22136,8 +22336,11 @@
               linkedSet.add(target.id);
             }
             if (!firstPhotoId) firstPhotoId = target.id;
-          } else if (rec.source === 'local' && rec.fileObj) {
-            const f = rec.fileObj;
+          } else if (rec.source === 'local') {
+            const f = rec.fileObj || (typeof resolveLocalRecordFile === 'function'
+              ? await resolveLocalRecordFile(rec, { promptIfNeeded: true })
+              : null);
+            if (!f) continue;
             const relParts = String(f.webkitRelativePath || rec.path || '').split(/[\\/]/).filter(Boolean);
             const subFolder = relParts.length > 2 ? relParts.slice(1, -1).join(' / ') : (photoLibraryIndex.localFolderName || rootFolderName);
             const created = createLocalPhotoItem(f, makeUniqueId(), subFolder, {
@@ -22322,6 +22525,9 @@
           photoLibraryIndex.localFolderName = scannedRootName;
           photoLibraryIndex.indexVersion++;
           if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+          if (typeof saveLocalIndexToDb === 'function') {
+            await saveLocalIndexToDb(localRecords, scannedRootName);
+          }
 
           if (localRecords.length === 0) {
             hideImportProgress();
@@ -23584,6 +23790,9 @@
             }));
             photoLibraryIndex.localFolderName = rootNm;
             photoLibraryIndex.indexVersion++;
+            if (typeof saveLocalIndexToDb === 'function') {
+              saveLocalIndexToDb(photoLibraryIndex.local, rootNm).catch(() => {});
+            }
             selectedSource = 'local';
             renderSourceBtns();
             statusEl.textContent = `Ready: ${photoLibraryIndex.local.length.toLocaleString()} photos in "${rootNm}". Click Start to scan 5 at a time.`;
