@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 const CLOUD_SETTINGS_KEY = 'fhp_cloud_settings_v1';
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|avif|heic|tiff?)$/i;
 export const DEFAULT_GOOGLE_CLIENT_ID = '1061905446657-a8qontau11bbj658t7jk3q4r7i6m54fa.apps.googleusercontent.com';
-export const DEFAULT_MICROSOFT_CLIENT_ID = '';
+export const DEFAULT_MICROSOFT_CLIENT_ID = '499ba759-9a52-42e0-b773-6913f1d024ea';
 
 export function getCloudSettings() {
   try {
@@ -898,6 +898,11 @@ export async function requestOneDriveToken(clientId, options = {}) {
     throw new Error('One-time Microsoft App Client ID needed for direct cloud sign-in (or use "Pick Personal OneDrive Folder on This PC" above with zero setup).');
   }
 
+  const OD_AUTH_STORAGE_KEY = 'fhp_onedrive_auth_result_v1';
+  try {
+    localStorage.removeItem(OD_AUTH_STORAGE_KEY);
+  } catch {}
+
   const tenant = (options && options.tenant) === 'common' ? 'common' : 'consumers';
   const redirectUri = `${window.location.origin}${window.location.pathname}`;
   const state = `od_${Math.random().toString(36).slice(2)}_${Date.now()}`;
@@ -914,24 +919,65 @@ export async function requestOneDriveToken(clientId, options = {}) {
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    let closedTicks = 0;
+    const startedAt = Date.now();
+
+    const handlePayload = (payload) => {
+      if (settled || !payload || payload.type !== 'fhp_onedrive_token' || payload.state !== state) return false;
+      cleanup();
+      try {
+        localStorage.removeItem(OD_AUTH_STORAGE_KEY);
+      } catch {}
+      if (payload.error) {
+        reject(new Error(payload.errorDescription || payload.error));
+      } else if (payload.accessToken) {
+        resolve(payload.accessToken);
+      } else {
+        reject(new Error('No OneDrive access token received.'));
+      }
+      return true;
+    };
+
+    const readStoredAuthResult = () => {
+      try {
+        const raw = localStorage.getItem(OD_AUTH_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return handlePayload(parsed);
+        }
+      } catch {}
+      return false;
+    };
+
     const timer = setInterval(() => {
-      if (popup.closed && !settled) {
+      if (settled) return;
+      if (readStoredAuthResult()) return;
+      if (Date.now() - startedAt > 180_000) {
         cleanup();
-        reject(new Error('Microsoft sign-in window was closed.'));
+        reject(new Error('Microsoft sign-in timed out. Please try again.'));
+        return;
+      }
+      if (popup.closed) {
+        closedTicks++;
+        if (closedTicks >= 3) {
+          cleanup();
+          reject(new Error('Microsoft sign-in window was closed.'));
+        }
+      } else {
+        closedTicks = 0;
       }
     }, 500);
 
     const onMsg = (ev) => {
       if (ev.origin !== window.location.origin) return;
-      if (ev.data?.type === 'fhp_onedrive_token' && ev.data?.state === state) {
-        cleanup();
-        if (ev.data.error) {
-          reject(new Error(ev.data.errorDescription || ev.data.error));
-        } else if (ev.data.accessToken) {
-          resolve(ev.data.accessToken);
-        } else {
-          reject(new Error('No OneDrive access token received.'));
-        }
+      handlePayload(ev.data);
+    };
+
+    const onStorage = (ev) => {
+      if (ev.key === OD_AUTH_STORAGE_KEY && ev.newValue) {
+        try {
+          handlePayload(JSON.parse(ev.newValue));
+        } catch {}
       }
     };
 
@@ -939,9 +985,11 @@ export async function requestOneDriveToken(clientId, options = {}) {
       settled = true;
       clearInterval(timer);
       window.removeEventListener('message', onMsg);
+      window.removeEventListener('storage', onStorage);
     }
 
     window.addEventListener('message', onMsg);
+    window.addEventListener('storage', onStorage);
   });
 }
 

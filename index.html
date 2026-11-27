@@ -3859,17 +3859,26 @@
   <script>
     (function handleOAuthPopupCallback() {
       try {
-        if (window.opener && window.location.hash && window.location.hash.indexOf('access_token=') !== -1) {
+        if (window.location.hash && (window.location.hash.indexOf('access_token=') !== -1 || window.location.hash.indexOf('error=') !== -1)) {
           var hashParams = new URLSearchParams(window.location.hash.slice(1));
           var st = hashParams.get('state') || '';
           if (st.indexOf('od_') === 0) {
-            window.opener.postMessage({
+            var payload = {
               type: 'fhp_onedrive_token',
               state: st,
-              accessToken: hashParams.get('access_token'),
-              error: hashParams.get('error'),
-              errorDescription: hashParams.get('error_description')
-            }, window.location.origin);
+              accessToken: hashParams.get('access_token') || '',
+              error: hashParams.get('error') || '',
+              errorDescription: hashParams.get('error_description') || '',
+              ts: Date.now()
+            };
+            try {
+              localStorage.setItem('fhp_onedrive_auth_result_v1', JSON.stringify(payload));
+            } catch (_) {}
+            if (window.opener) {
+              try {
+                window.opener.postMessage(payload, window.location.origin);
+              } catch (_) {}
+            }
             window.close();
           }
         }
@@ -19687,12 +19696,12 @@
                     <option value="common" ${curTenant === 'common' ? 'selected' : ''}>Personal, Work or School Account</option>
                   </select>
                 </div>
-                <details id="od-advanced-cid" ${cur.microsoftClientId ? '' : ''} style="margin-bottom:8px;font-size:11.5px;">
-                  <summary class="muted" style="cursor:pointer;font-weight:600;">Advanced: Microsoft App Client ID (One-time setup for Cloud sign-in)</summary>
+                <details id="od-advanced-cid" style="margin-bottom:8px;font-size:11.5px;">
+                  <summary class="muted" style="cursor:pointer;font-weight:600;">Advanced: Custom Microsoft App Client ID</summary>
                   <div class="field" style="margin-top:6px;">
                     <input type="text" id="inp-od-cid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${esc(cur.microsoftClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
                     <div class="muted" style="font-size:11px;margin-top:5px;line-height:1.45;">
-                      Microsoft requires an App ID even for Personal OneDrive cloud login: open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Microsoft App Registration</a> → choose <strong>Personal Microsoft accounts only</strong> → add SPA Redirect URI <code>${esc(redirectUrl)}</code> → under <em>Authentication</em> enable <strong>Access tokens</strong>.
+                      Pre-configured for Personal OneDrive. Override only if using your own Microsoft App registration (SPA Redirect URI <code>${esc(redirectUrl)}</code> with Access tokens enabled).
                     </div>
                   </div>
                 </details>
