@@ -5507,6 +5507,7 @@
       let idxDupPage = 1;
       let _idxDupObjectUrls = [];
       let selectedIdxDupKeys = new Set();
+      const expandedIdxDupGroups = new Set();
       let idxDupMasterOverrides = new Map();
       let _idxDupOverrideVersion = 0;
       let _writableLocalRootHandle = null;
@@ -5961,6 +5962,25 @@
           if (hub.saveCloudSettings) hub.saveCloudSettings({ googleClientId: cid });
         }
         return await hub.requestGoogleToken(cid, scope, { forcePrompt });
+      }
+
+      async function ensureOneDriveReadToken(forcePrompt = false) {
+        const hub = window.CloudImportHub;
+        if (!hub || typeof hub.requestOneDriveToken !== 'function') {
+          throw new Error('OneDrive module is still loading — please try again.');
+        }
+        if (!forcePrompt && typeof hub.getCachedOneDriveToken === 'function') {
+          const cached = hub.getCachedOneDriveToken(false);
+          if (cached) return cached;
+        }
+        const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
+        const cid = (settings.microsoftClientId || '').trim();
+        const tenant = settings.microsoftTenant || 'consumers';
+        return await hub.requestOneDriveToken(cid, {
+          tenant,
+          scope: 'Files.Read User.Read',
+          forcePrompt
+        });
       }
 
       async function ensureOneDriveWriteToken() {
@@ -7542,11 +7562,16 @@
                     </div>` : '';
 
                   const cardsHtml = pageGroups.map((g, gIdx) => {
-                    const copiesHtml = g.items.map((it, cIdx) => {
+                    const MAX_INLINE_COPIES = 12;
+                    const isExpanded = expandedIdxDupGroups.has(g.key);
+                    const visibleItems = isExpanded ? g.items : g.items.slice(0, MAX_INLINE_COPIES);
+                    const hiddenCount = Math.max(0, g.items.length - visibleItems.length);
+                    const copiesHtml = visibleItems.map((it, cIdx) => {
                       const isMaster = cIdx === 0;
                       const isChecked = !isMaster && selectedIdxDupKeys.has(it.recKey);
                       let thumbSrc = '';
                       let isDrive = it.source === 'gdrive';
+                      let isOneDrive = false;
                       let cloudId = '';
                       if (it.source === 'local' && it.rec && it.rec.fileObj) {
                         try {
@@ -7557,6 +7582,7 @@
                         const tInfo = getBestThumbnailSrcForRecord(it.rec, loadedLookup);
                         thumbSrc = tInfo.src;
                         isDrive = tInfo.isDrive;
+                        isOneDrive = tInfo.isOneDrive;
                         cloudId = tInfo.cloudId;
                       }
                       const zoomIdx = zoomMetaList.length;
@@ -7586,10 +7612,15 @@
                               `}
                               <span class="pill neu" style="font-size:10.5px;">${fmtSourceBadge(it.source)}</span>
                             </div>
-                            <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
-                              ${thumbSrc
-                                ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
-                                : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${fmtSourceName(it.source)}</div>`}
+                            <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;" title="Click to view full size">
+                              ${renderRecordThumbMedia({
+                                src: thumbSrc,
+                                isDrive,
+                                isOneDrive,
+                                cloudId,
+                                alt: it.name,
+                                fallbackLabel: fmtSourceName(it.source)
+                              })}
                             </div>
                             <div style="min-width:0;">
                               <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
@@ -7632,6 +7663,11 @@
                         <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;padding:12px;">
                           ${copiesHtml}
                         </div>
+                        ${hiddenCount > 0 ? `
+                          <div style="padding:8px 14px;background:var(--raised);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;">
+                            <span class="muted">Showing ${visibleItems.length} of ${g.items.length.toLocaleString()} copies (${hiddenCount.toLocaleString()} more identical copies hidden — group checkboxes &amp; buttons above act on all ${copyCountLbl.toLocaleString()} duplicate copies).</span>
+                            <button class="btn sm" type="button" data-expand-idx-group="${esc(g.key)}">Show all ${g.items.length.toLocaleString()} copies</button>
+                          </div>` : ''}
                       </div>`;
                   }).join('');
 
@@ -7830,12 +7866,23 @@
                       }
                     };
                   });
+                  resultsEl.querySelectorAll('[data-expand-idx-group]').forEach((b) => {
+                    b.onclick = () => {
+                      const gk = b.getAttribute('data-expand-idx-group');
+                      if (gk) {
+                        expandedIdxDupGroups.add(gk);
+                        renderIdxDupResults();
+                      }
+                    };
+                  });
                   resultsEl.querySelectorAll('[data-idx-zoom]').forEach((el) => {
                     el.onclick = () => {
                       const zIdx = Number(el.getAttribute('data-idx-zoom'));
                       const meta = zoomMetaList[zIdx];
-                      if (meta && meta.src && typeof openPhotoZoomLightbox === 'function') {
-                        openPhotoZoomLightbox(meta);
+                      const liveImg = el.querySelector('img');
+                      const liveSrc = (liveImg && liveImg.style.display !== 'none' && (liveImg.currentSrc || liveImg.getAttribute('src'))) || (meta && meta.src) || '';
+                      if (meta && liveSrc && typeof openPhotoZoomLightbox === 'function') {
+                        openPhotoZoomLightbox({ ...meta, src: liveSrc });
                       }
                     };
                   });
@@ -8251,6 +8298,7 @@
                     const isChecked = selectedIdxListKeys.has(it.recKey);
                     let thumbSrc = '';
                     let isDrive = it.source === 'gdrive';
+                    let isOneDrive = false;
                     let cloudId = '';
                     if (it.source === 'local' && it.rec && it.rec.fileObj) {
                       try {
@@ -8261,6 +8309,7 @@
                       const tInfo = getBestThumbnailSrcForRecord(it.rec, loadedLookup);
                       thumbSrc = tInfo.src;
                       isDrive = tInfo.isDrive;
+                      isOneDrive = tInfo.isOneDrive;
                       cloudId = tInfo.cloudId;
                     }
                     const zoomIdx = zoomMetaList.length;
@@ -8280,10 +8329,15 @@
                             </label>
                             <span class="pill neu" style="font-size:10.5px;">${fmtSourceBadge(it.source)}</span>
                           </div>
-                          <div data-idx-list-zoom="${zoomIdx}" style="height:136px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
-                            ${thumbSrc
-                              ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
-                              : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${fmtSourceName(it.source)}</div>`}
+                          <div data-idx-list-zoom="${zoomIdx}" style="height:136px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;" title="Click to view full size">
+                            ${renderRecordThumbMedia({
+                              src: thumbSrc,
+                              isDrive,
+                              isOneDrive,
+                              cloudId,
+                              alt: it.name,
+                              fallbackLabel: fmtSourceName(it.source)
+                            })}
                           </div>
                           <div style="min-width:0;">
                             <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
@@ -8414,8 +8468,10 @@
                   resultsEl.querySelectorAll('[data-idx-list-zoom]').forEach((el) => {
                     el.onclick = () => {
                       const meta = zoomMetaList[Number(el.getAttribute('data-idx-list-zoom'))];
-                      if (meta && meta.src && typeof openPhotoZoomLightbox === 'function') {
-                        openPhotoZoomLightbox(meta);
+                      const liveImg = el.querySelector('img');
+                      const liveSrc = (liveImg && liveImg.style.display !== 'none' && (liveImg.currentSrc || liveImg.getAttribute('src'))) || (meta && meta.src) || '';
+                      if (meta && liveSrc && typeof openPhotoZoomLightbox === 'function') {
+                        openPhotoZoomLightbox({ ...meta, src: liveSrc });
                       }
                     };
                   });
@@ -25397,37 +25453,85 @@
       }
 
       const _freshDriveThumbCache = new Map();
+      const _freshOneDriveThumbCache = new Map();
 
       function getBestThumbnailSrcForRecord(rec, loadedLookup = null) {
-        if (!rec) return { src: '', isDrive: false, cloudId: '' };
+        if (!rec) return { src: '', isDrive: false, isOneDrive: false, cloudId: '' };
         if (rec.source === 'loaded' && rec.photoItem) {
-          return { src: afterSrc(rec.photoItem), isDrive: false, cloudId: rec.cloudId || '' };
+          return { src: afterSrc(rec.photoItem), isDrive: false, isOneDrive: false, cloudId: rec.cloudId || '' };
         }
-        const cloudId = String(rec.cloudId || (rec.source === 'gdrive' ? rec.id : '') || '').trim();
+        const rawCloudId = String(rec.cloudId || ((rec.source === 'gdrive' || (rec.source === 'onedrive' && !rec.isLocalDiskCopy)) ? rec.id : '') || '').trim();
         if (loadedLookup) {
           let loaded = null;
           if (rec.alreadyLoadedId && loadedLookup.byId.has(rec.alreadyLoadedId)) {
             loaded = loadedLookup.byId.get(rec.alreadyLoadedId);
-          } else if (cloudId && loadedLookup.byCloudId.has(cloudId)) {
-            loaded = loadedLookup.byCloudId.get(cloudId);
+          } else if (rawCloudId && loadedLookup.byCloudId.has(rawCloudId)) {
+            loaded = loadedLookup.byCloudId.get(rawCloudId);
           } else if (rec.name) {
             const fn = String(rec.name).trim().toLowerCase();
             if (fn && loadedLookup.byFileName.has(fn)) loaded = loadedLookup.byFileName.get(fn);
           }
           if (loaded) {
-            return { src: afterSrc(loaded), isDrive: false, cloudId };
+            return { src: afterSrc(loaded), isDrive: false, isOneDrive: false, cloudId: rawCloudId };
           }
         }
-        if (rec.source === 'gdrive' || cloudId) {
-          const fresh = cloudId ? _freshDriveThumbCache.get(cloudId) : '';
-          const fallback = cloudId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(cloudId)}&sz=w400` : '';
+        if (rec.source === 'onedrive') {
+          const odId = String(rec.cloudId || (!rec.isLocalDiskCopy ? rec.id : '') || '').trim();
+          const freshOd = odId ? _freshOneDriveThumbCache.get(odId) : '';
+          return {
+            src: freshOd || rec.thumbnailLink || '',
+            isDrive: false,
+            isOneDrive: Boolean(odId && !rec.isLocalDiskCopy),
+            cloudId: odId
+          };
+        }
+        if (rec.source === 'gphotos') {
+          return {
+            src: rec.thumbnailLink || '',
+            isDrive: false,
+            isOneDrive: false,
+            cloudId: String(rec.cloudId || rec.id || '').trim()
+          };
+        }
+        if (rec.source === 'gdrive' || (!rec.source && rawCloudId)) {
+          const fresh = rawCloudId ? _freshDriveThumbCache.get(rawCloudId) : '';
+          const fallback = rawCloudId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(rawCloudId)}&sz=w400` : '';
           return {
             src: fresh || rec.thumbnailLink || fallback,
             isDrive: true,
-            cloudId
+            isOneDrive: false,
+            cloudId: rawCloudId
           };
         }
-        return { src: rec.thumbnailLink || '', isDrive: false, cloudId: '' };
+        return { src: rec.thumbnailLink || '', isDrive: false, isOneDrive: false, cloudId: '' };
+      }
+
+      function renderRecordThumbMedia(info, opts = {}) {
+        const src = (info && info.src) || '';
+        const isDrive = Boolean(info && info.isDrive);
+        const isOneDrive = Boolean(info && info.isOneDrive);
+        const cloudId = (info && info.cloudId) || '';
+        const alt = esc(opts.alt || '');
+        const imgClass = opts.imgClass ? `class="${esc(opts.imgClass)}"` : '';
+        const extraAttrs = opts.extraAttrs || '';
+        const imgStyle = opts.imgStyle || 'max-width:100%;max-height:100%;object-fit:contain;';
+        const emptyBoxStyle = opts.emptyBoxStyle || 'color:#cbd5e1;font-size:12px;padding:8px;text-align:center;';
+        const emptyFlexStyle = opts.emptyFlexStyle || 'width:100%;height:100%;align-items:center;justify-content:center;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;';
+        const fallbackLabel = esc(opts.fallbackLabel || 'Preview unavailable');
+
+        if (src) {
+          const errAttr = (isDrive && cloudId)
+            ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"`
+            : ((isOneDrive && cloudId)
+              ? `data-onedrive-id="${esc(cloudId)}" onerror="window._onOneDriveThumbError && window._onOneDriveThumbError(this)"`
+              : '');
+          const expiredMsg = isDrive ? '☁️ Drive preview expired' : (isOneDrive ? '🟦 OneDrive preview expired' : '📷 Preview unavailable');
+          return `<img src="${esc(src)}" referrerpolicy="no-referrer" ${imgClass} ${extraAttrs} ${errAttr} alt="${alt}" style="${imgStyle}"><div style="display:none;${emptyFlexStyle}">${expiredMsg}</div>`;
+        }
+        if (isOneDrive && cloudId) {
+          return `<img data-onedrive-id="${esc(cloudId)}" data-onedrive-thumb-needed="1" referrerpolicy="no-referrer" ${imgClass} ${extraAttrs} alt="${alt}" onerror="window._onOneDriveThumbError && window._onOneDriveThumbError(this)" style="display:none;${imgStyle}"><div style="display:flex;${emptyFlexStyle}">🟦 Loading OneDrive preview...</div>`;
+        }
+        return `<div style="${emptyBoxStyle}">${fallbackLabel}</div>`;
       }
 
       window._onDriveThumbError = function (imgEl) {
@@ -25449,12 +25553,101 @@
         } catch (_) {}
       };
 
+      window._onOneDriveThumbError = function (imgEl) {
+        if (!imgEl) return;
+        imgEl.style.display = 'none';
+        if (imgEl.nextElementSibling) imgEl.nextElementSibling.style.display = 'flex';
+        imgEl.dataset.onedriveThumbNeeded = '1';
+        try {
+          imgEl.dispatchEvent(new CustomEvent('fhp-onedrive-thumb-needed', { bubbles: true }));
+        } catch (_) {}
+      };
+
       function attachDriveThumbAutoRefresh(containerEl, bannerEl) {
         if (!containerEl) return;
-        let debounceTimer = null;
-        let refreshing = false;
+        if (containerEl._fhpThumbRefreshController) {
+          containerEl._fhpThumbRefreshController.setBanner(bannerEl);
+          containerEl._fhpThumbRefreshController.scheduleCheck();
+          return;
+        }
 
-        const applyFreshUrl = (cloudId, freshUrl) => {
+        let currentBanner = bannerEl || null;
+        let debounceTimer = null;
+        let driveRefreshing = false;
+        let odRefreshing = false;
+        let driveBannerHtml = '';
+        let odBannerHtml = '';
+
+        const renderBanner = () => {
+          if (!currentBanner) return;
+          const parts = [odBannerHtml, driveBannerHtml].filter(Boolean);
+          if (parts.length === 0) {
+            currentBanner.style.display = 'none';
+            currentBanner.innerHTML = '';
+            return;
+          }
+          currentBanner.style.display = 'flex';
+          currentBanner.innerHTML = parts.map((p) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;flex-wrap:wrap;">${p}</div>`).join('');
+
+          const retryDrive = currentBanner.querySelector('#fhp-retry-thumbs');
+          if (retryDrive) {
+            retryDrive.onclick = async () => {
+              retryDrive.disabled = true;
+              try {
+                const t = await ensureGoogleDriveToken(true);
+                await runDriveRefresh(t);
+              } catch (err) {
+                retryDrive.disabled = false;
+                notify(`Google Drive sign-in failed: ${err.message}`);
+              }
+            };
+          }
+          const loadDrive = currentBanner.querySelector('#fhp-load-thumbs-btn');
+          if (loadDrive) {
+            loadDrive.onclick = async () => {
+              loadDrive.disabled = true;
+              loadDrive.textContent = 'Connecting...';
+              try {
+                const t = await ensureGoogleDriveToken(false);
+                await runDriveRefresh(t);
+              } catch (err) {
+                loadDrive.disabled = false;
+                loadDrive.textContent = '🔄 Load Drive Thumbnails';
+                notify(`Could not load Google Drive thumbnails: ${err.message}`);
+              }
+            };
+          }
+          const loadOd = currentBanner.querySelector('#fhp-load-od-thumbs-btn');
+          if (loadOd) {
+            loadOd.onclick = async () => {
+              loadOd.disabled = true;
+              loadOd.textContent = 'Connecting OneDrive...';
+              try {
+                const t = await ensureOneDriveReadToken(false);
+                await runOneDriveRefresh(t);
+              } catch (err) {
+                loadOd.disabled = false;
+                loadOd.textContent = '🔄 Load OneDrive Thumbnails';
+                notify(`Could not load OneDrive thumbnails: ${err.message}`);
+              }
+            };
+          }
+          const retryOd = currentBanner.querySelector('#fhp-retry-od-thumbs');
+          if (retryOd) {
+            retryOd.onclick = async () => {
+              retryOd.disabled = true;
+              try {
+                const t = await ensureOneDriveReadToken(true);
+                await runOneDriveRefresh(t);
+              } catch (err) {
+                retryOd.disabled = false;
+                notify(`OneDrive sign-in failed: ${err.message}`);
+              }
+            };
+          }
+        };
+
+        const applyFreshDriveUrl = (cloudId, freshUrl) => {
           if (!cloudId || !freshUrl) return;
           _freshDriveThumbCache.set(cloudId, freshUrl);
           containerEl.querySelectorAll(`img[data-cloud-id="${CSS.escape(cloudId)}"]`).forEach((img) => {
@@ -25469,28 +25662,41 @@
           });
         };
 
-        const runRefresh = async (token) => {
-          if (refreshing || !token) return;
+        const applyFreshOneDriveUrl = (odId, freshUrl) => {
+          if (!odId || !freshUrl) return;
+          _freshOneDriveThumbCache.set(odId, freshUrl);
+          containerEl.querySelectorAll(`img[data-onedrive-id="${CSS.escape(odId)}"]`).forEach((img) => {
+            img.dataset.onedriveThumbRefreshed = '1';
+            delete img.dataset.onedriveThumbNeeded;
+            img.onload = () => {
+              img.style.display = '';
+              if (img.nextElementSibling) img.nextElementSibling.style.display = 'none';
+            };
+            img.src = freshUrl;
+          });
+        };
+
+        const runDriveRefresh = async (token) => {
+          if (driveRefreshing || !token) return;
           const hub = window.CloudImportHub;
           if (!hub || typeof hub.fetchGoogleDriveThumbnailLinks !== 'function') return;
           const failedImgs = Array.from(containerEl.querySelectorAll('img[data-drive-thumb-failed="1"][data-cloud-id]'))
             .filter((img) => !img.dataset.driveThumbRefreshed && img.dataset.cloudId);
-          const ids = Array.from(new Set(failedImgs.map((img) => img.dataset.cloudId)));
+          const ids = Array.from(new Set(failedImgs.map((img) => img.dataset.cloudId))).slice(0, 60);
           if (ids.length === 0) {
-            if (bannerEl) bannerEl.style.display = 'none';
+            driveBannerHtml = '';
+            renderBanner();
             return;
           }
-          refreshing = true;
-          if (bannerEl) {
-            bannerEl.style.display = 'flex';
-            bannerEl.innerHTML = `<span>⏳ Refreshing ${ids.length} expired Google Drive preview${ids.length === 1 ? '' : 's'}...</span>`;
-          }
+          driveRefreshing = true;
+          driveBannerHtml = `<span>⏳ Refreshing ${ids.length} Google Drive preview${ids.length === 1 ? '' : 's'}...</span>`;
+          renderBanner();
           try {
             let updatedCount = 0;
             const freshMap = await hub.fetchGoogleDriveThumbnailLinks(token, ids, {
               onEach: (fid, link) => {
                 updatedCount++;
-                applyFreshUrl(fid, link);
+                applyFreshDriveUrl(fid, link);
               }
             });
             if (freshMap.size > 0 && Array.isArray(photoLibraryIndex.gdrive)) {
@@ -25504,85 +25710,136 @@
                 saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive').catch(() => {});
               }
             }
-            if (bannerEl) {
-              if (updatedCount > 0) {
-                bannerEl.style.display = 'none';
-              } else {
-                bannerEl.innerHTML = `<span>☁️ Could not refresh Drive thumbnails — check Google Drive permissions or click Retry.</span><button type="button" class="btn sm primary" id="fhp-retry-thumbs">🔄 Retry</button>`;
-                const retryBtn = bannerEl.querySelector('#fhp-retry-thumbs');
-                if (retryBtn) {
-                  retryBtn.onclick = async () => {
-                    try {
-                      const t = await ensureGoogleDriveToken(true);
-                      await runRefresh(t);
-                    } catch (err) {
-                      notify(`Google Drive sign-in failed: ${err.message}`);
-                    }
-                  };
-                }
-              }
+            if (updatedCount > 0) {
+              driveBannerHtml = '';
+            } else {
+              driveBannerHtml = `<span>☁️ Could not refresh Drive thumbnails — reconnect Google Drive to grant preview access.</span><button type="button" class="btn sm primary" id="fhp-retry-thumbs">🔄 Reconnect Drive</button>`;
             }
-          } catch (err) {
-            if (bannerEl) {
-              bannerEl.style.display = 'flex';
-              bannerEl.innerHTML = `<span>☁️ Google Drive session expired — reconnect to refresh photo thumbnails.</span><button type="button" class="btn sm primary" id="fhp-load-thumbs-btn">🔄 Load Drive Thumbnails</button>`;
-              const btn = bannerEl.querySelector('#fhp-load-thumbs-btn');
-              if (btn) {
-                btn.onclick = async () => {
-                  btn.disabled = true;
-                  btn.textContent = 'Connecting...';
-                  try {
-                    const t = await ensureGoogleDriveToken(true);
-                    await runRefresh(t);
-                  } catch (e2) {
-                    btn.disabled = false;
-                    btn.textContent = '🔄 Load Drive Thumbnails';
-                    notify(`Could not connect Google Drive: ${e2.message}`);
-                  }
-                };
-              }
-            }
+          } catch (_) {
+            driveBannerHtml = `<span>☁️ Google Drive session expired — reconnect to refresh photo thumbnails.</span><button type="button" class="btn sm primary" id="fhp-load-thumbs-btn">🔄 Load Drive Thumbnails</button>`;
           } finally {
-            refreshing = false;
+            driveRefreshing = false;
+            renderBanner();
+            const remaining = Array.from(containerEl.querySelectorAll('img[data-drive-thumb-failed="1"][data-cloud-id]'))
+              .some((img) => !img.dataset.driveThumbRefreshed && img.dataset.cloudId);
+            if (remaining && !driveBannerHtml) {
+              setTimeout(checkDrive, 80);
+            }
           }
         };
 
-        const checkFailed = () => {
+        const runOneDriveRefresh = async (token) => {
+          if (odRefreshing || !token) return;
+          const hub = window.CloudImportHub;
+          if (!hub || typeof hub.fetchOneDriveThumbnailLinks !== 'function') return;
+          const neededImgs = Array.from(containerEl.querySelectorAll('img[data-onedrive-thumb-needed="1"][data-onedrive-id]'))
+            .filter((img) => !img.dataset.onedriveThumbRefreshed && img.dataset.onedriveId);
+          const ids = Array.from(new Set(neededImgs.map((img) => img.dataset.onedriveId))).slice(0, 60);
+          if (ids.length === 0) {
+            odBannerHtml = '';
+            renderBanner();
+            return;
+          }
+          odRefreshing = true;
+          odBannerHtml = `<span>🟦 Loading ${ids.length} OneDrive thumbnail${ids.length === 1 ? '' : 's'}...</span>`;
+          renderBanner();
+          try {
+            let updatedCount = 0;
+            const freshMap = await hub.fetchOneDriveThumbnailLinks(token, ids, {
+              onEach: (odId, link) => {
+                updatedCount++;
+                applyFreshOneDriveUrl(odId, link);
+              }
+            });
+            if (freshMap.size > 0 && Array.isArray(photoLibraryIndex.onedrive)) {
+              for (let i = 0; i < photoLibraryIndex.onedrive.length; i++) {
+                const o = photoLibraryIndex.onedrive[i];
+                const oid = o && (o.cloudId || o.id);
+                if (oid && freshMap.has(oid)) {
+                  o.thumbnailLink = freshMap.get(oid);
+                }
+              }
+            }
+            if (updatedCount > 0) {
+              odBannerHtml = '';
+            } else {
+              odBannerHtml = `<span>🟦 Could not load OneDrive previews — click Reconnect OneDrive (no rescan needed).</span><button type="button" class="btn sm primary" id="fhp-retry-od-thumbs">🔄 Reconnect OneDrive</button>`;
+            }
+          } catch (_) {
+            odBannerHtml = `<span>🟦 OneDrive session expired — click to load ${ids.length} preview${ids.length === 1 ? '' : 's'} without rescanning.</span><button type="button" class="btn sm primary" id="fhp-load-od-thumbs-btn">🔄 Load OneDrive Thumbnails</button>`;
+          } finally {
+            odRefreshing = false;
+            renderBanner();
+            const remaining = Array.from(containerEl.querySelectorAll('img[data-onedrive-thumb-needed="1"][data-onedrive-id]'))
+              .some((img) => !img.dataset.onedriveThumbRefreshed && img.dataset.onedriveId);
+            if (remaining && !odBannerHtml) {
+              setTimeout(checkOneDrive, 80);
+            }
+          }
+        };
+
+        const checkDrive = () => {
           const failedImgs = Array.from(containerEl.querySelectorAll('img[data-drive-thumb-failed="1"][data-cloud-id]'))
             .filter((img) => !img.dataset.driveThumbRefreshed && img.dataset.cloudId);
-          if (failedImgs.length === 0) return;
-
+          if (failedImgs.length === 0) {
+            driveBannerHtml = '';
+            renderBanner();
+            return;
+          }
           const hub = window.CloudImportHub;
           const token = (hub && typeof hub.getCachedGoogleToken === 'function')
             ? hub.getCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly')
             : '';
           if (token) {
-            runRefresh(token);
-          } else if (bannerEl) {
-            bannerEl.style.display = 'flex';
-            bannerEl.innerHTML = `<span>☁️ Google Drive preview links expire after ~1 hour — click to load ${failedImgs.length} thumbnail${failedImgs.length === 1 ? '' : 's'} without rescanning.</span><button type="button" class="btn sm primary" id="fhp-load-thumbs-btn">🔄 Load Drive Thumbnails</button>`;
-            const btn = bannerEl.querySelector('#fhp-load-thumbs-btn');
-            if (btn) {
-              btn.onclick = async () => {
-                btn.disabled = true;
-                btn.textContent = 'Connecting...';
-                try {
-                  const t = await ensureGoogleDriveToken(false);
-                  await runRefresh(t);
-                } catch (err) {
-                  btn.disabled = false;
-                  btn.textContent = '🔄 Load Drive Thumbnails';
-                  notify(`Could not load Drive thumbnails: ${err.message}`);
-                }
-              };
-            }
+            runDriveRefresh(token);
+          } else {
+            driveBannerHtml = `<span>☁️ Google Drive preview links expire after ~1 hour — click to load ${failedImgs.length} thumbnail${failedImgs.length === 1 ? '' : 's'} without rescanning.</span><button type="button" class="btn sm primary" id="fhp-load-thumbs-btn">🔄 Load Drive Thumbnails</button>`;
+            renderBanner();
           }
+        };
+
+        const checkOneDrive = () => {
+          const neededImgs = Array.from(containerEl.querySelectorAll('img[data-onedrive-thumb-needed="1"][data-onedrive-id]'))
+            .filter((img) => !img.dataset.onedriveThumbRefreshed && img.dataset.onedriveId);
+          if (neededImgs.length === 0) {
+            odBannerHtml = '';
+            renderBanner();
+            return;
+          }
+          const hub = window.CloudImportHub;
+          const odToken = (hub && typeof hub.getCachedOneDriveToken === 'function')
+            ? hub.getCachedOneDriveToken(false)
+            : '';
+          if (odToken) {
+            runOneDriveRefresh(odToken);
+          } else {
+            odBannerHtml = `<span>🟦 Connect OneDrive once to load ${neededImgs.length} OneDrive photo preview${neededImgs.length === 1 ? '' : 's'} on this page (no rescan needed).</span><button type="button" class="btn sm primary" id="fhp-load-od-thumbs-btn">🔄 Load OneDrive Thumbnails</button>`;
+            renderBanner();
+          }
+        };
+
+        const scheduleCheck = () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            checkOneDrive();
+            checkDrive();
+          }, 90);
         };
 
         containerEl.addEventListener('fhp-drive-thumb-failed', () => {
           clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(checkFailed, 180);
+          debounceTimer = setTimeout(checkDrive, 180);
         });
+        containerEl.addEventListener('fhp-onedrive-thumb-needed', () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(checkOneDrive, 180);
+        });
+
+        containerEl._fhpThumbRefreshController = {
+          setBanner: (b) => { currentBanner = b || currentBanner; },
+          scheduleCheck
+        };
+        scheduleCheck();
       }
 
       const _highResThumbCache = new Map();
@@ -26165,11 +26422,14 @@
               thumbHtml = `<img src="${esc(u)}" class="photo-hover-thumb gmr-thumb" data-ridx="${idx}" title="Hover to enlarge · Click for full size" alt="" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;">`;
             } else {
               const bestThumb = getBestThumbnailSrcForRecord(rec);
-              if (bestThumb.src) {
-                thumbHtml = `<img src="${esc(bestThumb.src)}" referrerpolicy="no-referrer" class="photo-hover-thumb gmr-thumb" data-ridx="${idx}" data-cloud-id="${esc(bestThumb.cloudId)}" title="Hover to enlarge · Click for full size" alt="" onerror="window._onDriveThumbError(this)" style="width:62px;height:62px;object-fit:cover;border-radius:8px;flex-shrink:0;"><div style="display:none;width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
-              } else {
-                thumbHtml = `<div style="width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">☁️</div>`;
-              }
+              thumbHtml = `<div style="width:62px;height:62px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#e0f2fe;">${renderRecordThumbMedia(bestThumb, {
+                imgClass: 'photo-hover-thumb gmr-thumb',
+                extraAttrs: `data-ridx="${idx}" title="Hover to enlarge · Click for full size"`,
+                imgStyle: 'width:62px;height:62px;object-fit:cover;border-radius:8px;display:block;',
+                emptyBoxStyle: 'width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:20px;',
+                emptyFlexStyle: 'width:62px;height:62px;border-radius:8px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:20px;',
+                fallbackLabel: rec.source === 'onedrive' ? '🟦' : '☁️'
+              })}</div>`;
             }
             const isLinked = row.status === 'linked';
 
@@ -26577,13 +26837,14 @@
               thumb = `<img src="${esc(u)}" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
             } else {
               const bestThumb = getBestThumbnailSrcForRecord(rec, loadedLookup);
-              if (bestThumb.src && !bestThumb.isDrive) {
-                thumb = `<img src="${esc(bestThumb.src)}" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" title="Hover to enlarge" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:6px;">`;
-              } else if (bestThumb.src) {
-                thumb = `<img src="${esc(bestThumb.src)}" referrerpolicy="no-referrer" class="photo-hover-thumb pib-thumb" data-pidx="${idx}" data-cloud-id="${esc(bestThumb.cloudId)}" title="Hover to enlarge" alt="" onerror="window._onDriveThumbError(this)" style="width:100%;height:96px;object-fit:cover;border-radius:6px;"><div style="display:none;width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
-              } else {
-                thumb = `<div style="width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:22px;">☁️</div>`;
-              }
+              thumb = `<div style="width:100%;height:96px;border-radius:6px;overflow:hidden;background:#e0f2fe;">${renderRecordThumbMedia(bestThumb, {
+                imgClass: 'photo-hover-thumb pib-thumb',
+                extraAttrs: `data-pidx="${idx}" title="Hover to enlarge"`,
+                imgStyle: 'width:100%;height:96px;object-fit:cover;border-radius:6px;display:block;',
+                emptyBoxStyle: 'width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;display:flex;align-items:center;justify-content:center;font-size:20px;',
+                emptyFlexStyle: 'width:100%;height:96px;border-radius:6px;background:#e0f2fe;color:#0369a1;align-items:center;justify-content:center;font-size:18px;',
+                fallbackLabel: rec.source === 'onedrive' ? '🟦' : '☁️'
+              })}</div>`;
             }
             return `
               <button type="button" class="pib-card" data-pidx="${idx}" style="text-align:left;padding:6px;border-radius:8px;border:2px solid ${isSel ? '#1d4ed8' : '#cbd5e1'};background:${isSel ? '#dbeafe' : '#ffffff'};cursor:pointer;display:flex;flex-direction:column;gap:4px;">
@@ -26603,6 +26864,7 @@
           });
           const more = gridEl.querySelector('#pib-more');
           if (more) more.onclick = () => { photoLimit += 60; renderPhotos(); };
+          attachDriveThumbAutoRefresh(gridEl, overlay.querySelector('#pib-thumb-banner'));
         };
 
         const renderPeople = () => {

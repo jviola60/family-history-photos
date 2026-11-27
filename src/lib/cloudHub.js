@@ -1147,6 +1147,62 @@ export async function deleteOneDriveFile(token, itemId) {
   throw new Error(`Could not delete OneDrive file (${res.status}): ${errText || res.statusText}`);
 }
 
+export async function fetchOneDriveThumbnailLinks(token, itemIds, options = {}) {
+  const cleanIds = Array.from(new Set((itemIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const resultMap = new Map();
+  if (!token || cleanIds.length === 0) return resultMap;
+
+  const onEach = typeof options.onEach === 'function' ? options.onEach : null;
+  const concurrency = Math.max(1, Math.min(8, Number(options.concurrency) || 6));
+  let cursor = 0;
+
+  const fetchOne = async (id) => {
+    const url = `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(id)}/thumbnails?select=medium,small,large`;
+    let res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.status === 429 || res.status >= 500) {
+      const retryHeader = Number(res.headers.get('Retry-After'));
+      const waitMs = Number.isFinite(retryHeader) && retryHeader > 0
+        ? Math.min(2000, retryHeader * 1000)
+        : 500;
+      await new Promise((r) => setTimeout(r, waitMs));
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    }
+    if (res.status === 401) {
+      clearCachedOneDriveToken();
+      throw new Error('OneDrive session expired — please reconnect OneDrive.');
+    }
+    if (!res.ok) return '';
+    const data = await res.json();
+    const first = Array.isArray(data && data.value) && data.value[0];
+    return (first && ((first.medium && first.medium.url) || (first.large && first.large.url) || (first.small && first.small.url))) || '';
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, cleanIds.length) }, async () => {
+    while (cursor < cleanIds.length) {
+      const idx = cursor++;
+      const id = cleanIds[idx];
+      try {
+        const link = await fetchOne(id);
+        if (link) {
+          resultMap.set(id, link);
+          if (onEach) onEach(id, link);
+        }
+      } catch (err) {
+        if (String((err && err.message) || '').includes('session expired')) {
+          throw err;
+        }
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return resultMap;
+}
+
 export async function launchOneDrivePickerSdk(clientId) {
   const effectiveClientId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
   if (!effectiveClientId) {
