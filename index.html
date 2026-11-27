@@ -18189,6 +18189,8 @@
           // download ONLY this batch of 50 (concurrency 4) so zero hard drive space is used.
           const batchSlice = activeFolderImageFiles.slice(start, end);
           const pendingCloud = batchSlice.filter((f) => f && f.isCloudFile && !f._cachedFile);
+          let cloudFailedCount = 0;
+          let lastCloudErrMsg = '';
           if (pendingCloud.length > 0) {
             let doneCount = 0;
             const CONCURRENCY = 4;
@@ -18208,6 +18210,8 @@
                   }
                   target._cachedFile = downloaded;
                 } catch (dlErr) {
+                  cloudFailedCount++;
+                  lastCloudErrMsg = (dlErr && dlErr.message) ? dlErr.message : String(dlErr || 'Download failed');
                   console.warn('Cloud download failed for', target.name, dlErr);
                 }
                 doneCount++;
@@ -18314,6 +18318,13 @@
               eyePins: [],
               history: []
             });
+          }
+
+          if (pendingCloud.length > 0 && newItems.length === 0) {
+            hideImportProgress();
+            notify(`Could not download selected cloud photos: ${lastCloudErrMsg || 'Blocked by browser/CORS. Try Google Takeout (.zip) instead.'}`);
+            render();
+            return;
           }
 
           items = newItems;
@@ -19494,6 +19505,7 @@
               const status = body.querySelector('#gphotos-status');
               const linkHost = body.querySelector('#gphotos-picker-link');
               const pickBtn = body.querySelector('#btn-gphotos-pick');
+              let gphotosCancelled = false;
               status.style.color = '';
               if (linkHost) linkHost.innerHTML = '';
               if (pickBtn) pickBtn.disabled = true;
@@ -19502,17 +19514,37 @@
                   status.style.color = '';
                   status.textContent = msg;
                 }, {
-                  shouldStop: () => !overlay.isConnected,
-                  onPickerUrl: (url) => {
+                  shouldStop: () => gphotosCancelled || !overlay.isConnected,
+                  onPickerUrl: (url, meta) => {
                     if (!linkHost) return;
-                    linkHost.innerHTML = `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="btn sm success" style="display:inline-flex;width:100%;justify-content:center;text-decoration:none;">📷 Open Google Photos Selection Window ↗</a>`;
+                    const openBtnHtml = (meta && meta.blocked)
+                      ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="btn sm success" style="display:inline-flex;flex:1;justify-content:center;text-decoration:none;">📷 Open Google Photos Selection Window ↗</a>`
+                      : '';
+                    linkHost.innerHTML = `
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        ${openBtnHtml}
+                        <button type="button" class="btn sm" id="btn-gphotos-cancel">✕ Cancel Waiting</button>
+                      </div>`;
+                    const cancelBtn = linkHost.querySelector('#btn-gphotos-cancel');
+                    if (cancelBtn) {
+                      cancelBtn.onclick = () => {
+                        gphotosCancelled = true;
+                        cancelBtn.disabled = true;
+                        status.style.color = '';
+                        status.textContent = 'Cancelling...';
+                      };
+                    }
                   }
                 });
                 closeModal();
                 await loadCloudFilesIntoArchive(picked, 'Google_Photos');
               } catch (err) {
-                status.style.color = '#991b1b';
-                status.textContent = err.message;
+                const msg = (err && err.message) ? err.message : String(err || 'Google Photos import failed.');
+                const isCancel = /cancelled/i.test(msg);
+                status.style.color = isCancel ? '' : '#991b1b';
+                status.textContent = msg;
+              } finally {
+                if (linkHost) linkHost.innerHTML = '';
                 if (pickBtn) pickBtn.disabled = false;
               }
             };

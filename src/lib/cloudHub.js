@@ -718,7 +718,7 @@ export async function scanGoogleDriveFolder(token, folderId = 'root', folderName
 export async function launchGooglePhotosPicker(clientId, onStatus = null, options = {}) {
   const gpScope = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
   if (onStatus) onStatus('Signing in to Google Photos...');
-  const token = await requestGoogleToken(clientId, gpScope);
+  let token = await requestGoogleToken(clientId, gpScope);
 
   if (onStatus) onStatus('Creating Google Photos picker session...');
   let sessRes = await fetch('https://photospicker.googleapis.com/v1/sessions', {
@@ -731,11 +731,11 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
   });
   if (sessRes.status === 401) {
     clearCachedGoogleToken(gpScope);
-    const freshToken = await requestGoogleToken(clientId, gpScope, { forcePrompt: true });
+    token = await requestGoogleToken(clientId, gpScope, { forcePrompt: true });
     sessRes = await fetch('https://photospicker.googleapis.com/v1/sessions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${freshToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: '{}'
@@ -755,59 +755,69 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
   }
   const session = await sessRes.json();
   const pickerUrl = `${session.pickerUri}/autoclose`;
-  const popup = window.open(pickerUrl, 'fhp_gphotos_picker', 'width=980,height=740');
-  if (!popup) {
+  const pickerTab = window.open(pickerUrl, '_blank');
+  if (!pickerTab) {
     if (typeof options.onPickerUrl === 'function') {
-      options.onPickerUrl(pickerUrl);
+      options.onPickerUrl(pickerUrl, { blocked: true });
     } else {
       throw new Error('Popup was blocked. Please allow popups for this site and try again.');
     }
   } else if (typeof options.onPickerUrl === 'function') {
-    options.onPickerUrl(pickerUrl);
+    options.onPickerUrl(pickerUrl, { blocked: false });
   }
 
-  if (onStatus) onStatus(popup ? 'Select your photos or album in the Google Photos window, then click Done...' : 'Click "Open Google Photos Window" below to select your photos, then click Done...');
+  if (onStatus) {
+    onStatus(pickerTab
+      ? 'Waiting for you to select photos and click "Done" in the Google Photos tab...'
+      : 'Click "Open Google Photos Selection Window" above to select your photos, then click "Done"...');
+  }
 
-  // Poll session until mediaItemsSet is true or popup closed
+  const parsePollSec = (str) => {
+    const sec = parseFloat(String(str || '').replace(/s$/i, ''));
+    return Number.isFinite(sec) ? Math.min(5000, Math.max(2000, Math.round(sec * 1000))) : 2500;
+  };
+  let pollIntervalMs = parsePollSec(session.pollingConfig?.pollInterval);
+  const expMs = session.expireTime ? new Date(session.expireTime).getTime() : 0;
+  const deadlineMs = (expMs && expMs > Date.now())
+    ? Math.min(Date.now() + 15 * 60 * 1000, expMs)
+    : Date.now() + 15 * 60 * 1000;
+
+  // Poll session until mediaItemsSet is true or session expires (never trust pickerTab.closed due to COOP)
   let ready = false;
-  for (let attempt = 0; attempt < 300; attempt++) {
+  while (Date.now() < deadlineMs) {
     if (typeof options.shouldStop === 'function' && options.shouldStop()) {
       throw new Error('Google Photos import cancelled.');
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
     if (typeof options.shouldStop === 'function' && options.shouldStop()) {
       throw new Error('Google Photos import cancelled.');
     }
     const checkRes = await fetch(`https://photospicker.googleapis.com/v1/sessions/${encodeURIComponent(session.id)}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
+    if (checkRes.status === 404 || checkRes.status === 410) {
+      break;
+    }
     if (checkRes.ok) {
       const state = await checkRes.json();
+      if (state.pollingConfig?.pollInterval) {
+        pollIntervalMs = parsePollSec(state.pollingConfig.pollInterval);
+      }
       if (state.mediaItemsSet) {
         ready = true;
         break;
       }
     }
-    if (popup && popup.closed) {
-      // One final check in case they clicked Done right as window closed
-      const finalCheck = await fetch(`https://photospicker.googleapis.com/v1/sessions/${encodeURIComponent(session.id)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (finalCheck.ok) {
-        const finalState = await finalCheck.json();
-        if (finalState.mediaItemsSet) ready = true;
-      }
-      break;
-    }
   }
 
-  try { if (popup && !popup.closed) popup.close(); } catch {}
+  try { if (pickerTab && !pickerTab.closed) pickerTab.close(); } catch {}
   if (!ready) {
-    throw new Error('No photos were selected in Google Photos.');
+    throw new Error('Google Photos session timed out before "Done" was clicked.');
   }
 
   if (onStatus) onStatus('Fetching selected Google Photos list...');
   const items = [];
+  let totalPickedCount = 0;
   let pageToken = '';
   do {
     const params = new URLSearchParams({ sessionId: session.id, pageSize: '100' });
@@ -818,6 +828,7 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
     if (!listRes.ok) throw new Error(`Failed to list picked Google Photos (${listRes.status})`);
     const listData = await listRes.json();
     for (const mi of (listData.mediaItems || [])) {
+      totalPickedCount++;
       if (mi.type !== 'PHOTO' && !String(mi.mediaFile?.mimeType || '').startsWith('image/')) continue;
       const baseUrl = mi.mediaFile?.baseUrl;
       const name = mi.mediaFile?.filename || `google_photo_${mi.id}.jpg`;
@@ -834,9 +845,22 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
         lastModified: modMs,
         webkitRelativePath: `Google_Photos/${name}`,
         fetchFile: async () => {
-          const dl = await fetch(`${baseUrl}=d`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          const fetchVariant = async (suffix) => {
+            return await fetch(`${baseUrl}${suffix}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          };
+          let dl;
+          try {
+            dl = await fetchVariant('=d');
+            if (!dl.ok) dl = await fetchVariant('=w2048-h2048');
+          } catch {
+            try {
+              dl = await fetchVariant('=w2048-h2048');
+            } catch {
+              throw new Error('Google Photos blocked direct browser download (CORS). Please use Google Takeout (.zip) below to import these photos.');
+            }
+          }
           if (!dl.ok) throw new Error(`Failed to download ${name} (${dl.status})`);
           const blob = await dl.blob();
           return new File([blob], name, {
@@ -848,6 +872,13 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
     }
     pageToken = listData.nextPageToken || '';
   } while (pageToken);
+
+  if (totalPickedCount > 0 && items.length === 0) {
+    throw new Error(`Only videos were selected (${totalPickedCount} video${totalPickedCount === 1 ? '' : 's'} skipped). Please select photos to import.`);
+  }
+  if (items.length === 0) {
+    throw new Error('No photos were selected in Google Photos.');
+  }
 
   return items;
 }
