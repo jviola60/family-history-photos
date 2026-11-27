@@ -892,10 +892,39 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
    2. MICROSOFT ONEDRIVE
    ============================================================================ */
 
+const ONEDRIVE_TOKEN_CACHE_KEY = 'fhp_onedrive_token_cache_v1';
+
+export function getCachedOneDriveToken(requireWrite = false) {
+  try {
+    const raw = localStorage.getItem(ONEDRIVE_TOKEN_CACHE_KEY);
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.accessToken || !parsed.expiresAt) return '';
+    if (Number(parsed.expiresAt) - Date.now() <= 120_000) return '';
+    if (requireWrite && !parsed.write) return '';
+    return parsed.accessToken;
+  } catch {
+    return '';
+  }
+}
+
+export function clearCachedOneDriveToken() {
+  try {
+    localStorage.removeItem(ONEDRIVE_TOKEN_CACHE_KEY);
+  } catch {}
+}
+
 export async function requestOneDriveToken(clientId, options = {}) {
   const cleanId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
   if (!cleanId) {
     throw new Error('One-time Microsoft App Client ID needed for direct cloud sign-in (or use "Pick Personal OneDrive Folder on This PC" above with zero setup).');
+  }
+
+  const scope = (options && options.scope) || 'Files.Read User.Read';
+  const needWrite = scope.includes('ReadWrite');
+  if (!options?.forcePrompt) {
+    const cached = getCachedOneDriveToken(needWrite);
+    if (cached) return cached;
   }
 
   const OD_AUTH_STORAGE_KEY = 'fhp_onedrive_auth_result_v1';
@@ -910,7 +939,7 @@ export async function requestOneDriveToken(clientId, options = {}) {
   authUrl.searchParams.set('client_id', cleanId);
   authUrl.searchParams.set('response_type', 'token');
   authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('scope', 'Files.Read User.Read');
+  authUrl.searchParams.set('scope', scope);
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('prompt', 'select_account');
 
@@ -931,6 +960,15 @@ export async function requestOneDriveToken(clientId, options = {}) {
       if (payload.error) {
         reject(new Error(payload.errorDescription || payload.error));
       } else if (payload.accessToken) {
+        const expSec = Math.max(180, Number(payload.expiresIn) || 3500);
+        try {
+          localStorage.setItem(ONEDRIVE_TOKEN_CACHE_KEY, JSON.stringify({
+            accessToken: payload.accessToken,
+            expiresAt: Date.now() + expSec * 1000,
+            write: needWrite,
+            tenant
+          }));
+        } catch {}
         resolve(payload.accessToken);
       } else {
         reject(new Error('No OneDrive access token received.'));
@@ -1025,6 +1063,10 @@ export async function scanOneDriveFolder(token, itemId = 'root', folderName = 'O
       const res = await fetch(nextLink, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401) {
+        clearCachedOneDriveToken();
+        throw new Error('OneDrive session expired — please reconnect Personal OneDrive.');
+      }
       if (!res.ok) throw new Error(`OneDrive scan failed (${res.status})`);
       const data = await res.json();
 
@@ -1034,15 +1076,21 @@ export async function scanOneDriveFolder(token, itemId = 'root', folderName = 'O
         } else if (item.file && isImageFile(item.name, item.file.mimeType)) {
           const modMs = item.lastModifiedDateTime ? new Date(item.lastModifiedDateTime).getTime() : Date.now();
           const relPath = `${current.path}/${item.name}`;
+          const hashes = item.file.hashes || {};
           results.push({
             isCloudFile: true,
             provider: 'onedrive',
+            source: 'onedrive',
             cloudId: item.id,
+            id: item.id,
             name: item.name,
             size: Number(item.size) || 0,
             type: item.file.mimeType || 'image/jpeg',
             lastModified: modMs,
+            path: current.path,
             webkitRelativePath: relPath,
+            sha1Hash: hashes.sha1Hash || '',
+            quickXorHash: hashes.quickXorHash || '',
             fetchFile: async () => {
               // Fetch fresh download URL from Graph item endpoint (downloadUrls expire after ~1 hour)
               const metaRes = await fetch(
@@ -1081,6 +1129,24 @@ export async function scanOneDriveFolder(token, itemId = 'root', folderName = 'O
   return results;
 }
 
+export async function deleteOneDriveFile(token, itemId) {
+  const cleanId = String(itemId || '').trim();
+  if (!cleanId) throw new Error('Missing OneDrive file ID.');
+  const res = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(cleanId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (res.status === 204 || res.ok) {
+    return { mode: 'trashed' };
+  }
+  if (res.status === 401) {
+    clearCachedOneDriveToken();
+    throw new Error('OneDrive session expired — please reconnect Personal OneDrive.');
+  }
+  const errText = await res.text().catch(() => '');
+  throw new Error(`Could not delete OneDrive file (${res.status}): ${errText || res.statusText}`);
+}
+
 export async function launchOneDrivePickerSdk(clientId) {
   const effectiveClientId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
   if (!effectiveClientId) {
@@ -1112,11 +1178,14 @@ export async function launchOneDrivePickerSdk(clientId) {
             return {
               isCloudFile: true,
               provider: 'onedrive',
+              source: 'onedrive',
               cloudId: item.id || name,
+              id: item.id || name,
               name,
               size: Number(item.size) || 0,
               type: 'image/jpeg',
               lastModified: modMs,
+              path: 'OneDrive',
               webkitRelativePath: `OneDrive/${name}`,
               fetchFile: async () => {
                 const dl = await fetch(dlUrl);

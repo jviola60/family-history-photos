@@ -3004,8 +3004,14 @@
         <button class="nav-item" type="button" id="nav-gdrive-indexed" hidden title="Browse and search all indexed Google Drive photos without downloading them">
           <span data-icon="spark"></span><span>Google Drive Indexed</span><span class="nav-count" id="q-gdrive-indexed" style="background:#dbeafe;color:#1e40af;">0</span>
         </button>
+        <button class="nav-item" type="button" id="nav-onedrive-indexed" hidden title="Browse and search all indexed Microsoft OneDrive photos">
+          <span data-icon="spark"></span><span>OneDrive Indexed</span><span class="nav-count" id="q-onedrive-indexed" style="background:#e0f2fe;color:#0369a1;">0</span>
+        </button>
         <button class="nav-item" type="button" id="nav-local-indexed" hidden title="Browse and search all indexed local folder photos">
           <span data-icon="folder"></span><span>Local Folder Indexed</span><span class="nav-count" id="q-local-indexed">0</span>
+        </button>
+        <button class="nav-item" type="button" id="nav-gphotos-indexed" hidden title="Browse indexed Google Photos">
+          <span data-icon="grid"></span><span>Google Photos Indexed</span><span class="nav-count" id="q-gphotos-indexed" style="background:#dcfce7;color:#166534;">0</span>
         </button>
         <button class="nav-item" type="button" id="nav-index-matches" hidden title="Review suggested PAF / GEDCOM matches found across your indexed photos">
           <span data-icon="tree"></span><span id="nav-index-matches-label">Matches Left to Link</span><span class="nav-count" id="q-index-matches" style="background:#dcfce7;color:#166534;">0</span>
@@ -3867,6 +3873,7 @@
               type: 'fhp_onedrive_token',
               state: st,
               accessToken: hashParams.get('access_token') || '',
+              expiresIn: Number(hashParams.get('expires_in')) || 3500,
               error: hashParams.get('error') || '',
               errorDescription: hashParams.get('error_description') || '',
               ts: Date.now()
@@ -4135,6 +4142,11 @@
         gdriveFolderName: '',
         local: [],
         localFolderName: '',
+        onedrive: [],
+        onedriveScannedAt: 0,
+        onedriveFolderName: '',
+        gphotos: [],
+        gphotosScannedAt: 0,
         indexVersion: 0
       };
       const GDRIVE_INDEX_META_KEY = 'gdrive_photo_index_meta_v1';
@@ -4146,6 +4158,12 @@
       const LOCAL_INDEX_CHUNK_SIZE = 10000;
       const LOCAL_ROOT_DIR_HANDLE_KEY = 'local_root_dir_handle_v1';
       let _localIndexRestoreStarted = false;
+      const ONEDRIVE_INDEX_META_KEY = 'onedrive_photo_index_meta_v1';
+      const ONEDRIVE_INDEX_CHUNK_PREFIX = 'onedrive_photo_index_chunk_';
+      const ONEDRIVE_INDEX_CHUNK_SIZE = 10000;
+      let _onedriveIndexRestoreStarted = false;
+      const GPHOTOS_INDEX_META_KEY = 'gphotos_photo_index_meta_v1';
+      let _gphotosIndexRestoreStarted = false;
       let gedcomIndexMatches = {
         strongMatches: [],
         possibleMatches: [],
@@ -5478,6 +5496,12 @@
       }
 
       let dupSourceTab = 'auto';
+      let screenshotsSourceTab = 'auto';
+      let lowresSourceTab = 'auto';
+      let idxListFilter = 'all';
+      let idxListQuery = '';
+      let idxListPage = 1;
+      let selectedIdxListKeys = new Set();
       let idxDupFilter = 'all';
       let idxDupQuery = '';
       let idxDupPage = 1;
@@ -5500,8 +5524,10 @@
 
         const gdriveList = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive : [];
         const localList = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local : [];
+        const onedriveList = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive : [];
+        const gphotosList = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos : [];
 
-        if (gdriveList.length + localList.length === 0) {
+        if (gdriveList.length + localList.length + onedriveList.length + gphotosList.length === 0) {
           const emptyStats = {
             totalIndexed: 0,
             duplicateGroups: [],
@@ -5511,7 +5537,11 @@
             exactMd5GroupCount: 0,
             driveOnlyGroupCount: 0,
             localOnlyGroupCount: 0,
+            onedriveOnlyGroupCount: 0,
+            gphotosOnlyGroupCount: 0,
             crossSourceGroupCount: 0,
+            indexedScreenshots: [],
+            indexedLowRes: [],
             indexedScreenshotCount: 0,
             indexedLowResCount: 0
           };
@@ -5526,43 +5556,53 @@
 
         const all = [];
         const seenRecKeys = new Set();
-        let indexedScreenshotCount = 0;
-        let indexedLowResCount = 0;
+        const indexedScreenshots = [];
+        const indexedLowRes = [];
         const reviewFolderRe = /(^|[\\/])_duplicates_review([\\/]|$)/i;
+        const srcPrefix = { gdrive: 'g', local: 'l', onedrive: 'o', gphotos: 'gp' };
+        const defaultPathFor = { gdrive: 'My Drive', local: 'Local Folder', onedrive: 'OneDrive', gphotos: 'Google Photos' };
 
         const ingestList = (list, src) => {
+          const pfx = srcPrefix[src] || src;
+          const fallbackPath = defaultPathFor[src] || src;
           for (let i = 0; i < list.length; i++) {
             const r = list[i];
             if (!r || !r.name) continue;
             if (reviewFolderRe.test(r.webkitRelativePath || '') || reviewFolderRe.test(r.path || '')) continue;
-            const recKey = `${src === 'gdrive' ? 'g' : 'l'}:${r.cloudId || r.id || i}`;
+            const recKey = `${pfx}:${r.cloudId || r.id || i}`;
             if (seenRecKeys.has(recKey)) continue;
             seenRecKeys.add(recKey);
             const size = Number(r.size) || 0;
-            const isShot = isScreenshotPhoto({ file: r.name, title: r.name, mimeType: r.type });
-            if (isShot) indexedScreenshotCount++;
-            else if (size > 0 && size < 150 * 1024) indexedLowResCount++;
-            const normName = normalizeFileNameForDup(r.name);
-            all.push({
+            const md5 = String(r.md5Checksum || '').trim().toLowerCase();
+            const sha1 = String(r.sha1Hash || '').trim().toLowerCase();
+            const qxor = String(r.quickXorHash || '').trim().toLowerCase();
+            const entry = {
               recKey,
               source: src,
               rec: { ...r, source: src },
               name: r.name,
-              path: r.path || (src === 'gdrive' ? 'My Drive' : 'Local Folder'),
+              path: r.path || fallbackPath,
               size,
               lastModified: Number(r.lastModified) || 0,
-              md5: String(r.md5Checksum || '').trim().toLowerCase(),
-              normName
-            });
+              md5,
+              sha1,
+              qxor,
+              normName: normalizeFileNameForDup(r.name)
+            };
+            const isShot = isScreenshotPhoto({ file: r.name, title: r.name, mimeType: r.type });
+            if (isShot) indexedScreenshots.push(entry);
+            else if (size > 0 && size < 150 * 1024) indexedLowRes.push(entry);
+            all.push(entry);
           }
         };
 
         ingestList(gdriveList, 'gdrive');
         ingestList(localList, 'local');
+        ingestList(onedriveList, 'onedrive');
+        ingestList(gphotosList, 'gphotos');
 
         const assigned = new Set();
         const duplicateGroups = [];
-        const genericCameraRe = /^(?:img|dsc|dscn|dscf|p|pxl|mvimg|vid|photo|image|scan|pic|picture|file|clip|dcim|100)?[-_\s]*\d{1,8}$/i;
         const copyMarkerRe = /(?:\(\d+\)|[-_\s]copy\d*|_dup\d*)\.[^.]+$/i;
         const copyPathRe = /(_duplicates_review|duplicates|backup|trash|old\s+copy)/i;
 
@@ -5577,15 +5617,19 @@
           return a.path.length - b.path.length;
         };
 
-        const runBucketPass = (bucketMap, { confidence, reasonBuilder, validateBucket = null, requireConsistentMd5 = false }) => {
+        const runBucketPass = (bucketMap, { confidence, reasonBuilder, validateBucket = null, requireConsistentHashes = false }) => {
           bucketMap.forEach((bucket, key) => {
             if (!bucket || bucket.length < 2) return;
-            if (requireConsistentMd5) {
+            if (requireConsistentHashes) {
               const md5Set = new Set();
+              const sha1Set = new Set();
+              const qxorSet = new Set();
               for (let i = 0; i < bucket.length; i++) {
                 if (bucket[i].md5) md5Set.add(bucket[i].md5);
+                if (bucket[i].sha1) sha1Set.add(bucket[i].sha1);
+                if (bucket[i].qxor) qxorSet.add(bucket[i].qxor);
               }
-              if (md5Set.size > 1) return;
+              if (md5Set.size > 1 || sha1Set.size > 1 || qxorSet.size > 1) return;
             }
             if (validateBucket && !validateBucket(bucket)) return;
             if (ignoredIndexDupGroups.has(key)) {
@@ -5601,15 +5645,14 @@
                 sorted.unshift(picked);
               }
             }
-            let hasDrive = false;
-            let hasLocal = false;
+            const sourceSet = new Set();
             for (let i = 0; i < sorted.length; i++) {
               assigned.add(sorted[i].recKey);
-              if (sorted[i].source === 'gdrive') hasDrive = true;
-              else hasLocal = true;
+              sourceSet.add(sorted[i].source);
             }
+            const sources = Array.from(sourceSet);
             const master = sorted[0];
-            const scopeType = (hasDrive && hasLocal) ? 'cross' : (hasDrive ? 'gdrive' : 'local');
+            const scopeType = sources.length > 1 ? 'cross' : (sources[0] || 'local');
             const extraCopies = sorted.length - 1;
             const wastedBytes = extraCopies * (master.size || 0);
             duplicateGroups.push({
@@ -5617,6 +5660,7 @@
               confidence,
               reason: reasonBuilder(master, sorted),
               scopeType,
+              sources,
               extraCopies,
               wastedBytes,
               master,
@@ -5625,14 +5669,27 @@
           });
         };
 
-        // Pass 1: Exact MD5 checksum (Drive)
+        // Pass 1: Exact file hash (Drive MD5, OneDrive SHA1 / QuickXor)
         const md5Map = new Map();
+        const sha1Map = new Map();
+        const qxorMap = new Map();
         for (let i = 0; i < all.length; i++) {
           const item = all[i];
-          if (item.md5 && item.size > 0) {
+          if (item.size <= 0) continue;
+          if (item.md5) {
             const k = `md5:${item.md5}`;
             let arr = md5Map.get(k);
             if (!arr) { arr = []; md5Map.set(k, arr); }
+            arr.push(item);
+          } else if (item.sha1) {
+            const k = `sha1:${item.sha1}`;
+            let arr = sha1Map.get(k);
+            if (!arr) { arr = []; sha1Map.set(k, arr); }
+            arr.push(item);
+          } else if (item.qxor) {
+            const k = `qxor:${item.qxor}`;
+            let arr = qxorMap.get(k);
+            if (!arr) { arr = []; qxorMap.set(k, arr); }
             arr.push(item);
           }
         }
@@ -5640,8 +5697,16 @@
           confidence: 100,
           reasonBuilder: () => '100% identical file content (exact MD5 checksum)'
         });
+        runBucketPass(sha1Map, {
+          confidence: 100,
+          reasonBuilder: () => '100% identical file content (exact OneDrive SHA1 hash)'
+        });
+        runBucketPass(qxorMap, {
+          confidence: 100,
+          reasonBuilder: () => '100% identical file content (exact OneDrive hash)'
+        });
 
-        // Pass 2: Normalized filename + exact byte size (never group conflicting MD5s)
+        // Pass 2: Normalized filename + exact byte size across ALL sources (never group conflicting hashes)
         const nameSizeMap = new Map();
         for (let i = 0; i < all.length; i++) {
           const item = all[i];
@@ -5655,11 +5720,11 @@
         }
         runBucketPass(nameSizeMap, {
           confidence: 99,
-          requireConsistentMd5: true,
+          requireConsistentHashes: true,
           reasonBuilder: (m) => `Same filename & exact byte size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB)`
         });
 
-        // Pass 3: Exact byte size (>= 50 KB) + exact modified second (never group conflicting MD5s)
+        // Pass 3: Exact byte size (>= 50 KB) + exact modified second across ALL sources (never group conflicting hashes)
         const sizeTimeMap = new Map();
         for (let i = 0; i < all.length; i++) {
           const item = all[i];
@@ -5673,7 +5738,7 @@
         }
         runBucketPass(sizeTimeMap, {
           confidence: 97,
-          requireConsistentMd5: true,
+          requireConsistentHashes: true,
           reasonBuilder: (m) => `Exact file size (${Math.max(1, Math.round(m.size / 1024)).toLocaleString()} KB) & timestamp`
         });
 
@@ -5684,6 +5749,8 @@
         let exactMd5GroupCount = 0;
         let driveOnlyGroupCount = 0;
         let localOnlyGroupCount = 0;
+        let onedriveOnlyGroupCount = 0;
+        let gphotosOnlyGroupCount = 0;
         let crossSourceGroupCount = 0;
         for (let i = 0; i < duplicateGroups.length; i++) {
           const g = duplicateGroups[i];
@@ -5692,6 +5759,8 @@
           if (g.confidence === 100) exactMd5GroupCount++;
           if (g.scopeType === 'cross') crossSourceGroupCount++;
           else if (g.scopeType === 'gdrive') driveOnlyGroupCount++;
+          else if (g.scopeType === 'onedrive') onedriveOnlyGroupCount++;
+          else if (g.scopeType === 'gphotos') gphotosOnlyGroupCount++;
           else localOnlyGroupCount++;
         }
 
@@ -5704,9 +5773,13 @@
           exactMd5GroupCount,
           driveOnlyGroupCount,
           localOnlyGroupCount,
+          onedriveOnlyGroupCount,
+          gphotosOnlyGroupCount,
           crossSourceGroupCount,
-          indexedScreenshotCount,
-          indexedLowResCount
+          indexedScreenshots,
+          indexedLowRes,
+          indexedScreenshotCount: indexedScreenshots.length,
+          indexedLowResCount: indexedLowRes.length
         };
         _cachedIndexedLibraryStats = {
           version: photoLibraryIndex.indexVersion,
@@ -5890,6 +5963,20 @@
         return await hub.requestGoogleToken(cid, scope, { forcePrompt });
       }
 
+      async function ensureOneDriveWriteToken() {
+        const hub = window.CloudImportHub;
+        if (!hub || typeof hub.requestOneDriveToken !== 'function') {
+          throw new Error('OneDrive module is still loading — please try again.');
+        }
+        const settings = hub.getCloudSettings ? hub.getCloudSettings() : {};
+        const cid = (settings.microsoftClientId || '').trim();
+        const tenant = settings.microsoftTenant || 'consumers';
+        return await hub.requestOneDriveToken(cid, {
+          tenant,
+          scope: 'Files.ReadWrite User.Read'
+        });
+      }
+
       async function executeIndexedDuplicateAction(targetEntries, action = 'delete', { label = '' } = {}) {
         const seen = new Set();
         const uniqueTargets = [];
@@ -5906,28 +5993,38 @@
 
         let localCnt = 0;
         let driveCnt = 0;
+        let onedriveCnt = 0;
+        let gphotosCnt = 0;
         let totalBytes = 0;
         for (let i = 0; i < uniqueTargets.length; i++) {
-          if (uniqueTargets[i].source === 'gdrive') driveCnt++;
+          const entry = uniqueTargets[i];
+          const s = entry.source;
+          const isDiskCopy = s === 'local' || (s === 'onedrive' && entry.rec && (entry.rec.isLocalDiskCopy || entry.rec.fileObj || !entry.rec.cloudId));
+          if (s === 'gdrive') driveCnt++;
+          else if (s === 'onedrive' && !isDiskCopy) onedriveCnt++;
+          else if (s === 'gphotos') gphotosCnt++;
           else localCnt++;
-          totalBytes += Number(uniqueTargets[i].size) || 0;
+          totalBytes += Number(entry.size) || 0;
         }
         const sizeNote = totalBytes > 0
           ? ` (~${totalBytes >= 1073741824 ? `${(totalBytes / 1073741824).toFixed(2)} GB` : (totalBytes >= 1048576 ? `${(totalBytes / 1048576).toFixed(1)} MB` : `${Math.round(totalBytes / 1024).toLocaleString()} KB`)})`
           : '';
         const scopeDesc = [
           localCnt > 0 ? `${localCnt.toLocaleString()} on your computer disk` : '',
-          driveCnt > 0 ? `${driveCnt.toLocaleString()} on Google Drive` : ''
-        ].filter(Boolean).join(' and ');
+          driveCnt > 0 ? `${driveCnt.toLocaleString()} on Google Drive` : '',
+          onedriveCnt > 0 ? `${onedriveCnt.toLocaleString()} on Microsoft OneDrive` : '',
+          gphotosCnt > 0 ? `${gphotosCnt.toLocaleString()} in Google Photos index` : ''
+        ].filter(Boolean).join(', ');
 
         const confirmMsg = action === 'delete'
-          ? `PERMANENTLY DELETE ${uniqueTargets.length.toLocaleString()} duplicate file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc})${label ? ` for ${label}` : ''}?\n\n• Every "★ Keep (Master)" copy stays untouched.\n• Deleted files are permanently removed from your computer / Google Drive so future scans will NEVER bring them back.\n• This cannot be undone.`
-          : `Move ${uniqueTargets.length.toLocaleString()} duplicate file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc}) into Review?\n\n• Local copies move into a "_Duplicates_Review" subfolder on disk and are excluded from future duplicate scans.\n• Google Drive copies move to Google Drive Trash (30-day recovery).\n• Every "★ Keep (Master)" copy stays untouched.`;
+          ? `PERMANENTLY DELETE ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc})${label ? ` for ${label}` : ''}?\n\n• Every "★ Keep (Master)" copy stays untouched.\n• Local & Google Drive files are permanently removed; OneDrive files move to OneDrive Recycle Bin so future scans will NEVER bring them back.\n• This cannot be undone.`
+          : `Move ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc}) into Review / Trash?\n\n• Local copies move into a "_Duplicates_Review" subfolder on disk.\n• Google Drive & OneDrive copies move to Cloud Trash / Recycle Bin.\n• Every "★ Keep (Master)" copy stays untouched.`;
 
         if (!window.confirm(confirmMsg)) return;
 
         const expectedRoot = photoLibraryIndex.localFolderName || rootFolderName || '';
         let driveWriteToken = '';
+        let odWriteToken = '';
         try {
           if (localCnt > 0) {
             await ensureWritableLocalFolderHandle(expectedRoot);
@@ -5937,6 +6034,9 @@
               throw new Error('Google Drive sync helper is still loading — please try again in a second.');
             }
             driveWriteToken = await ensureGoogleDriveWriteToken(false);
+          }
+          if (onedriveCnt > 0) {
+            odWriteToken = await ensureOneDriveWriteToken();
           }
         } catch (authErr) {
           notify(`Action cancelled: ${authErr && authErr.message ? authErr.message : authErr}`);
@@ -5953,7 +6053,7 @@
           overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
           overlay.innerHTML = `
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:480px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:12px;">
-              <div style="font-size:16px;font-weight:700;">${action === 'delete' ? '🗑️ Permanently Deleting Duplicates' : '📁 Moving Duplicates to Review'}</div>
+              <div style="font-size:16px;font-weight:700;">${action === 'delete' ? '🗑️ Deleting Selected Files' : '📁 Moving Selected Files to Review'}</div>
               <div id="dup-act-status" style="font-size:13px;color:var(--text);">Starting...</div>
               <div style="height:8px;background:var(--raised);border-radius:999px;overflow:hidden;border:1px solid var(--border);">
                 <div id="dup-act-bar" style="height:100%;width:4%;background:${action === 'delete' ? '#dc2626' : '#2563eb'};transition:width 0.12s ease;"></div>
@@ -5976,6 +6076,8 @@
         const removedLocalIds = new Set();
         const removedLocalRelPaths = new Set();
         const removedDriveIds = new Set();
+        const removedOnedriveIds = new Set();
+        const removedGphotosIds = new Set();
         const movedLocalNewPaths = new Map();
         let succeeded = 0;
         let failed = 0;
@@ -5983,6 +6085,7 @@
         let lastErr = '';
 
         try {
+          const hub = window.CloudImportHub;
           for (let i = 0; i < uniqueTargets.length; i++) {
             if (stopRequested) break;
             const entry = uniqueTargets[i];
@@ -6000,6 +6103,23 @@
                   await window.DriveSyncUtil.trashDriveFile(driveWriteToken, cloudId);
                 }
                 removedDriveIds.add(cloudId);
+              } else if (entry.source === 'onedrive') {
+                if (entry.rec && (entry.rec.isLocalDiskCopy || entry.rec.fileObj || !entry.rec.cloudId)) {
+                  const res = await applyLocalDiskAction(entry.rec, action, expectedRoot);
+                  if (entry.rec.id) removedOnedriveIds.add(String(entry.rec.id));
+                  if (entry.rec.webkitRelativePath) removedLocalRelPaths.add(entry.rec.webkitRelativePath);
+                  if (action === 'review' && res && res.targetName) {
+                    movedLocalNewPaths.set(entry.rec.webkitRelativePath || entry.name, res.targetName);
+                  }
+                } else {
+                  const odId = String(entry.rec.cloudId || entry.rec.id || '').trim();
+                  if (!odId) throw new Error('Missing OneDrive file ID.');
+                  await hub.deleteOneDriveFile(odWriteToken, odId);
+                  removedOnedriveIds.add(odId);
+                }
+              } else if (entry.source === 'gphotos') {
+                const gpId = String(entry.rec.cloudId || entry.rec.id || entry.name || '').trim();
+                if (gpId) removedGphotosIds.add(gpId);
               } else {
                 const res = await applyLocalDiskAction(entry.rec, action, expectedRoot);
                 if (entry.rec.id) removedLocalIds.add(entry.rec.id);
@@ -6053,19 +6173,33 @@
           }
         }
 
+        if (removedOnedriveIds.size > 0 && Array.isArray(photoLibraryIndex.onedrive)) {
+          photoLibraryIndex.onedrive = photoLibraryIndex.onedrive.filter((r) => !removedOnedriveIds.has(String(r.cloudId || r.id || '')));
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('onedrive', { label: 'Microsoft OneDrive', count: photoLibraryIndex.onedrive.length });
+          }
+        }
+
+        if (removedGphotosIds.size > 0 && Array.isArray(photoLibraryIndex.gphotos)) {
+          photoLibraryIndex.gphotos = photoLibraryIndex.gphotos.filter((r) => !removedGphotosIds.has(String(r.cloudId || r.id || r.name || '')));
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('gphotos', { label: 'Google Photos', count: photoLibraryIndex.gphotos.length });
+          }
+        }
+
         // Sync any matching items in the currently loaded active workspace batch
-        if (Array.isArray(items) && items.length > 0 && (removedDriveIds.size > 0 || removedLocalRelPaths.size > 0 || movedLocalNewPaths.size > 0)) {
-          const removedLocalFileNames = new Set(uniqueTargets.filter((e) => e.source !== 'gdrive' && (removedLocalIds.has(e.rec.id) || removedLocalRelPaths.has(e.rec.webkitRelativePath))).map((e) => `${String(e.name).toLowerCase()}|${Math.max(1, Math.round((e.size || 0) / 1024))}`));
+        if (Array.isArray(items) && items.length > 0 && (removedDriveIds.size > 0 || removedOnedriveIds.size > 0 || removedGphotosIds.size > 0 || removedLocalRelPaths.size > 0 || movedLocalNewPaths.size > 0)) {
+          const removedLocalFileNames = new Set(uniqueTargets.filter((e) => e.source === 'local' && (removedLocalIds.has(e.rec.id) || removedLocalRelPaths.has(e.rec.webkitRelativePath))).map((e) => `${String(e.name).toLowerCase()}|${Math.max(1, Math.round((e.size || 0) / 1024))}`));
           if (action === 'delete') {
             items = items.filter((p) => {
-              if (p.cloudId && removedDriveIds.has(String(p.cloudId))) return false;
+              if (p.cloudId && (removedDriveIds.has(String(p.cloudId)) || removedOnedriveIds.has(String(p.cloudId)) || removedGphotosIds.has(String(p.cloudId)))) return false;
               const k = `${String(p.file || '').toLowerCase()}|${Number(p.kb) || 0}`;
               return !removedLocalFileNames.has(k);
             });
           } else {
             items.forEach((p) => {
               const k = `${String(p.file || '').toLowerCase()}|${Number(p.kb) || 0}`;
-              if ((p.cloudId && removedDriveIds.has(String(p.cloudId))) || removedLocalFileNames.has(k)) {
+              if ((p.cloudId && (removedDriveIds.has(String(p.cloudId)) || removedOnedriveIds.has(String(p.cloudId)) || removedGphotosIds.has(String(p.cloudId)))) || removedLocalFileNames.has(k)) {
                 p.inReview = true;
                 saveItemMetadata(p);
               }
@@ -6075,10 +6209,19 @@
         }
 
         if (succeeded > 0) {
-          uniqueTargets.forEach((e) => selectedIdxDupKeys.delete(e.recKey));
+          uniqueTargets.forEach((e) => {
+            selectedIdxDupKeys.delete(e.recKey);
+            selectedIdxListKeys.delete(e.recKey);
+          });
           photoLibraryIndex.indexVersion++;
           if (removedDriveIds.size > 0 && typeof saveGdriveIndexToDb === 'function') {
             await saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
+          }
+          if (removedOnedriveIds.size > 0 && typeof saveOnedriveIndexToDb === 'function') {
+            await saveOnedriveIndexToDb(photoLibraryIndex.onedrive, photoLibraryIndex.onedriveFolderName || 'OneDrive');
+          }
+          if (removedGphotosIds.size > 0 && typeof saveGphotosIndexToDb === 'function') {
+            await saveGphotosIndexToDb(photoLibraryIndex.gphotos);
           }
           if ((removedLocalIds.size > 0 || removedLocalRelPaths.size > 0) && typeof saveLocalIndexToDb === 'function') {
             await saveLocalIndexToDb(photoLibraryIndex.local, photoLibraryIndex.localFolderName || 'Local Folder');
@@ -6090,8 +6233,8 @@
 
         notify(
           failed > 0
-            ? `${action === 'delete' ? 'Deleted' : 'Moved'} ${succeeded.toLocaleString()} duplicate(s); ${failed.toLocaleString()} failed${lastErr ? ` (${lastErr})` : ''}.`
-            : `✓ ${action === 'delete' ? 'Permanently deleted' : 'Moved to _Duplicates_Review / Trash'} ${succeeded.toLocaleString()} duplicate file${succeeded === 1 ? '' : 's'}!`
+            ? `${action === 'delete' ? 'Deleted' : 'Moved'} ${succeeded.toLocaleString()} file(s); ${failed.toLocaleString()} failed${lastErr ? ` (${lastErr})` : ''}.`
+            : `✓ ${action === 'delete' ? 'Deleted' : 'Moved to Review / Trash'} ${succeeded.toLocaleString()} file${succeeded === 1 ? '' : 's'}!`
         );
         render();
       }
@@ -6353,13 +6496,17 @@
 
         const toggleDemoBtn = document.getElementById('btn-toggle-demo');
         const topClearDemoBtn = document.getElementById('btn-top-clear-demo');
+        const onedriveLen = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
+        const gphotosLen = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const hasAnyPhotos = items.length > 0
           || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
-          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0);
+          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0)
+          || onedriveLen > 0
+          || gphotosLen > 0;
         if (!hasAnyPhotos) {
           if (toggleDemoBtn) toggleDemoBtn.textContent = '↺ Reload Demo Photos';
           if (topClearDemoBtn) topClearDemoBtn.textContent = 'Reload Demo';
-        } else if (isCustomFolder || photoLibraryIndex.gdrive.length > 0 || photoLibraryIndex.local.length > 0) {
+        } else if (isCustomFolder || photoLibraryIndex.gdrive.length > 0 || photoLibraryIndex.local.length > 0 || onedriveLen > 0 || gphotosLen > 0) {
           if (toggleDemoBtn) toggleDemoBtn.textContent = '✕ Clear Photos & Start Fresh';
           if (topClearDemoBtn) topClearDemoBtn.textContent = 'Clear Photos';
         } else {
@@ -6384,18 +6531,22 @@
         document.getElementById('q-unsynced').textContent = s.activeCount - s.fsSyncedCount;
         const qGedMatched = document.getElementById('q-gedcom-matched');
         if (qGedMatched) qGedMatched.textContent = gedcomMatchedCount;
-        document.getElementById('q-lowres').textContent = s.lowResCount;
         const wsDupPairs = findDuplicatePairs(items);
         const idxStats = typeof getIndexedLibraryStats === 'function'
           ? getIndexedLibraryStats()
           : { totalIndexed: 0, duplicateGroupCount: 0, duplicateExtraCount: 0, indexedScreenshotCount: 0, indexedLowResCount: 0 };
+        document.getElementById('q-lowres').textContent = (idxStats.totalIndexed > 0
+          ? (idxStats.indexedLowResCount || s.lowResCount)
+          : s.lowResCount).toLocaleString();
         const qDupsEl = document.getElementById('q-dups');
         if (qDupsEl) {
           qDupsEl.textContent = idxStats.totalIndexed > 0
             ? (idxStats.duplicateExtraCount || wsDupPairs.length).toLocaleString()
             : wsDupPairs.length;
         }
-        document.getElementById('q-junk').textContent = screenshotCount;
+        document.getElementById('q-junk').textContent = (idxStats.totalIndexed > 0
+          ? (idxStats.indexedScreenshotCount || screenshotCount)
+          : screenshotCount).toLocaleString();
         document.getElementById('q-review').textContent = s.reviewCount;
 
             document.getElementById('kpi-active').textContent = s.activeCount;
@@ -6442,20 +6593,27 @@
 
             const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
             const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+            const onedriveCount = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
+            const gphotosCount = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
+            const totalAllIndexed = driveCount + localCount + onedriveCount + gphotosCount;
             const matchProg = getGedcomMatchProgressCounts(gedcomIndexMatches, items);
 
             const idxSection = document.getElementById('sidebar-index-section');
             const navGd = document.getElementById('nav-gdrive-indexed');
             const qGd = document.getElementById('q-gdrive-indexed');
+            const navOd = document.getElementById('nav-onedrive-indexed');
+            const qOd = document.getElementById('q-onedrive-indexed');
             const navLoc = document.getElementById('nav-local-indexed');
             const qLoc = document.getElementById('q-local-indexed');
+            const navGp = document.getElementById('nav-gphotos-indexed');
+            const qGp = document.getElementById('q-gphotos-indexed');
             const navMatches = document.getElementById('nav-index-matches');
             const navMatchesLbl = document.getElementById('nav-index-matches-label');
             const qMatches = document.getElementById('q-index-matches');
             const wsLabel = document.getElementById('sidebar-workspace-label');
             const allBtn = document.querySelector('[data-queue="all"]');
 
-            if (idxSection) idxSection.hidden = (driveCount === 0 && localCount === 0 && matchProg.totalMatches === 0);
+            if (idxSection) idxSection.hidden = (totalAllIndexed === 0 && matchProg.totalMatches === 0);
             if (navGd && qGd) {
               navGd.hidden = driveCount === 0;
               qGd.textContent = driveCount.toLocaleString();
@@ -6464,12 +6622,28 @@
                 if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'gdrive' });
               };
             }
+            if (navOd && qOd) {
+              navOd.hidden = onedriveCount === 0;
+              qOd.textContent = onedriveCount.toLocaleString();
+              navOd.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'onedrive' });
+              };
+            }
             if (navLoc && qLoc) {
               navLoc.hidden = localCount === 0;
               qLoc.textContent = localCount.toLocaleString();
               navLoc.onclick = () => {
                 document.getElementById('sidebar').classList.remove('open');
                 if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'local' });
+              };
+            }
+            if (navGp && qGp) {
+              navGp.hidden = gphotosCount === 0;
+              qGp.textContent = gphotosCount.toLocaleString();
+              navGp.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'gphotos' });
               };
             }
             if (navMatches && qMatches) {
@@ -6482,24 +6656,24 @@
               navMatches.onclick = () => {
                 document.getElementById('sidebar').classList.remove('open');
                 if (typeof openGedcomMatchReviewModal === 'function') {
-                  openGedcomMatchReviewModal(gedcomIndexMatches, driveCount > 0 ? 'Google Drive' : 'Indexed Photos');
+                  openGedcomMatchReviewModal(gedcomIndexMatches, driveCount > 0 ? 'Google Drive' : (onedriveCount > 0 ? 'OneDrive' : 'Indexed Photos'));
                 }
               };
             }
             if (wsLabel) {
-              wsLabel.textContent = (driveCount > 0 || localCount > 0) ? `Workspace (Active Batch: ${s.activeCount})` : 'Workspace';
+              wsLabel.textContent = totalAllIndexed > 0 ? `Workspace (Active Batch: ${s.activeCount})` : 'Workspace';
             }
             const cleanupLabel = document.getElementById('sidebar-cleanup-label');
             if (cleanupLabel) {
-              cleanupLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Library & Batch Cleanup' : 'Batch Cleanup & Repairs';
+              cleanupLabel.textContent = totalAllIndexed > 0 ? 'Library & Batch Cleanup' : 'Batch Cleanup & Repairs';
             }
             const subLabel = document.getElementById('sidebar-subfolders-label');
             if (subLabel) {
-              subLabel.textContent = (driveCount > 0 || localCount > 0) ? 'Active Batch Subfolders' : 'Subfolders on Disk';
+              subLabel.textContent = totalAllIndexed > 0 ? 'Active Batch Subfolders' : 'Subfolders on Disk';
             }
             if (allBtn) {
-              allBtn.title = driveCount > 0
-                ? `Active batch prints (${s.activeCount}) — ${driveCount.toLocaleString()} Google Drive photos are indexed in "Google Drive Indexed" above`
+              allBtn.title = totalAllIndexed > 0
+                ? `Active batch prints (${s.activeCount}) — ${totalAllIndexed.toLocaleString()} photos indexed across all connected sources above`
                 : 'All imported album prints';
             }
             const dupNavBtn = document.querySelector('[data-queue="duplicates"]');
@@ -7125,12 +7299,30 @@
               return;
             }
 
-            const idxDupPreviewReady = !activeFolder && activeQueue === 'duplicates'
-              && typeof getIndexedLibraryStats === 'function'
-              && getIndexedLibraryStats().duplicateGroupCount > 0;
+            const _preIdxStats = (!activeFolder && typeof getIndexedLibraryStats === 'function' && (activeQueue === 'duplicates' || activeQueue === 'screenshots' || activeQueue === 'lowres'))
+              ? getIndexedLibraryStats()
+              : null;
+            const idxQueuePreviewReady = Boolean(_preIdxStats && (
+              (activeQueue === 'duplicates' && _preIdxStats.duplicateGroupCount > 0)
+              || (activeQueue === 'screenshots' && _preIdxStats.indexedScreenshotCount > 0)
+              || (activeQueue === 'lowres' && _preIdxStats.indexedLowResCount > 0)
+            ));
+
+            const fmtSourceBadge = (src) => ({
+              gdrive: '☁️ Drive',
+              onedrive: '🟦 OneDrive',
+              local: '📁 Local',
+              gphotos: '📷 GPhotos'
+            }[src] || '📁 Local');
+            const fmtSourceName = (src) => ({
+              gdrive: 'Google Drive',
+              onedrive: 'Microsoft OneDrive',
+              local: 'Local Folder',
+              gphotos: 'Google Photos'
+            }[src] || 'Local Folder');
 
             /* Empty state when demo prints are cleared */
-            if (items.length === 0 && !idxDupPreviewReady) {
+            if (items.length === 0 && !idxQueuePreviewReady) {
               host.innerHTML = `
                 <div class="panel" style="padding:40px 20px;text-align:center;max-width:540px;margin:24px auto;">
                   <div style="width:60px;height:60px;border-radius:50%;background:#e8f0fe;color:#1d5fbf;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">
@@ -7216,7 +7408,7 @@
                           <h2 style="margin:0;font-size:18px;font-weight:700;">Find Duplicates Across Your ${idxStats.totalIndexed.toLocaleString()} Indexed Photos</h2>
                         </div>
                         <p class="muted" style="font-size:13px;margin:4px 0 0;">
-                          Found <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> extra duplicate copies across <strong>${idxStats.duplicateGroupCount.toLocaleString()}</strong> groups${idxStats.duplicateWastedBytes > 0 ? ` (~<strong>${fmtBytes(idxStats.duplicateWastedBytes)}</strong> reclaimable)` : ''}. Matched strictly by exact MD5 checksum (100%), identical filename + exact byte size (99%), or identical byte size + timestamp (97%) — never by filename alone.
+                          Found <strong>${idxStats.duplicateExtraCount.toLocaleString()}</strong> extra duplicate copies across <strong>${idxStats.duplicateGroupCount.toLocaleString()}</strong> groups${idxStats.duplicateWastedBytes > 0 ? ` (~<strong>${fmtBytes(idxStats.duplicateWastedBytes)}</strong> reclaimable)` : ''} spanning Google Drive, Microsoft OneDrive, Google Photos, and Local Folder. Matched strictly by exact file hash (100% MD5/SHA1/QuickXorHash), identical filename + exact byte size (99%), or identical byte size + timestamp (97%).
                         </p>
                         ${dupTabBarHtml}
                       </div>
@@ -7232,10 +7424,12 @@
                     </div>
                     <div id="idx-dup-controls" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
                       <button class="btn sm ${idxDupFilter === 'all' ? 'primary' : ''}" type="button" data-idx-dup-filter="all">All (${idxStats.duplicateGroupCount.toLocaleString()})</button>
-                      ${idxStats.exactMd5GroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'md5' ? 'primary' : ''}" type="button" data-idx-dup-filter="md5">✓ 100% Exact MD5 (${idxStats.exactMd5GroupCount.toLocaleString()})</button>` : ''}
-                      <button class="btn sm ${idxDupFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="gdrive">☁️ Google Drive Only (${idxStats.driveOnlyGroupCount.toLocaleString()})</button>
-                      <button class="btn sm ${idxDupFilter === 'local' ? 'primary' : ''}" type="button" data-idx-dup-filter="local">📁 Local Folder Only (${idxStats.localOnlyGroupCount.toLocaleString()})</button>
-                      <button class="btn sm ${idxDupFilter === 'cross' ? 'primary' : ''}" type="button" data-idx-dup-filter="cross">🔀 In Both Drive &amp; Local (${idxStats.crossSourceGroupCount.toLocaleString()})</button>
+                      ${idxStats.exactMd5GroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'md5' ? 'primary' : ''}" type="button" data-idx-dup-filter="md5">✓ 100% Exact Hash (${idxStats.exactMd5GroupCount.toLocaleString()})</button>` : ''}
+                      ${idxStats.driveOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="gdrive">☁️ Google Drive Only (${idxStats.driveOnlyGroupCount.toLocaleString()})</button>` : ''}
+                      ${idxStats.onedriveOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'onedrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="onedrive">🟦 OneDrive Only (${idxStats.onedriveOnlyGroupCount.toLocaleString()})</button>` : ''}
+                      ${idxStats.localOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'local' ? 'primary' : ''}" type="button" data-idx-dup-filter="local">📁 Local Folder Only (${idxStats.localOnlyGroupCount.toLocaleString()})</button>` : ''}
+                      ${idxStats.gphotosOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'gphotos' ? 'primary' : ''}" type="button" data-idx-dup-filter="gphotos">📷 Google Photos Only (${idxStats.gphotosOnlyGroupCount.toLocaleString()})</button>` : ''}
+                      <button class="btn sm ${idxDupFilter === 'cross' ? 'primary' : ''}" type="button" data-idx-dup-filter="cross">🔀 Across Sources (${idxStats.crossSourceGroupCount.toLocaleString()})</button>
                       <input type="search" id="inp-idx-dup-search" placeholder="Filter by filename or folder path..." value="${esc(idxDupQuery)}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);color:var(--text);">
                     </div>
                   </div>
@@ -7369,7 +7563,7 @@
                       zoomMetaList.push({
                         src: thumbSrc,
                         title: it.name,
-                        subtitle: `${isDrive ? 'Google Drive' : 'Local Folder'} · ${it.path} · ${fmtBytes(it.size)}`
+                        subtitle: `${fmtSourceName(it.source)} · ${it.path} · ${fmtBytes(it.size)}`
                       });
                       const dateStr = it.lastModified ? new Date(it.lastModified).toISOString().slice(0, 10) : '';
                       const cardBorder = isMaster
@@ -7390,12 +7584,12 @@
                                   <span class="pill warn" style="font-size:11px;font-weight:700;">⚠️ Copy #${cIdx}</span>
                                 </label>
                               `}
-                              <span class="pill neu" style="font-size:10.5px;">${isDrive ? '☁️ Drive' : '📁 Local'}</span>
+                              <span class="pill neu" style="font-size:10.5px;">${fmtSourceBadge(it.source)}</span>
                             </div>
                             <div data-idx-zoom="${zoomIdx}" style="height:140px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
                               ${thumbSrc
                                 ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
-                                : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Google Drive Photo' : '📁 Local Folder Photo'}</div>`}
+                                : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${fmtSourceName(it.source)}</div>`}
                             </div>
                             <div style="min-width:0;">
                               <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
@@ -7420,6 +7614,7 @@
                             <div style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                               <span>#${(start + gIdx + 1).toLocaleString()} · ${esc(g.master.name)}</span>
                               <span class="pill warn" style="font-size:11px;">${g.items.length} copies · ${g.confidence}% match</span>
+                              ${g.scopeType === 'cross' && Array.isArray(g.sources) ? `<span class="pill info" style="font-size:11px;">🔀 ${esc(g.sources.map((s) => fmtSourceBadge(s)).join(' + '))}</span>` : ''}
                               ${g.wastedBytes > 0 ? `<span class="pill info" style="font-size:11px;">~${fmtBytes(g.wastedBytes)} extra</span>` : ''}
                             </div>
                             <div class="muted" style="font-size:12px;margin-top:2px;">${esc(g.reason)}</div>
@@ -7900,6 +8095,357 @@
               return;
             }
 
+            /* Special Indexed Library Views for Clean Screenshots & Needs 4K Restore */
+            if (!activeFolder && (activeQueue === 'screenshots' || activeQueue === 'lowres')) {
+              const isScreenQueue = activeQueue === 'screenshots';
+              const idxStats = typeof getIndexedLibraryStats === 'function'
+                ? getIndexedLibraryStats()
+                : { totalIndexed: 0, indexedScreenshots: [], indexedLowRes: [] };
+              const indexedArr = isScreenQueue ? idxStats.indexedScreenshots : idxStats.indexedLowRes;
+              const wsArr = items.filter((p) => !p.inReview && (isScreenQueue ? isScreenshotPhoto(p) : isLowRes(p)));
+              const savedTab = isScreenQueue ? screenshotsSourceTab : lowresSourceTab;
+              const activeTab = (savedTab === 'workspace')
+                ? 'workspace'
+                : (indexedArr.length > 0 || savedTab === 'indexed' ? 'indexed' : 'workspace');
+
+              if (activeTab === 'indexed' && indexedArr.length > 0) {
+                const srcCounts = { gdrive: 0, onedrive: 0, local: 0, gphotos: 0 };
+                for (let i = 0; i < indexedArr.length; i++) {
+                  const s = indexedArr[i].source;
+                  if (srcCounts[s] !== undefined) srcCounts[s]++;
+                }
+                const fmtBytes = (b) => {
+                  const n = Number(b) || 0;
+                  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+                  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+                  if (n >= 1024) return `${Math.round(n / 1024).toLocaleString()} KB`;
+                  return 'Size unknown';
+                };
+
+                host.innerHTML = `
+                  <div class="panel" style="margin-bottom:14px;padding:16px 18px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <span style="font-size:22px;">${isScreenQueue ? '📱' : '✨'}</span>
+                          <h2 style="margin:0;font-size:18px;font-weight:700;">${isScreenQueue ? `Clean Screenshots (${indexedArr.length.toLocaleString()} Across Indexed Sources)` : `Needs 4K Restore (${indexedArr.length.toLocaleString()} Small Files Across Indexed Sources)`}</h2>
+                        </div>
+                        <p class="muted" style="font-size:13px;margin:4px 0 0;">
+                          ${isScreenQueue
+                            ? `Detected across <strong>${idxStats.totalIndexed.toLocaleString()}</strong> indexed photos from all connected sources by screenshot filename patterns.`
+                            : `Small image files (&lt;150 KB) across <strong>${idxStats.totalIndexed.toLocaleString()}</strong> indexed photos that may benefit from 4K restoration or review.`}
+                        </p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">
+                          <button class="btn sm primary" type="button" id="btn-idx-list-src-indexed">📚 Full Indexed Library (${indexedArr.length.toLocaleString()})</button>
+                          <button class="btn sm" type="button" id="btn-idx-list-src-workspace">🖼️ Active Workspace Batch (${wsArr.length})</button>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        ${srcCounts.local > 0 ? `
+                          <button class="btn sm ${_writableLocalRootHandle ? 'success' : ''}" type="button" id="btn-idx-list-unlock-disk" title="Select your root local photo folder once to allow delete or move to _Duplicates_Review on disk">
+                            ${_writableLocalRootHandle ? `🔓 Disk Ready (${esc(_writableLocalRootHandle.name)})` : '🔐 Unlock Disk Delete / Move'}
+                          </button>` : ''}
+                      </div>
+                    </div>
+                    <div id="idx-list-controls" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                      <button class="btn sm ${idxListFilter === 'all' ? 'primary' : ''}" type="button" data-idx-list-filter="all">All (${indexedArr.length.toLocaleString()})</button>
+                      ${srcCounts.gdrive > 0 ? `<button class="btn sm ${idxListFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-list-filter="gdrive">☁️ Google Drive (${srcCounts.gdrive.toLocaleString()})</button>` : ''}
+                      ${srcCounts.onedrive > 0 ? `<button class="btn sm ${idxListFilter === 'onedrive' ? 'primary' : ''}" type="button" data-idx-list-filter="onedrive">🟦 OneDrive (${srcCounts.onedrive.toLocaleString()})</button>` : ''}
+                      ${srcCounts.local > 0 ? `<button class="btn sm ${idxListFilter === 'local' ? 'primary' : ''}" type="button" data-idx-list-filter="local">📁 Local Folder (${srcCounts.local.toLocaleString()})</button>` : ''}
+                      ${srcCounts.gphotos > 0 ? `<button class="btn sm ${idxListFilter === 'gphotos' ? 'primary' : ''}" type="button" data-idx-list-filter="gphotos">📷 Google Photos (${srcCounts.gphotos.toLocaleString()})</button>` : ''}
+                      <input type="search" id="inp-idx-list-search" placeholder="Filter by filename or folder path..." value="${esc(idxListQuery)}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);color:var(--text);">
+                    </div>
+                  </div>
+                  <div id="idx-list-thumb-banner" style="display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:12px;font-size:12.5px;color:#1e3a8a;flex-wrap:wrap;"></div>
+                  <div id="idx-list-results"></div>
+                `;
+
+                const unlockBtn = host.querySelector('#btn-idx-list-unlock-disk');
+                if (unlockBtn) {
+                  unlockBtn.onclick = async () => {
+                    try {
+                      _writableLocalRootHandle = null;
+                      const h = await ensureWritableLocalFolderHandle(photoLibraryIndex.localFolderName || rootFolderName || '');
+                      notify(`✓ Disk delete/move enabled for "${h.name}".`);
+                      render();
+                    } catch (err) {
+                      if (err && err.name !== 'AbortError') notify(err.message || String(err));
+                    }
+                  };
+                }
+                const wsTabBtn = host.querySelector('#btn-idx-list-src-workspace');
+                if (wsTabBtn) {
+                  wsTabBtn.onclick = () => {
+                    if (isScreenQueue) screenshotsSourceTab = 'workspace';
+                    else lowresSourceTab = 'workspace';
+                    render();
+                  };
+                }
+
+                const loadedLookup = typeof buildLoadedPhotoLookup === 'function' ? buildLoadedPhotoLookup(items) : null;
+                const resultsEl = host.querySelector('#idx-list-results');
+                const bannerEl = host.querySelector('#idx-list-thumb-banner');
+                const entryByKey = new Map();
+                for (let i = 0; i < indexedArr.length; i++) {
+                  entryByKey.set(indexedArr[i].recKey, indexedArr[i]);
+                }
+                Array.from(selectedIdxListKeys).forEach((rk) => {
+                  if (!entryByKey.has(rk)) selectedIdxListKeys.delete(rk);
+                });
+
+                const renderIdxListResults = () => {
+                  if (_idxDupObjectUrls.length) {
+                    _idxDupObjectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+                    _idxDupObjectUrls = [];
+                  }
+                  const q = (idxListQuery || '').trim().toLowerCase();
+                  const filtered = indexedArr.filter((it) => {
+                    if (idxListFilter !== 'all' && it.source !== idxListFilter) return false;
+                    if (!q) return true;
+                    return (it.name && it.name.toLowerCase().includes(q)) || (it.path && it.path.toLowerCase().includes(q));
+                  });
+                  const PER_PAGE = 40;
+                  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+                  if (idxListPage > totalPages) idxListPage = totalPages;
+                  if (idxListPage < 1) idxListPage = 1;
+
+                  if (filtered.length === 0) {
+                    resultsEl.innerHTML = `<div class="panel" style="padding:36px 20px;text-align:center;"><div style="font-size:28px;margin-bottom:8px;">✓</div><div style="font-size:15px;font-weight:600;">No matching photos for this filter.</div></div>`;
+                    return;
+                  }
+
+                  const start = (idxListPage - 1) * PER_PAGE;
+                  const pageItems = filtered.slice(start, start + PER_PAGE);
+                  const zoomMetaList = [];
+                  const selCount = selectedIdxListKeys.size;
+
+                  const bulkBarHtml = `
+                    <div style="position:sticky;top:8px;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1.5px solid #cbd5e1;border-radius:10px;margin-bottom:12px;box-shadow:0 4px 14px rgba(15,23,42,0.08);flex-wrap:wrap;">
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn sm" type="button" id="btn-idx-list-select-page">☑ Select Page (${pageItems.length})</button>
+                        <button class="btn sm" type="button" id="btn-idx-list-clear-sel" ${selCount === 0 ? 'disabled' : ''}>☐ Clear Selected</button>
+                        <span id="idx-list-sel-badge" class="pill ${selCount > 0 ? 'info' : 'neu'}" style="font-size:12px;font-weight:700;">${selCount.toLocaleString()} checked</span>
+                      </div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn sm primary" type="button" id="btn-idx-list-move-sel" ${selCount === 0 ? 'disabled' : ''}>📁 Move Selected (${selCount.toLocaleString()})</button>
+                        <button class="btn sm danger" type="button" id="btn-idx-list-del-sel" ${selCount === 0 ? 'disabled' : ''}>🗑️ Delete Selected (${selCount.toLocaleString()})</button>
+                        ${isScreenQueue ? `
+                          <span style="width:1px;height:20px;background:var(--border);margin:0 2px;"></span>
+                          <button class="btn sm" type="button" id="btn-idx-list-move-all">📁 Move All (${filtered.length.toLocaleString()})</button>
+                          <button class="btn sm danger" type="button" id="btn-idx-list-del-all">🗑️ Delete All (${filtered.length.toLocaleString()})</button>
+                        ` : ''}
+                      </div>
+                    </div>`;
+
+                  const pagerHtml = totalPages > 1 ? `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                      <span class="mono muted" style="font-size:12px;">Showing ${(start + 1).toLocaleString()}–${Math.min(start + pageItems.length, filtered.length).toLocaleString()} of ${filtered.length.toLocaleString()}</span>
+                      <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn sm idx-list-prev" type="button" ${idxListPage <= 1 ? 'disabled' : ''}>← Previous</button>
+                        <span class="mono" style="font-size:12px;">Page ${idxListPage} / ${totalPages}</span>
+                        <button class="btn sm idx-list-next" type="button" ${idxListPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                      </div>
+                    </div>` : '';
+
+                  const cardsHtml = pageItems.map((it, idx) => {
+                    const isChecked = selectedIdxListKeys.has(it.recKey);
+                    let thumbSrc = '';
+                    let isDrive = it.source === 'gdrive';
+                    let cloudId = '';
+                    if (it.source === 'local' && it.rec && it.rec.fileObj) {
+                      try {
+                        thumbSrc = URL.createObjectURL(it.rec.fileObj);
+                        _idxDupObjectUrls.push(thumbSrc);
+                      } catch (_) {}
+                    } else {
+                      const tInfo = getBestThumbnailSrcForRecord(it.rec, loadedLookup);
+                      thumbSrc = tInfo.src;
+                      isDrive = tInfo.isDrive;
+                      cloudId = tInfo.cloudId;
+                    }
+                    const zoomIdx = zoomMetaList.length;
+                    zoomMetaList.push({
+                      src: thumbSrc,
+                      title: it.name,
+                      subtitle: `${fmtSourceName(it.source)} · ${it.path} · ${fmtBytes(it.size)}`
+                    });
+                    const dateStr = it.lastModified ? new Date(it.lastModified).toISOString().slice(0, 10) : '';
+                    return `
+                      <div data-list-card-key="${esc(it.recKey)}" style="border:${isChecked ? '2px solid #2563eb' : '1px solid var(--border)'};border-radius:8px;padding:10px;background:${isChecked ? '#eff6ff' : 'var(--surface)'};display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+                              <input type="checkbox" class="idx-list-chk" data-rec-key="${esc(it.recKey)}" ${isChecked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:#2563eb;">
+                              <span style="font-size:11px;font-weight:600;color:var(--muted);">#${(start + idx + 1).toLocaleString()}</span>
+                            </label>
+                            <span class="pill neu" style="font-size:10.5px;">${fmtSourceBadge(it.source)}</span>
+                          </div>
+                          <div data-idx-list-zoom="${zoomIdx}" style="height:136px;border-radius:6px;background:#0f172a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:${thumbSrc ? 'pointer' : 'default'};" title="Click to view full size">
+                            ${thumbSrc
+                              ? `<img src="${esc(thumbSrc)}" referrerpolicy="no-referrer" alt="${esc(it.name)}" ${isDrive && cloudId ? `data-cloud-id="${esc(cloudId)}" onerror="window._onDriveThumbError && window._onDriveThumbError(this)"` : ''} style="max-width:100%;max-height:100%;object-fit:contain;"><div style="display:none;color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${isDrive ? '☁️ Drive preview expired' : '📷 Preview unavailable'}</div>`
+                              : `<div style="color:#cbd5e1;font-size:12px;padding:8px;text-align:center;">${fmtSourceName(it.source)}</div>`}
+                          </div>
+                          <div style="min-width:0;">
+                            <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(it.name)}">${esc(it.name)}</div>
+                            <div class="muted" style="font-size:11px;margin-top:2px;word-break:break-word;" title="${esc(it.path)}">📂 ${esc(it.path)}</div>
+                            <div class="mono muted" style="font-size:11px;margin-top:2px;">${fmtBytes(it.size)}${dateStr ? ` · ${dateStr}` : ''}</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;padding-top:6px;border-top:1px solid var(--border);">
+                          <button class="btn sm" type="button" data-idx-list-move="${idx}" style="font-size:11px;padding:3px 7px;">📁 Review</button>
+                          <button class="btn sm danger" type="button" data-idx-list-del="${idx}" style="font-size:11px;padding:3px 7px;">🗑️ Delete</button>
+                          ${!isScreenQueue ? `<button class="btn sm" type="button" data-idx-list-find="${idx}" style="font-size:11px;padding:3px 7px;">🔗 Find &amp; Link</button>` : ''}
+                        </div>
+                      </div>`;
+                  }).join('');
+
+                  resultsEl.innerHTML = `${bulkBarHtml}${pagerHtml}<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;margin-bottom:14px;">${cardsHtml}</div>${totalPages > 1 ? pagerHtml : ''}`;
+
+                  const syncIdxListUi = () => {
+                    const nSel = selectedIdxListKeys.size;
+                    const badgeEl = resultsEl.querySelector('#idx-list-sel-badge');
+                    if (badgeEl) {
+                      badgeEl.textContent = `${nSel.toLocaleString()} checked`;
+                      badgeEl.className = `pill ${nSel > 0 ? 'info' : 'neu'}`;
+                    }
+                    const clr = resultsEl.querySelector('#btn-idx-list-clear-sel');
+                    if (clr) clr.disabled = nSel === 0;
+                    const mv = resultsEl.querySelector('#btn-idx-list-move-sel');
+                    if (mv) {
+                      mv.disabled = nSel === 0;
+                      mv.textContent = `📁 Move Selected (${nSel.toLocaleString()})`;
+                    }
+                    const dl = resultsEl.querySelector('#btn-idx-list-del-sel');
+                    if (dl) {
+                      dl.disabled = nSel === 0;
+                      dl.textContent = `🗑️ Delete Selected (${nSel.toLocaleString()})`;
+                    }
+                    const selPg = resultsEl.querySelector('#btn-idx-list-select-page');
+                    if (selPg) {
+                      const allPg = pageItems.length > 0 && pageItems.every((x) => selectedIdxListKeys.has(x.recKey));
+                      selPg.textContent = allPg ? `☐ Unselect Page (${pageItems.length})` : `☑ Select Page (${pageItems.length})`;
+                    }
+                    resultsEl.querySelectorAll('[data-list-card-key]').forEach((card) => {
+                      const rk = card.getAttribute('data-list-card-key');
+                      const on = selectedIdxListKeys.has(rk);
+                      card.style.border = on ? '2px solid #2563eb' : '1px solid var(--border)';
+                      card.style.background = on ? '#eff6ff' : 'var(--surface)';
+                    });
+                  };
+
+                  resultsEl.querySelectorAll('.idx-list-chk').forEach((chk) => {
+                    chk.onchange = () => {
+                      const rk = chk.getAttribute('data-rec-key');
+                      if (!rk) return;
+                      if (chk.checked) selectedIdxListKeys.add(rk);
+                      else selectedIdxListKeys.delete(rk);
+                      syncIdxListUi();
+                    };
+                  });
+                  const btnSelPg = resultsEl.querySelector('#btn-idx-list-select-page');
+                  if (btnSelPg) {
+                    btnSelPg.onclick = () => {
+                      const allPg = pageItems.length > 0 && pageItems.every((x) => selectedIdxListKeys.has(x.recKey));
+                      pageItems.forEach((x) => {
+                        if (allPg) selectedIdxListKeys.delete(x.recKey);
+                        else selectedIdxListKeys.add(x.recKey);
+                      });
+                      const pgKeys = new Set(pageItems.map((x) => x.recKey));
+                      resultsEl.querySelectorAll('.idx-list-chk').forEach((chk) => {
+                        const rk = chk.getAttribute('data-rec-key');
+                        if (pgKeys.has(rk)) chk.checked = !allPg;
+                      });
+                      syncIdxListUi();
+                    };
+                  }
+                  const btnClr = resultsEl.querySelector('#btn-idx-list-clear-sel');
+                  if (btnClr) {
+                    btnClr.onclick = () => {
+                      selectedIdxListKeys.clear();
+                      resultsEl.querySelectorAll('.idx-list-chk').forEach((chk) => { chk.checked = false; });
+                      syncIdxListUi();
+                    };
+                  }
+                  const btnMvSel = resultsEl.querySelector('#btn-idx-list-move-sel');
+                  if (btnMvSel) {
+                    btnMvSel.onclick = () => {
+                      const targets = Array.from(selectedIdxListKeys).map((rk) => entryByKey.get(rk)).filter(Boolean);
+                      executeIndexedDuplicateAction(targets, 'review', { label: `${targets.length.toLocaleString()} checked files` });
+                    };
+                  }
+                  const btnDlSel = resultsEl.querySelector('#btn-idx-list-del-sel');
+                  if (btnDlSel) {
+                    btnDlSel.onclick = () => {
+                      const targets = Array.from(selectedIdxListKeys).map((rk) => entryByKey.get(rk)).filter(Boolean);
+                      executeIndexedDuplicateAction(targets, 'delete', { label: `${targets.length.toLocaleString()} checked files` });
+                    };
+                  }
+                  const btnMvAll = resultsEl.querySelector('#btn-idx-list-move-all');
+                  if (btnMvAll) btnMvAll.onclick = () => executeIndexedDuplicateAction(filtered, 'review', { label: 'all filtered screenshots' });
+                  const btnDlAll = resultsEl.querySelector('#btn-idx-list-del-all');
+                  if (btnDlAll) btnDlAll.onclick = () => executeIndexedDuplicateAction(filtered, 'delete', { label: 'all filtered screenshots' });
+
+                  resultsEl.querySelectorAll('[data-idx-list-move]').forEach((b) => {
+                    b.onclick = () => {
+                      const it = pageItems[Number(b.getAttribute('data-idx-list-move'))];
+                      if (it) executeIndexedDuplicateAction([it], 'review', { label: it.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-idx-list-del]').forEach((b) => {
+                    b.onclick = () => {
+                      const it = pageItems[Number(b.getAttribute('data-idx-list-del'))];
+                      if (it) executeIndexedDuplicateAction([it], 'delete', { label: it.name });
+                    };
+                  });
+                  resultsEl.querySelectorAll('[data-idx-list-find]').forEach((b) => {
+                    b.onclick = () => {
+                      const it = pageItems[Number(b.getAttribute('data-idx-list-find'))];
+                      if (it && typeof openPhotoIndexBrowserModal === 'function') {
+                        openPhotoIndexBrowserModal(it.name, { initialSource: it.source });
+                      }
+                    };
+                  });
+                  resultsEl.querySelectorAll('.idx-list-prev').forEach((b) => {
+                    b.onclick = () => { if (idxListPage > 1) { idxListPage--; renderIdxListResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+                  });
+                  resultsEl.querySelectorAll('.idx-list-next').forEach((b) => {
+                    b.onclick = () => { if (idxListPage < totalPages) { idxListPage++; renderIdxListResults(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+                  });
+                  resultsEl.querySelectorAll('[data-idx-list-zoom]').forEach((el) => {
+                    el.onclick = () => {
+                      const meta = zoomMetaList[Number(el.getAttribute('data-idx-list-zoom'))];
+                      if (meta && meta.src && typeof openPhotoZoomLightbox === 'function') {
+                        openPhotoZoomLightbox(meta);
+                      }
+                    };
+                  });
+                  if (typeof attachDriveThumbAutoRefresh === 'function') {
+                    attachDriveThumbAutoRefresh(resultsEl, bannerEl);
+                  }
+                  syncIdxListUi();
+                };
+
+                host.querySelectorAll('[data-idx-list-filter]').forEach((b) => {
+                  b.onclick = () => {
+                    idxListFilter = b.getAttribute('data-idx-list-filter') || 'all';
+                    idxListPage = 1;
+                    host.querySelectorAll('[data-idx-list-filter]').forEach((x) => x.classList.toggle('primary', x === b));
+                    renderIdxListResults();
+                  };
+                });
+                const listSearchBox = host.querySelector('#inp-idx-list-search');
+                if (listSearchBox) {
+                  listSearchBox.oninput = () => {
+                    idxListQuery = listSearchBox.value || '';
+                    idxListPage = 1;
+                    renderIdxListResults();
+                  };
+                }
+                renderIdxListResults();
+                return;
+              }
+            }
+
             const list = filteredItems();
             if (!list.find((p) => p.id === selectedId) && list[0]) {
               selectedId = list[0].id;
@@ -8026,8 +8572,8 @@
                 <button class="btn sm" type="button" id="btn-page-next" ${catalogPage >= totalPages ? 'disabled' : ''}>Next →</button>
               </div>` : '';
 
-            /* Top action banner for screenshots and review staging queues */
-            const screenIdxStats = (activeQueue === 'screenshots' && typeof getIndexedLibraryStats === 'function')
+            /* Top action banner for screenshots, lowres and review staging queues */
+            const screenIdxStats = ((activeQueue === 'screenshots' || activeQueue === 'lowres') && typeof getIndexedLibraryStats === 'function')
               ? getIndexedLibraryStats()
               : null;
             const queueActionBannerHtml = (activeQueue === 'screenshots') ? `
@@ -8040,13 +8586,25 @@
                   </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  ${screenIdxStats && screenIdxStats.indexedScreenshotCount > 0 ? `<button class="btn sm" type="button" id="btn-browse-idx-screenshots">📚 Browse ${screenIdxStats.indexedScreenshotCount.toLocaleString()} Indexed</button>` : ''}
+                  ${screenIdxStats && screenIdxStats.indexedScreenshotCount > 0 ? `<button class="btn sm" type="button" id="btn-browse-idx-screenshots">📚 View ${screenIdxStats.indexedScreenshotCount.toLocaleString()} Indexed Screenshots</button>` : ''}
                   <button class="btn sm" type="button" id="btn-stage-all-screenshots" title="Move all detected screenshots into Review &amp; Cleanup">
                     Move All to Review &amp; Cleanup
                   </button>
                   <button class="btn sm danger" type="button" id="btn-delete-all-screenshots" title="Permanently delete all detected screenshots">
                     <span data-icon="trash"></span> Delete All Screenshots
                   </button>
+                </div>
+              </div>` : (activeQueue === 'lowres' && screenIdxStats && screenIdxStats.indexedLowResCount > 0) ? `
+              <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:22px;">✨</span>
+                  <div>
+                    <div style="font-weight:600;font-size:14px;color:var(--text);">Needs 4K Restore (${list.length} in active batch · ${screenIdxStats.indexedLowResCount.toLocaleString()} in indexed library)</div>
+                    <div class="muted" style="font-size:12px;margin-top:2px;">Low-resolution photos in your active batch can be enhanced in Photo Lab, or switch to browse all small indexed files across all sources.</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn sm" type="button" id="btn-browse-idx-lowres">📚 View ${screenIdxStats.indexedLowResCount.toLocaleString()} Indexed Small Files</button>
                 </div>
               </div>` : (activeQueue === 'review') ? `
               <div class="queue-action-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--raised);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -8349,7 +8907,21 @@
             const browseIdxScreenshotsBtn = host.querySelector('#btn-browse-idx-screenshots');
             if (browseIdxScreenshotsBtn) {
               browseIdxScreenshotsBtn.onclick = () => {
-                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('screenshot');
+                screenshotsSourceTab = 'indexed';
+                idxListFilter = 'all';
+                idxListQuery = '';
+                idxListPage = 1;
+                render();
+              };
+            }
+            const browseIdxLowresBtn = host.querySelector('#btn-browse-idx-lowres');
+            if (browseIdxLowresBtn) {
+              browseIdxLowresBtn.onclick = () => {
+                lowresSourceTab = 'indexed';
+                idxListFilter = 'all';
+                idxListQuery = '';
+                idxListPage = 1;
+                render();
               };
             }
             const stageAllScreenshotsBtn = host.querySelector('#btn-stage-all-screenshots');
@@ -17105,6 +17677,8 @@
         const driveUserLabel = driveHint && (driveHint.email || driveHint.displayName) ? (driveHint.email || driveHint.displayName) : '';
         const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
         const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const onedriveIdxCount = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
+        const gphotosIdxCount = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const gathered = loadGatheredSources();
         const matchProg = typeof getGedcomMatchProgressCounts === 'function'
           ? getGedcomMatchProgressCounts(gedcomIndexMatches, items)
@@ -17120,19 +17694,22 @@
           ? 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#dcfce7;border:1px solid #86efac;color:#14532d;'
           : 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;';
 
+        const onedriveCount = onedriveIdxCount || ((gathered.onedrive && Number(gathered.onedrive.count)) || 0);
+        const gphotosCount = gphotosIdxCount || ((gathered.gphotos && Number(gathered.gphotos.count)) || 0);
         const extraGatheredKeys = [
-          ['gphotos', 'Google Photos'],
-          ['onedrive', 'Microsoft OneDrive'],
           ['icloud', 'Apple iCloud / ZIP'],
           ['device', 'Device Photos']
         ];
-        const extraChipsHtml = extraGatheredKeys
-          .filter(([k]) => gathered[k] && Number(gathered[k].count) > 0)
-          .map(([k, defaultLbl]) => {
-            const info = gathered[k];
-            return `<span style="${summaryChipStyle(true)}">✓ ${esc(info.label || defaultLbl)}: ${Number(info.count).toLocaleString()} photos</span>`;
-          })
-          .join('');
+        const extraChipsHtml = [
+          gphotosCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ Google Photos: ${gphotosCount.toLocaleString()} photos</span>` : '',
+          onedriveCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ Microsoft OneDrive: ${onedriveCount.toLocaleString()} photos</span>` : '',
+          ...extraGatheredKeys
+            .filter(([k]) => gathered[k] && Number(gathered[k].count) > 0)
+            .map(([k, defaultLbl]) => {
+              const info = gathered[k];
+              return `<span style="${summaryChipStyle(true)}">✓ ${esc(info.label || defaultLbl)}: ${Number(info.count).toLocaleString()} photos</span>`;
+            })
+        ].filter(Boolean).join('');
 
         host.innerHTML = `
           <div style="background:#ffffff;border:1.5px solid #cbd5e1;border-radius:12px;padding:14px 18px;margin-bottom:14px;">
@@ -17203,12 +17780,12 @@
                 </div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                ${(items.length > 0 || gd || driveCount > 0 || localCount > 0) ? `
+                ${(items.length > 0 || gd || driveCount > 0 || localCount > 0 || onedriveCount > 0 || gphotosCount > 0) ? `
                   <button type="button" class="btn success" id="gather-continue-step2">Continue to Step 2: Identify, Re-Link &amp; Tag (${activeCount}) →</button>
                 ` : `
                   <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
                 `}
-                ${(items.length > 0 || driveCount > 0 || localCount > 0) ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
+                ${(items.length > 0 || driveCount > 0 || localCount > 0 || onedriveCount > 0 || gphotosCount > 0) ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
               </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:7px;">
@@ -18529,12 +19106,16 @@
       async function clearAllPhotos() {
         const driveCnt = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
         const localCnt = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const odCnt = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
+        const gpCnt = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const activeCnt = items.length;
-        if (isCustomFolder || driveCnt > 0 || localCnt > 0) {
+        if (isCustomFolder || driveCnt > 0 || localCnt > 0 || odCnt > 0 || gpCnt > 0) {
           const parts = [
             activeCnt > 0 ? `${activeCnt.toLocaleString()} active workspace print${activeCnt === 1 ? '' : 's'}` : '',
             driveCnt > 0 ? `${driveCnt.toLocaleString()} indexed Google Drive photos` : '',
-            localCnt > 0 ? `${localCnt.toLocaleString()} indexed Local Folder photos` : ''
+            localCnt > 0 ? `${localCnt.toLocaleString()} indexed Local Folder photos` : '',
+            odCnt > 0 ? `${odCnt.toLocaleString()} indexed OneDrive photos` : '',
+            gpCnt > 0 ? `${gpCnt.toLocaleString()} indexed Google Photos` : ''
           ].filter(Boolean);
           const ok = window.confirm(`Clear ${parts.join(', ')}?\n\nYour Family Tree (.ged) and linked-photo history will stay safely saved.`);
           if (!ok) return;
@@ -18542,6 +19123,8 @@
         await clearArchiveFromDb({ keepDemoCleared: true });
         if (typeof clearGdriveIndexFromDb === 'function') await clearGdriveIndexFromDb();
         if (typeof clearLocalIndexFromDb === 'function') await clearLocalIndexFromDb();
+        if (typeof clearOnedriveIndexFromDb === 'function') await clearOnedriveIndexFromDb();
+        if (typeof clearGphotosIndexFromDb === 'function') await clearGphotosIndexFromDb();
         if (typeof setMetaInDb === 'function') await setMetaInDb(LOCAL_ROOT_DIR_HANDLE_KEY, null);
         try {
           localStorage.setItem('fhp_demo_cleared', '1');
@@ -18554,12 +19137,18 @@
         duplicateResolved = false;
         ignoredDupPairKeys = new Set();
         selectedIdxDupKeys.clear();
+        selectedIdxListKeys.clear();
         _writableLocalRootHandle = null;
         photoLibraryIndex.gdrive = [];
         photoLibraryIndex.gdriveScannedAt = 0;
         photoLibraryIndex.gdriveFolderName = '';
         photoLibraryIndex.local = [];
         photoLibraryIndex.localFolderName = '';
+        photoLibraryIndex.onedrive = [];
+        photoLibraryIndex.onedriveScannedAt = 0;
+        photoLibraryIndex.onedriveFolderName = '';
+        photoLibraryIndex.gphotos = [];
+        photoLibraryIndex.gphotosScannedAt = 0;
         photoLibraryIndex.indexVersion++;
         gedcomIndexMatches = {
           strongMatches: [],
@@ -18576,14 +19165,16 @@
         activeQueue = 'all';
         catalogPage = 1;
         selectedId = null;
-        notify('Cleared all current photos and saved Drive/Local indexes. Your Family Tree (.ged) is still saved.');
+        notify('Cleared all current photos and saved Cloud/Local indexes. Your Family Tree (.ged) is still saved.');
         render();
       }
 
       function handleToggleDemo() {
         const hasAny = items.length > 0
           || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
-          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0);
+          || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0)
+          || (Array.isArray(photoLibraryIndex.onedrive) && photoLibraryIndex.onedrive.length > 0)
+          || (Array.isArray(photoLibraryIndex.gphotos) && photoLibraryIndex.gphotos.length > 0);
         if (!hasAny) {
           resetToSampleArchive();
         } else {
@@ -19261,6 +19852,8 @@
       restoreLocalRootHandleFromDb().catch(() => {});
       restoreGdriveIndexFromDb().catch((e) => console.warn('Google Drive index restore failed:', e));
       restoreLocalIndexFromDb().catch((e) => console.warn('Local folder index restore failed:', e));
+      restoreOnedriveIndexFromDb().catch((e) => console.warn('OneDrive index restore failed:', e));
+      restoreGphotosIndexFromDb().catch((e) => console.warn('Google Photos index restore failed:', e));
       
       if (typeof initFamilySearchAuth === 'function') {
         initFamilySearchAuth().catch(() => {});
@@ -19322,6 +19915,76 @@
           if (typeof refreshGedcomIndexMatches === 'function') {
             refreshGedcomIndexMatches().catch(() => {});
           }
+        } else if (prov === 'onedrive' || /onedrive/i.test(sourceLabel || '')) {
+          const odRecords = fileList.map((f, idx) => ({
+            isCloudFile: Boolean(f.isCloudFile || f.cloudId),
+            isLocalDiskCopy: Boolean(f.isLocalDiskCopy || (!f.cloudId && !f.isCloudFile)),
+            provider: 'onedrive',
+            source: 'onedrive',
+            cloudId: f.cloudId || '',
+            id: f.cloudId || f.id || `od:${idx}:${f.name}`,
+            name: f.name,
+            path: f.path || (f.webkitRelativePath ? f.webkitRelativePath.replace(/\/[^/]+$/, '') : (sourceLabel || 'OneDrive')),
+            webkitRelativePath: f.webkitRelativePath || `${sourceLabel || 'OneDrive'}/${f.name}`,
+            size: Number(f.size) || 0,
+            lastModified: f.lastModified || Date.now(),
+            type: f.type || 'image/jpeg',
+            thumbnailLink: f.thumbnailLink || '',
+            sha1Hash: f.sha1Hash || '',
+            quickXorHash: f.quickXorHash || ''
+          }));
+          const mergedOd = typeof mergeIntoOnedriveIndex === 'function'
+            ? mergeIntoOnedriveIndex(odRecords)
+            : odRecords;
+          photoLibraryIndex.onedrive = mergedOd;
+          photoLibraryIndex.onedriveScannedAt = Date.now();
+          if (!photoLibraryIndex.onedriveFolderName || mergedOd.length === odRecords.length) {
+            photoLibraryIndex.onedriveFolderName = sourceLabel || 'OneDrive';
+          }
+          photoLibraryIndex.indexVersion++;
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('onedrive', { label: 'Microsoft OneDrive', count: mergedOd.length });
+          }
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+          if (typeof saveOnedriveIndexToDb === 'function') {
+            saveOnedriveIndexToDb(mergedOd, photoLibraryIndex.onedriveFolderName).catch(() => {});
+          }
+          if (typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
+          }
+        } else if (prov === 'gphotos' || /google_photos/i.test(sourceLabel || '')) {
+          const gpRecords = fileList.map((f, idx) => ({
+            isCloudFile: Boolean(f.isCloudFile || f.cloudId),
+            provider: 'gphotos',
+            source: 'gphotos',
+            cloudId: f.cloudId || '',
+            id: f.cloudId || f.id || `gp:${idx}:${f.name}`,
+            name: f.name,
+            path: f.path || (f.webkitRelativePath ? f.webkitRelativePath.replace(/\/[^/]+$/, '') : (sourceLabel || 'Google Photos')),
+            webkitRelativePath: f.webkitRelativePath || `${sourceLabel || 'Google Photos'}/${f.name}`,
+            size: Number(f.size) || 0,
+            lastModified: f.lastModified || Date.now(),
+            type: f.type || 'image/jpeg',
+            thumbnailLink: f.thumbnailLink || '',
+            width: Number(f.width) || 0,
+            height: Number(f.height) || 0
+          }));
+          const mergedGp = typeof mergeIntoGphotosIndex === 'function'
+            ? mergeIntoGphotosIndex(gpRecords)
+            : gpRecords;
+          photoLibraryIndex.gphotos = mergedGp;
+          photoLibraryIndex.gphotosScannedAt = Date.now();
+          photoLibraryIndex.indexVersion++;
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('gphotos', { label: 'Google Photos', count: mergedGp.length });
+          }
+          if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+          if (typeof saveGphotosIndexToDb === 'function') {
+            saveGphotosIndexToDb(mergedGp).catch(() => {});
+          }
+          if (typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
+          }
         }
         rootFolderName = sourceLabel || 'Cloud_Photos';
         isCustomFolder = true;
@@ -19350,7 +20013,7 @@
         let activeTab = 'gdrive';
         let gdriveToken = (hub.getCachedGoogleToken ? hub.getCachedGoogleToken('https://www.googleapis.com/auth/drive.readonly') : '') || '';
         let gdriveStack = [{ id: 'root', name: 'My Drive' }];
-        let odToken = '';
+        let odToken = (hub.getCachedOneDriveToken ? hub.getCachedOneDriveToken(false) : '') || '';
         let odStack = [{ id: 'root', name: 'OneDrive' }];
 
         const overlay = document.createElement('div');
@@ -19733,24 +20396,15 @@
                 }
                 const firstRel = imgFiles[0].webkitRelativePath || '';
                 const odFolderName = (firstRel.split('/').filter(Boolean)[0]) || 'OneDrive';
-                photoLibraryIndex.local = imgFiles.map((f, idx) => ({
-                  source: 'local',
-                  id: `local:${idx}:${f.name}`,
-                  name: f.name,
-                  path: f.webkitRelativePath || odFolderName,
-                  webkitRelativePath: f.webkitRelativePath || `${odFolderName}/${f.name}`,
-                  size: f.size || 0,
-                  lastModified: f.lastModified || Date.now(),
-                  type: f.type || 'image/jpeg',
-                  fileObj: f
-                }));
-                photoLibraryIndex.localFolderName = odFolderName;
-                photoLibraryIndex.indexVersion++;
-                if (typeof saveLocalIndexToDb === 'function') {
-                  saveLocalIndexToDb(photoLibraryIndex.local, odFolderName).catch(() => {});
-                }
+                const odLocalTagged = imgFiles.map((f, idx) => {
+                  f.provider = 'onedrive';
+                  f.isLocalDiskCopy = true;
+                  f.id = `odlocal:${idx}:${f.name}`;
+                  f.path = f.webkitRelativePath ? f.webkitRelativePath.replace(/\/[^/]+$/, '') : odFolderName;
+                  return f;
+                });
                 closeModal();
-                await loadCloudFilesIntoArchive(imgFiles, `OneDrive_${odFolderName}`);
+                await loadCloudFilesIntoArchive(odLocalTagged, `OneDrive_${odFolderName}`);
               };
               inp.click();
             };
@@ -22065,10 +22719,134 @@
               });
             }
           }
+            if (restored.length > 0) {
+              photoLibraryIndex.local = restored;
+              photoLibraryIndex.localFolderName = meta.folderName || 'Local Folder';
+              photoLibraryIndex.indexVersion++;
+              if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+              if (window._activeGedcomData) {
+                await refreshGedcomIndexMatches();
+              }
+              render();
+            }
+        } catch (err) {
+          console.warn('Could not restore local folder photo index:', err);
+        }
+      }
+
+      function mergeIntoOnedriveIndex(newRecords) {
+        const byKey = new Map();
+        const existing = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive : [];
+        const recKey = (r) => String(r && (r.cloudId || r.webkitRelativePath || `${r.path || ''}/${r.id || r.name || ''}`)).toLowerCase();
+        for (let i = 0; i < existing.length; i++) {
+          const r = existing[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        for (let i = 0; i < (newRecords || []).length; i++) {
+          const r = newRecords[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        return Array.from(byKey.values());
+      }
+
+      async function saveOnedriveIndexToDb(records, folderName = 'OneDrive') {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
+        try {
+          const prevMeta = await getMetaFromDb(ONEDRIVE_INDEX_META_KEY);
+          const prevChunks = (prevMeta && Number(prevMeta.chunkCount)) || 0;
+          const totalCount = Array.isArray(records) ? records.length : 0;
+          const chunkCount = Math.ceil(totalCount / ONEDRIVE_INDEX_CHUNK_SIZE);
+          for (let c = 0; c < chunkCount; c++) {
+            const slice = records.slice(c * ONEDRIVE_INDEX_CHUNK_SIZE, (c + 1) * ONEDRIVE_INDEX_CHUNK_SIZE);
+            const compact = slice.map((r) => [
+              r.cloudId || r.id || '',
+              r.name || '',
+              r.path || '',
+              r.webkitRelativePath || '',
+              Number(r.size) || 0,
+              Number(r.lastModified) || 0,
+              r.type || 'image/jpeg',
+              r.sha1Hash || '',
+              r.quickXorHash || '',
+              r.thumbnailLink || '',
+              r.isLocalDiskCopy ? 1 : 0
+            ]);
+            await setMetaInDb(`${ONEDRIVE_INDEX_CHUNK_PREFIX}${c}`, compact);
+          }
+          for (let c = chunkCount; c < prevChunks; c++) {
+            await setMetaInDb(`${ONEDRIVE_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(ONEDRIVE_INDEX_META_KEY, {
+            version: 1,
+            totalCount,
+            chunkCount,
+            scannedAt: Date.now(),
+            folderName: folderName || 'OneDrive'
+          });
+          return true;
+        } catch (err) {
+          console.warn('Could not persist OneDrive photo index:', err);
+          return false;
+        }
+      }
+
+      async function clearOnedriveIndexFromDb() {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(ONEDRIVE_INDEX_META_KEY);
+          const chunks = (meta && Number(meta.chunkCount)) || 0;
+          for (let c = 0; c < chunks; c++) {
+            await setMetaInDb(`${ONEDRIVE_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(ONEDRIVE_INDEX_META_KEY, null);
+        } catch (err) {
+          console.warn('Could not clear saved OneDrive photo index:', err);
+        }
+      }
+
+      async function restoreOnedriveIndexFromDb() {
+        if (_onedriveIndexRestoreStarted) return;
+        _onedriveIndexRestoreStarted = true;
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(ONEDRIVE_INDEX_META_KEY);
+          if (!meta || !meta.totalCount || !meta.chunkCount) return;
+          const restored = [];
+          for (let c = 0; c < meta.chunkCount; c++) {
+            const chunk = await getMetaFromDb(`${ONEDRIVE_INDEX_CHUNK_PREFIX}${c}`);
+            if (!Array.isArray(chunk)) continue;
+            for (let i = 0; i < chunk.length; i++) {
+              const row = chunk[i];
+              if (!Array.isArray(row) || !row[1]) continue;
+              const isLocal = Boolean(row[10]);
+              const path = row[2] || meta.folderName || 'OneDrive';
+              restored.push({
+                isCloudFile: !isLocal,
+                isLocalDiskCopy: isLocal,
+                provider: 'onedrive',
+                source: 'onedrive',
+                cloudId: isLocal ? '' : (row[0] || ''),
+                id: row[0] || `od:${restored.length}:${row[1]}`,
+                name: row[1],
+                path,
+                webkitRelativePath: row[3] || `${path}/${row[1]}`,
+                size: Number(row[4]) || 0,
+                lastModified: Number(row[5]) || 0,
+                type: row[6] || 'image/jpeg',
+                sha1Hash: row[7] || '',
+                quickXorHash: row[8] || '',
+                thumbnailLink: row[9] || ''
+              });
+            }
+          }
           if (restored.length > 0) {
-            photoLibraryIndex.local = restored;
-            photoLibraryIndex.localFolderName = meta.folderName || 'Local Folder';
+            photoLibraryIndex.onedrive = restored;
+            photoLibraryIndex.onedriveScannedAt = meta.scannedAt || Date.now();
+            photoLibraryIndex.onedriveFolderName = meta.folderName || 'OneDrive';
             photoLibraryIndex.indexVersion++;
+            if (typeof recordGatheredSource === 'function') {
+              recordGatheredSource('onedrive', { label: 'Microsoft OneDrive', count: restored.length });
+            }
             if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
             if (window._activeGedcomData) {
               await refreshGedcomIndexMatches();
@@ -22076,7 +22854,126 @@
             render();
           }
         } catch (err) {
-          console.warn('Could not restore local folder photo index:', err);
+          console.warn('Could not restore OneDrive photo index:', err);
+        }
+      }
+
+      function mergeIntoGphotosIndex(newRecords) {
+        const byKey = new Map();
+        const existing = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos : [];
+        const recKey = (r) => String(r && (r.cloudId || r.id || `${r.name || ''}|${r.size || 0}|${r.lastModified || 0}`)).toLowerCase();
+        for (let i = 0; i < existing.length; i++) {
+          const r = existing[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        for (let i = 0; i < (newRecords || []).length; i++) {
+          const r = newRecords[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        return Array.from(byKey.values());
+      }
+
+      async function saveGphotosIndexToDb(records) {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
+        try {
+          const prevMeta = await getMetaFromDb(GPHOTOS_INDEX_META_KEY);
+          const prevChunks = (prevMeta && Number(prevMeta.chunkCount)) || 0;
+          const totalCount = Array.isArray(records) ? records.length : 0;
+          const chunkCount = Math.ceil(totalCount / GPHOTOS_INDEX_CHUNK_SIZE);
+          for (let c = 0; c < chunkCount; c++) {
+            const slice = records.slice(c * GPHOTOS_INDEX_CHUNK_SIZE, (c + 1) * GPHOTOS_INDEX_CHUNK_SIZE);
+            const compact = slice.map((r) => [
+              r.cloudId || r.id || '',
+              r.name || '',
+              r.path || 'Google Photos',
+              r.webkitRelativePath || '',
+              Number(r.size) || 0,
+              Number(r.lastModified) || 0,
+              r.type || 'image/jpeg',
+              r.thumbnailLink || '',
+              Number(r.width) || 0,
+              Number(r.height) || 0
+            ]);
+            await setMetaInDb(`${GPHOTOS_INDEX_CHUNK_PREFIX}${c}`, compact);
+          }
+          for (let c = chunkCount; c < prevChunks; c++) {
+            await setMetaInDb(`${GPHOTOS_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(GPHOTOS_INDEX_META_KEY, {
+            version: 1,
+            totalCount,
+            chunkCount,
+            scannedAt: Date.now()
+          });
+          return true;
+        } catch (err) {
+          console.warn('Could not persist Google Photos index:', err);
+          return false;
+        }
+      }
+
+      async function clearGphotosIndexFromDb() {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(GPHOTOS_INDEX_META_KEY);
+          const chunks = (meta && Number(meta.chunkCount)) || 0;
+          for (let c = 0; c < chunks; c++) {
+            await setMetaInDb(`${GPHOTOS_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(GPHOTOS_INDEX_META_KEY, null);
+        } catch (err) {
+          console.warn('Could not clear saved Google Photos index:', err);
+        }
+      }
+
+      async function restoreGphotosIndexFromDb() {
+        if (_gphotosIndexRestoreStarted) return;
+        _gphotosIndexRestoreStarted = true;
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(GPHOTOS_INDEX_META_KEY);
+          if (!meta || !meta.totalCount || !meta.chunkCount) return;
+          const restored = [];
+          for (let c = 0; c < meta.chunkCount; c++) {
+            const chunk = await getMetaFromDb(`${GPHOTOS_INDEX_CHUNK_PREFIX}${c}`);
+            if (!Array.isArray(chunk)) continue;
+            for (let i = 0; i < chunk.length; i++) {
+              const row = chunk[i];
+              if (!Array.isArray(row) || !row[1]) continue;
+              const path = row[2] || 'Google Photos';
+              restored.push({
+                isCloudFile: true,
+                provider: 'gphotos',
+                source: 'gphotos',
+                cloudId: row[0] || '',
+                id: row[0] || `gp:${restored.length}:${row[1]}`,
+                name: row[1],
+                path,
+                webkitRelativePath: row[3] || `${path}/${row[1]}`,
+                size: Number(row[4]) || 0,
+                lastModified: Number(row[5]) || 0,
+                type: row[6] || 'image/jpeg',
+                thumbnailLink: row[7] || '',
+                width: Number(row[8]) || 0,
+                height: Number(row[9]) || 0
+              });
+            }
+          }
+          if (restored.length > 0) {
+            photoLibraryIndex.gphotos = restored;
+            photoLibraryIndex.gphotosScannedAt = meta.scannedAt || Date.now();
+            photoLibraryIndex.indexVersion++;
+            if (typeof recordGatheredSource === 'function') {
+              recordGatheredSource('gphotos', { label: 'Google Photos', count: restored.length });
+            }
+            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+            if (window._activeGedcomData) {
+              await refreshGedcomIndexMatches();
+            }
+            render();
+          }
+        } catch (err) {
+          console.warn('Could not restore Google Photos index:', err);
         }
       }
 
@@ -22127,6 +23024,32 @@
             out.push({
               ...l,
               source: 'local',
+              alreadyLoadedId: loadedId
+            });
+          }
+        }
+
+        if (options.includeOnedrive !== false && Array.isArray(photoLibraryIndex.onedrive)) {
+          for (let i = 0; i < photoLibraryIndex.onedrive.length; i++) {
+            const o = photoLibraryIndex.onedrive[i];
+            const loadedId = (o.cloudId && loadedByCloudId.get(o.cloudId)) || loadedByName.get(String(o.name || '').trim().toLowerCase()) || '';
+            if (options.dedupeLoaded && loadedId) continue;
+            out.push({
+              ...o,
+              source: 'onedrive',
+              alreadyLoadedId: loadedId
+            });
+          }
+        }
+
+        if (options.includeGphotos !== false && Array.isArray(photoLibraryIndex.gphotos)) {
+          for (let i = 0; i < photoLibraryIndex.gphotos.length; i++) {
+            const gp = photoLibraryIndex.gphotos[i];
+            const loadedId = (gp.cloudId && loadedByCloudId.get(gp.cloudId)) || loadedByName.get(String(gp.name || '').trim().toLowerCase()) || '';
+            if (options.dedupeLoaded && loadedId) continue;
+            out.push({
+              ...gp,
+              source: 'gphotos',
               alreadyLoadedId: loadedId
             });
           }
@@ -25542,7 +26465,11 @@
         const gd = window._activeGedcomData;
         const hub = window.CloudImportHub;
         const activePhotos = items.filter((x) => x && !x.inReview);
-        let sourceFilter = (opts && opts.initialSource) ? opts.initialSource : (photoLibraryIndex.gdrive.length > 0 ? 'all' : 'loaded');
+        const totalIdxCount = (photoLibraryIndex.gdrive.length || 0)
+          + (photoLibraryIndex.local.length || 0)
+          + (Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0)
+          + (Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0);
+        let sourceFilter = (opts && opts.initialSource) ? opts.initialSource : (totalIdxCount > 0 ? 'all' : 'loaded');
         let photoQuery = initialQuery || '';
         let personQuery = '';
         let selectedPhoto = null;
@@ -25551,6 +26478,8 @@
         let liveResults = [];
         const tempUrls = [];
 
+        const odCnt = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
+        const gpCnt = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const overlay = document.createElement('div');
         overlay.className = 'modal-backdrop';
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -25559,7 +26488,7 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔍 Search Photo Library &amp; Link to Family Tree</h2>
-                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across all Loaded (${activePhotos.length}), Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), and Local Folder (${photoLibraryIndex.local.length.toLocaleString()}) photos and attach any photo to any relative.</p>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across Loaded (${activePhotos.length}), Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), Local Folder (${photoLibraryIndex.local.length.toLocaleString()}), OneDrive (${odCnt.toLocaleString()}), and Google Photos (${gpCnt.toLocaleString()}) and attach any photo to any relative.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="pib-close">✕ Close</button>
             </div>
@@ -25567,6 +26496,8 @@
               <button type="button" class="btn sm" data-pib-src="all">All Sources</button>
               <button type="button" class="btn sm" data-pib-src="gdrive">☁️ Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()})</button>
               <button type="button" class="btn sm" data-pib-src="local">📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
+              ${odCnt > 0 ? `<button type="button" class="btn sm" data-pib-src="onedrive">🟦 OneDrive (${odCnt.toLocaleString()})</button>` : ''}
+              ${gpCnt > 0 ? `<button type="button" class="btn sm" data-pib-src="gphotos">📷 Google Photos (${gpCnt.toLocaleString()})</button>` : ''}
               <button type="button" class="btn sm" data-pib-src="loaded">🖼️ Loaded (${activePhotos.length})</button>
               <input type="search" id="pib-photo-q" value="${esc(photoQuery)}" placeholder="Search photo filename or folder (e.g. Viola, wedding, 1977)..." style="flex:1;min-width:220px;padding:7px 10px;border:1.5px solid var(--control);border-radius:7px;font-size:13.5px;">
               <button type="button" class="btn sm accent" id="pib-drive-live">☁️ Search Drive Live</button>
