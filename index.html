@@ -463,16 +463,16 @@
     .workflow-stage-bar {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
+      gap: 8px;
+      margin-bottom: 10px;
     }
 
     .workflow-tab {
       display: flex;
       align-items: center;
-      gap: 11px;
-      padding: 12px 14px;
-      border-radius: 11px;
+      gap: 9px;
+      padding: 8px 11px;
+      border-radius: 10px;
       border: 2px solid #8eb0df;
       background: linear-gradient(180deg, #f0f6fe 0%, #e1ecf9 100%);
       color: #0f2952;
@@ -496,14 +496,14 @@
     }
 
     .workflow-step-num {
-      width: 34px;
-      height: 34px;
+      width: 28px;
+      height: 28px;
       border-radius: 999px;
       background: #1d4ed8;
       color: #ffffff;
       display: grid;
       place-items: center;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 800;
       flex-shrink: 0;
     }
@@ -514,47 +514,68 @@
     }
 
     .workflow-tab-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
-      line-height: 1.2;
+      line-height: 1.15;
     }
 
     .workflow-tab-sub {
-      font-size: 12px;
+      font-size: 11.5px;
       opacity: 0.88;
-      margin-top: 2px;
-      line-height: 1.25;
+      margin-top: 1px;
+      line-height: 1.2;
     }
 
     .stage-coach-banner {
       background: #eff6ff;
-      border: 2px solid #93c5fd;
-      border-radius: 12px;
-      padding: 14px 18px;
-      margin-bottom: 16px;
+      border: 1.5px solid #93c5fd;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 12px;
       flex-wrap: wrap;
     }
 
     .gather-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-      margin-top: 12px;
+      gap: 10px;
+      margin-top: 8px;
     }
 
-    .gather-card {
+    .gather-row-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .gather-row-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .gather-card,
+    .gather-card-compact {
       background: #f8fafc;
-      border: 2px solid #cbd5e1;
-      border-radius: 14px;
-      padding: 20px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 11px 13px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 14px;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    @media (max-width: 1080px) {
+      .gather-row-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 900px) {
@@ -563,8 +584,10 @@
       }
     }
 
-    @media (max-width: 820px) {
-      .gather-grid {
+    @media (max-width: 720px) {
+      .gather-grid,
+      .gather-row-3,
+      .gather-row-2 {
         grid-template-columns: 1fr;
       }
     }
@@ -3010,6 +3033,9 @@
         <button class="nav-item" type="button" id="nav-local-indexed" hidden title="Browse and search all indexed local folder photos">
           <span data-icon="folder"></span><span>Local Folder Indexed</span><span class="nav-count" id="q-local-indexed">0</span>
         </button>
+        <button class="nav-item" type="button" id="nav-nas-indexed" hidden title="Browse and search all indexed NAS / network drive photos">
+          <span data-icon="folder"></span><span id="nav-nas-label">NAS Indexed</span><span class="nav-count" id="q-nas-indexed" style="background:#ede9fe;color:#5b21b6;">0</span>
+        </button>
         <button class="nav-item" type="button" id="nav-gphotos-indexed" hidden title="Browse indexed Google Photos">
           <span data-icon="grid"></span><span>Google Photos Indexed</span><span class="nav-count" id="q-gphotos-indexed" style="background:#dcfce7;color:#166534;">0</span>
         </button>
@@ -4142,6 +4168,10 @@
         gdriveFolderName: '',
         local: [],
         localFolderName: '',
+        nas: [],
+        nasScannedAt: 0,
+        nasFolderName: '',
+        nasLabel: 'NAS',
         onedrive: [],
         onedriveScannedAt: 0,
         onedriveFolderName: '',
@@ -4158,6 +4188,12 @@
       const LOCAL_INDEX_CHUNK_SIZE = 10000;
       const LOCAL_ROOT_DIR_HANDLE_KEY = 'local_root_dir_handle_v1';
       let _localIndexRestoreStarted = false;
+      const NAS_INDEX_META_KEY = 'nas_photo_index_meta_v1';
+      const NAS_INDEX_CHUNK_PREFIX = 'nas_photo_index_chunk_';
+      const NAS_INDEX_CHUNK_SIZE = 10000;
+      const NAS_ROOT_DIR_HANDLE_KEY = 'nas_root_dir_handle_v1';
+      let _nasIndexRestoreStarted = false;
+      let _nasRootDirHandle = null;
       const ONEDRIVE_INDEX_META_KEY = 'onedrive_photo_index_meta_v1';
       const ONEDRIVE_INDEX_CHUNK_PREFIX = 'onedrive_photo_index_chunk_';
       const ONEDRIVE_INDEX_CHUNK_SIZE = 10000;
@@ -5525,10 +5561,11 @@
 
         const gdriveList = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive : [];
         const localList = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local : [];
+        const nasList = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas : [];
         const onedriveList = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive : [];
         const gphotosList = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos : [];
 
-        if (gdriveList.length + localList.length + onedriveList.length + gphotosList.length === 0) {
+        if (gdriveList.length + localList.length + nasList.length + onedriveList.length + gphotosList.length === 0) {
           const emptyStats = {
             totalIndexed: 0,
             duplicateGroups: [],
@@ -5538,6 +5575,7 @@
             exactMd5GroupCount: 0,
             driveOnlyGroupCount: 0,
             localOnlyGroupCount: 0,
+            nasOnlyGroupCount: 0,
             onedriveOnlyGroupCount: 0,
             gphotosOnlyGroupCount: 0,
             crossSourceGroupCount: 0,
@@ -5560,8 +5598,8 @@
         const indexedScreenshots = [];
         const indexedLowRes = [];
         const reviewFolderRe = /(^|[\\/])_duplicates_review([\\/]|$)/i;
-        const srcPrefix = { gdrive: 'g', local: 'l', onedrive: 'o', gphotos: 'gp' };
-        const defaultPathFor = { gdrive: 'My Drive', local: 'Local Folder', onedrive: 'OneDrive', gphotos: 'Google Photos' };
+        const srcPrefix = { gdrive: 'g', local: 'l', nas: 'n', onedrive: 'o', gphotos: 'gp' };
+        const defaultPathFor = { gdrive: 'My Drive', local: 'Local Folder', nas: photoLibraryIndex.nasLabel || 'NAS', onedrive: 'OneDrive', gphotos: 'Google Photos' };
 
         const ingestList = (list, src) => {
           const pfx = srcPrefix[src] || src;
@@ -5599,6 +5637,7 @@
 
         ingestList(gdriveList, 'gdrive');
         ingestList(localList, 'local');
+        ingestList(nasList, 'nas');
         ingestList(onedriveList, 'onedrive');
         ingestList(gphotosList, 'gphotos');
 
@@ -5750,6 +5789,7 @@
         let exactMd5GroupCount = 0;
         let driveOnlyGroupCount = 0;
         let localOnlyGroupCount = 0;
+        let nasOnlyGroupCount = 0;
         let onedriveOnlyGroupCount = 0;
         let gphotosOnlyGroupCount = 0;
         let crossSourceGroupCount = 0;
@@ -5762,6 +5802,7 @@
           else if (g.scopeType === 'gdrive') driveOnlyGroupCount++;
           else if (g.scopeType === 'onedrive') onedriveOnlyGroupCount++;
           else if (g.scopeType === 'gphotos') gphotosOnlyGroupCount++;
+          else if (g.scopeType === 'nas') nasOnlyGroupCount++;
           else localOnlyGroupCount++;
         }
 
@@ -5774,6 +5815,7 @@
           exactMd5GroupCount,
           driveOnlyGroupCount,
           localOnlyGroupCount,
+          nasOnlyGroupCount,
           onedriveOnlyGroupCount,
           gphotosOnlyGroupCount,
           crossSourceGroupCount,
@@ -5904,8 +5946,8 @@
         return { parentDir: curDir, fileHandle, fileName };
       }
 
-      async function applyLocalDiskAction(rec, action, expectedRootName = '') {
-        const rootHandle = await ensureWritableLocalFolderHandle(expectedRootName);
+      async function applyLocalDiskAction(rec, action, expectedRootName = '', rootHandleOverride = null) {
+        const rootHandle = rootHandleOverride || await ensureWritableLocalFolderHandle(expectedRootName);
         let resolved;
         try {
           resolved = await resolveLocalFileInRoot(rootHandle, rec);
@@ -6012,6 +6054,7 @@
         }
 
         let localCnt = 0;
+        let nasCnt = 0;
         let driveCnt = 0;
         let onedriveCnt = 0;
         let gphotosCnt = 0;
@@ -6021,6 +6064,7 @@
           const s = entry.source;
           const isDiskCopy = s === 'local' || (s === 'onedrive' && entry.rec && (entry.rec.isLocalDiskCopy || entry.rec.fileObj || !entry.rec.cloudId));
           if (s === 'gdrive') driveCnt++;
+          else if (s === 'nas') nasCnt++;
           else if (s === 'onedrive' && !isDiskCopy) onedriveCnt++;
           else if (s === 'gphotos') gphotosCnt++;
           else localCnt++;
@@ -6031,23 +6075,29 @@
           : '';
         const scopeDesc = [
           localCnt > 0 ? `${localCnt.toLocaleString()} on your computer disk` : '',
+          nasCnt > 0 ? `${nasCnt.toLocaleString()} on your NAS (${photoLibraryIndex.nasLabel || 'NAS'})` : '',
           driveCnt > 0 ? `${driveCnt.toLocaleString()} on Google Drive` : '',
           onedriveCnt > 0 ? `${onedriveCnt.toLocaleString()} on Microsoft OneDrive` : '',
           gphotosCnt > 0 ? `${gphotosCnt.toLocaleString()} in Google Photos index` : ''
         ].filter(Boolean).join(', ');
 
         const confirmMsg = action === 'delete'
-          ? `PERMANENTLY DELETE ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc})${label ? ` for ${label}` : ''}?\n\n• Every "★ Keep (Master)" copy stays untouched.\n• Local & Google Drive files are permanently removed; OneDrive files move to OneDrive Recycle Bin so future scans will NEVER bring them back.\n• This cannot be undone.`
-          : `Move ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc}) into Review / Trash?\n\n• Local copies move into a "_Duplicates_Review" subfolder on disk.\n• Google Drive & OneDrive copies move to Cloud Trash / Recycle Bin.\n• Every "★ Keep (Master)" copy stays untouched.`;
+          ? `PERMANENTLY DELETE ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc})${label ? ` for ${label}` : ''}?\n\n• Every "★ Keep (Master)" copy stays untouched.\n• Local, NAS & Google Drive files are permanently removed; OneDrive files move to OneDrive Recycle Bin so future scans will NEVER bring them back.\n• This cannot be undone.`
+          : `Move ${uniqueTargets.length.toLocaleString()} file${uniqueTargets.length === 1 ? '' : 's'}${sizeNote} (${scopeDesc}) into Review / Trash?\n\n• Local & NAS copies move into a "_Duplicates_Review" subfolder.\n• Google Drive & OneDrive copies move to Cloud Trash / Recycle Bin.\n• Every "★ Keep (Master)" copy stays untouched.`;
 
         if (!window.confirm(confirmMsg)) return;
 
         const expectedRoot = photoLibraryIndex.localFolderName || rootFolderName || '';
+        const expectedNasRoot = photoLibraryIndex.nasFolderName || '';
+        let nasWriteHandle = null;
         let driveWriteToken = '';
         let odWriteToken = '';
         try {
           if (localCnt > 0) {
             await ensureWritableLocalFolderHandle(expectedRoot);
+          }
+          if (nasCnt > 0) {
+            nasWriteHandle = await ensureNasFolderHandle('readwrite', expectedNasRoot);
           }
           if (driveCnt > 0) {
             if (!window.DriveSyncUtil) {
@@ -6095,6 +6145,8 @@
 
         const removedLocalIds = new Set();
         const removedLocalRelPaths = new Set();
+        const removedNasIds = new Set();
+        const removedNasRelPaths = new Set();
         const removedDriveIds = new Set();
         const removedOnedriveIds = new Set();
         const removedGphotosIds = new Set();
@@ -6136,6 +6188,13 @@
                   if (!odId) throw new Error('Missing OneDrive file ID.');
                   await hub.deleteOneDriveFile(odWriteToken, odId);
                   removedOnedriveIds.add(odId);
+                }
+              } else if (entry.source === 'nas') {
+                const res = await applyLocalDiskAction(entry.rec, action, expectedNasRoot, nasWriteHandle);
+                if (entry.rec.id) removedNasIds.add(entry.rec.id);
+                if (entry.rec.webkitRelativePath) removedNasRelPaths.add(entry.rec.webkitRelativePath);
+                if (action === 'review' && res && res.targetName) {
+                  movedLocalNewPaths.set(entry.rec.webkitRelativePath || entry.name, res.targetName);
                 }
               } else if (entry.source === 'gphotos') {
                 const gpId = String(entry.rec.cloudId || entry.rec.id || entry.name || '').trim();
@@ -6207,9 +6266,16 @@
           }
         }
 
+        if ((removedNasIds.size > 0 || removedNasRelPaths.size > 0) && Array.isArray(photoLibraryIndex.nas)) {
+          photoLibraryIndex.nas = photoLibraryIndex.nas.filter((r) => !removedNasIds.has(r.id) && !removedNasRelPaths.has(r.webkitRelativePath));
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('nas', { label: photoLibraryIndex.nasLabel || 'NAS', count: photoLibraryIndex.nas.length });
+          }
+        }
+
         // Sync any matching items in the currently loaded active workspace batch
-        if (Array.isArray(items) && items.length > 0 && (removedDriveIds.size > 0 || removedOnedriveIds.size > 0 || removedGphotosIds.size > 0 || removedLocalRelPaths.size > 0 || movedLocalNewPaths.size > 0)) {
-          const removedLocalFileNames = new Set(uniqueTargets.filter((e) => e.source === 'local' && (removedLocalIds.has(e.rec.id) || removedLocalRelPaths.has(e.rec.webkitRelativePath))).map((e) => `${String(e.name).toLowerCase()}|${Math.max(1, Math.round((e.size || 0) / 1024))}`));
+        if (Array.isArray(items) && items.length > 0 && (removedDriveIds.size > 0 || removedOnedriveIds.size > 0 || removedGphotosIds.size > 0 || removedLocalRelPaths.size > 0 || removedNasRelPaths.size > 0 || movedLocalNewPaths.size > 0)) {
+          const removedLocalFileNames = new Set(uniqueTargets.filter((e) => (e.source === 'local' || e.source === 'nas') && (removedLocalIds.has(e.rec.id) || removedLocalRelPaths.has(e.rec.webkitRelativePath) || removedNasIds.has(e.rec.id) || removedNasRelPaths.has(e.rec.webkitRelativePath))).map((e) => `${String(e.name).toLowerCase()}|${Math.max(1, Math.round((e.size || 0) / 1024))}`));
           if (action === 'delete') {
             items = items.filter((p) => {
               if (p.cloudId && (removedDriveIds.has(String(p.cloudId)) || removedOnedriveIds.has(String(p.cloudId)) || removedGphotosIds.has(String(p.cloudId)))) return false;
@@ -6245,6 +6311,9 @@
           }
           if ((removedLocalIds.size > 0 || removedLocalRelPaths.size > 0) && typeof saveLocalIndexToDb === 'function') {
             await saveLocalIndexToDb(photoLibraryIndex.local, photoLibraryIndex.localFolderName || 'Local Folder');
+          }
+          if ((removedNasIds.size > 0 || removedNasRelPaths.size > 0) && typeof saveNasIndexToDb === 'function') {
+            await saveNasIndexToDb(photoLibraryIndex.nas, photoLibraryIndex.nasFolderName || 'NAS', photoLibraryIndex.nasLabel || 'NAS');
           }
           if (window._activeGedcomData && typeof refreshGedcomIndexMatches === 'function') {
             refreshGedcomIndexMatches().catch(() => {});
@@ -6613,9 +6682,10 @@
 
             const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
             const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+            const nasCount = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0;
             const onedriveCount = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
             const gphotosCount = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
-            const totalAllIndexed = driveCount + localCount + onedriveCount + gphotosCount;
+            const totalAllIndexed = driveCount + localCount + nasCount + onedriveCount + gphotosCount;
             const matchProg = getGedcomMatchProgressCounts(gedcomIndexMatches, items);
 
             const idxSection = document.getElementById('sidebar-index-section');
@@ -6625,6 +6695,9 @@
             const qOd = document.getElementById('q-onedrive-indexed');
             const navLoc = document.getElementById('nav-local-indexed');
             const qLoc = document.getElementById('q-local-indexed');
+            const navNas = document.getElementById('nav-nas-indexed');
+            const navNasLbl = document.getElementById('nav-nas-label');
+            const qNas = document.getElementById('q-nas-indexed');
             const navGp = document.getElementById('nav-gphotos-indexed');
             const qGp = document.getElementById('q-gphotos-indexed');
             const navMatches = document.getElementById('nav-index-matches');
@@ -6656,6 +6729,15 @@
               navLoc.onclick = () => {
                 document.getElementById('sidebar').classList.remove('open');
                 if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'local' });
+              };
+            }
+            if (navNas && qNas) {
+              navNas.hidden = nasCount === 0;
+              qNas.textContent = nasCount.toLocaleString();
+              if (navNasLbl) navNasLbl.textContent = `${photoLibraryIndex.nasLabel || 'NAS'} Indexed`;
+              navNas.onclick = () => {
+                document.getElementById('sidebar').classList.remove('open');
+                if (typeof openPhotoIndexBrowserModal === 'function') openPhotoIndexBrowserModal('', { initialSource: 'nas' });
               };
             }
             if (navGp && qGp) {
@@ -7332,12 +7414,14 @@
               gdrive: '☁️ Drive',
               onedrive: '🟦 OneDrive',
               local: '📁 Local',
+              nas: '🖥️ NAS',
               gphotos: '📷 GPhotos'
             }[src] || '📁 Local');
             const fmtSourceName = (src) => ({
               gdrive: 'Google Drive',
               onedrive: 'Microsoft OneDrive',
               local: 'Local Folder',
+              nas: photoLibraryIndex.nasLabel || 'NAS / Network Drive',
               gphotos: 'Google Photos'
             }[src] || 'Local Folder');
 
@@ -7437,6 +7521,10 @@
                           <button class="btn sm ${_writableLocalRootHandle ? 'success' : ''}" type="button" id="btn-idx-unlock-disk" title="Select your root local photo folder once to allow permanent delete or move to _Duplicates_Review on disk">
                             ${_writableLocalRootHandle ? `🔓 Disk Ready (${esc(_writableLocalRootHandle.name)})` : '🔐 Unlock Disk Delete / Move'}
                           </button>` : ''}
+                        ${(idxStats.nasOnlyGroupCount > 0 || (idxStats.crossSourceGroupCount > 0 && Array.isArray(photoLibraryIndex.nas) && photoLibraryIndex.nas.length > 0)) ? `
+                          <button class="btn sm ${_nasRootDirHandle ? 'success' : ''}" type="button" id="btn-idx-unlock-nas" title="Authorize write access on your NAS share to delete or move NAS duplicates">
+                            ${_nasRootDirHandle ? `🔓 NAS Ready (${esc(_nasRootDirHandle.name)})` : '🔐 Unlock NAS Delete / Move'}
+                          </button>` : ''}
                         <button class="btn sm accent" type="button" id="btn-idx-dup-drive-sync" title="Compare local folders against Google Drive and safely move Cloud-Only duplicates to Google Drive Trash">
                           ☁️ Drive Sync &amp; Trash Cleanup
                         </button>
@@ -7448,6 +7536,7 @@
                       ${idxStats.driveOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="gdrive">☁️ Google Drive Only (${idxStats.driveOnlyGroupCount.toLocaleString()})</button>` : ''}
                       ${idxStats.onedriveOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'onedrive' ? 'primary' : ''}" type="button" data-idx-dup-filter="onedrive">🟦 OneDrive Only (${idxStats.onedriveOnlyGroupCount.toLocaleString()})</button>` : ''}
                       ${idxStats.localOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'local' ? 'primary' : ''}" type="button" data-idx-dup-filter="local">📁 Local Folder Only (${idxStats.localOnlyGroupCount.toLocaleString()})</button>` : ''}
+                      ${idxStats.nasOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'nas' ? 'primary' : ''}" type="button" data-idx-dup-filter="nas">🖥️ NAS Only (${idxStats.nasOnlyGroupCount.toLocaleString()})</button>` : ''}
                       ${idxStats.gphotosOnlyGroupCount > 0 ? `<button class="btn sm ${idxDupFilter === 'gphotos' ? 'primary' : ''}" type="button" data-idx-dup-filter="gphotos">📷 Google Photos Only (${idxStats.gphotosOnlyGroupCount.toLocaleString()})</button>` : ''}
                       <button class="btn sm ${idxDupFilter === 'cross' ? 'primary' : ''}" type="button" data-idx-dup-filter="cross">🔀 Across Sources (${idxStats.crossSourceGroupCount.toLocaleString()})</button>
                       <input type="search" id="inp-idx-dup-search" placeholder="Filter by filename or folder path..." value="${esc(idxDupQuery)}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);color:var(--text);">
@@ -7464,6 +7553,19 @@
                       _writableLocalRootHandle = null;
                       const h = await ensureWritableLocalFolderHandle(photoLibraryIndex.localFolderName || rootFolderName || '');
                       notify(`✓ Disk delete/move enabled for "${h.name}".`);
+                      render();
+                    } catch (err) {
+                      if (err && err.name !== 'AbortError') notify(err.message || String(err));
+                    }
+                  };
+                }
+                const unlockNasBtn = host.querySelector('#btn-idx-unlock-nas');
+                if (unlockNasBtn) {
+                  unlockNasBtn.onclick = async () => {
+                    try {
+                      _nasRootDirHandle = null;
+                      const h = await ensureNasFolderHandle('readwrite', photoLibraryIndex.nasFolderName || '');
+                      notify(`✓ NAS delete/move enabled for "${h.name}".`);
                       render();
                     } catch (err) {
                       if (err && err.name !== 'AbortError') notify(err.message || String(err));
@@ -7573,7 +7675,7 @@
                       let isDrive = it.source === 'gdrive';
                       let isOneDrive = false;
                       let cloudId = '';
-                      if (it.source === 'local' && it.rec && it.rec.fileObj) {
+                      if ((it.source === 'local' || it.source === 'nas') && it.rec && it.rec.fileObj) {
                         try {
                           thumbSrc = URL.createObjectURL(it.rec.fileObj);
                           _idxDupObjectUrls.push(thumbSrc);
@@ -8156,7 +8258,7 @@
                 : (indexedArr.length > 0 || savedTab === 'indexed' ? 'indexed' : 'workspace');
 
               if (activeTab === 'indexed' && indexedArr.length > 0) {
-                const srcCounts = { gdrive: 0, onedrive: 0, local: 0, gphotos: 0 };
+                const srcCounts = { gdrive: 0, onedrive: 0, local: 0, nas: 0, gphotos: 0 };
                 for (let i = 0; i < indexedArr.length; i++) {
                   const s = indexedArr[i].source;
                   if (srcCounts[s] !== undefined) srcCounts[s]++;
@@ -8199,6 +8301,7 @@
                       ${srcCounts.gdrive > 0 ? `<button class="btn sm ${idxListFilter === 'gdrive' ? 'primary' : ''}" type="button" data-idx-list-filter="gdrive">☁️ Google Drive (${srcCounts.gdrive.toLocaleString()})</button>` : ''}
                       ${srcCounts.onedrive > 0 ? `<button class="btn sm ${idxListFilter === 'onedrive' ? 'primary' : ''}" type="button" data-idx-list-filter="onedrive">🟦 OneDrive (${srcCounts.onedrive.toLocaleString()})</button>` : ''}
                       ${srcCounts.local > 0 ? `<button class="btn sm ${idxListFilter === 'local' ? 'primary' : ''}" type="button" data-idx-list-filter="local">📁 Local Folder (${srcCounts.local.toLocaleString()})</button>` : ''}
+                      ${srcCounts.nas > 0 ? `<button class="btn sm ${idxListFilter === 'nas' ? 'primary' : ''}" type="button" data-idx-list-filter="nas">🖥️ NAS (${srcCounts.nas.toLocaleString()})</button>` : ''}
                       ${srcCounts.gphotos > 0 ? `<button class="btn sm ${idxListFilter === 'gphotos' ? 'primary' : ''}" type="button" data-idx-list-filter="gphotos">📷 Google Photos (${srcCounts.gphotos.toLocaleString()})</button>` : ''}
                       <input type="search" id="inp-idx-list-search" placeholder="Filter by filename or folder path..." value="${esc(idxListQuery)}" style="flex:1;min-width:210px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:var(--surface);color:var(--text);">
                     </div>
@@ -8300,7 +8403,7 @@
                     let isDrive = it.source === 'gdrive';
                     let isOneDrive = false;
                     let cloudId = '';
-                    if (it.source === 'local' && it.rec && it.rec.fileObj) {
+                    if ((it.source === 'local' || it.source === 'nas') && it.rec && it.rec.fileObj) {
                       try {
                         thumbSrc = URL.createObjectURL(it.rec.fileObj);
                         _idxDupObjectUrls.push(thumbSrc);
@@ -17584,9 +17687,19 @@
           };
         }
 
-        if (coachCollapsed) {
-          banner.style.padding = '10px 16px';
-          banner.innerHTML = `
+        if (coachCollapsed || mode === 'gather') {
+          banner.style.padding = '7px 12px';
+          banner.style.marginBottom = '9px';
+          banner.innerHTML = mode === 'gather' ? `
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:240px;">
+              <span class="pill info" style="font-size:11px;font-weight:800;padding:2px 8px;">STEP 1 OF 4</span>
+              <span style="font-size:12.5px;color:#0f172a;font-weight:600;">Only use the boxes for places where you actually keep photos — skip any cloud service, NAS, or family tree you don't use.</span>
+              <span style="font-size:12px;color:#1d4ed8;font-weight:600;">(${esc(info.progress)})</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn sm success" id="coach-next-step">${esc(info.nextLabel)}</button>
+            </div>
+          ` : `
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
               <span class="pill info" style="font-size:12px;font-weight:700;padding:3px 10px;">${esc(info.badge)}</span>
               <span style="font-size:13.5px;color:#1e3a8a;font-weight:600;">${esc(info.progress)}</span>
@@ -17733,6 +17846,8 @@
         const driveUserLabel = driveHint && (driveHint.email || driveHint.displayName) ? (driveHint.email || driveHint.displayName) : '';
         const driveCount = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
         const localCount = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const nasCount = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0;
+        const nasLabel = photoLibraryIndex.nasLabel || 'NAS';
         const onedriveIdxCount = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
         const gphotosIdxCount = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const gathered = loadGatheredSources();
@@ -17742,13 +17857,14 @@
         const idxStats = typeof getIndexedLibraryStats === 'function'
           ? getIndexedLibraryStats()
           : { totalIndexed: 0, duplicateExtraCount: 0, duplicateGroupCount: 0 };
+        const uniqueEstimate = Math.max(0, (idxStats.totalIndexed || 0) - (idxStats.duplicateExtraCount || 0));
 
         const acctCardStyle = (ok) => ok
           ? 'border:1.5px solid #22c55e;background:#f0fdf4;'
-          : 'border:1.5px solid #ef4444;background:#fef2f2;';
+          : 'border:1.5px solid #cbd5e1;background:#ffffff;';
         const summaryChipStyle = (ok) => ok
-          ? 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#dcfce7;border:1px solid #86efac;color:#14532d;'
-          : 'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;';
+          ? 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;background:#dcfce7;border:1px solid #86efac;color:#14532d;'
+          : 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;';
 
         const onedriveCount = onedriveIdxCount || ((gathered.onedrive && Number(gathered.onedrive.count)) || 0);
         const gphotosCount = gphotosIdxCount || ((gathered.gphotos && Number(gathered.gphotos.count)) || 0);
@@ -17757,152 +17873,175 @@
           ['device', 'Device Photos']
         ];
         const extraChipsHtml = [
-          gphotosCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ Google Photos: ${gphotosCount.toLocaleString()} photos</span>` : '',
-          onedriveCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ Microsoft OneDrive: ${onedriveCount.toLocaleString()} photos</span>` : '',
+          gphotosCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ Google Photos: ${gphotosCount.toLocaleString()}</span>` : '',
+          onedriveCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ OneDrive: ${onedriveCount.toLocaleString()}</span>` : '',
+          nasCount > 0 ? `<span style="${summaryChipStyle(true)}">✓ ${esc(nasLabel)}: ${nasCount.toLocaleString()}</span>` : '',
           ...extraGatheredKeys
             .filter(([k]) => gathered[k] && Number(gathered[k].count) > 0)
             .map(([k, defaultLbl]) => {
               const info = gathered[k];
-              return `<span style="${summaryChipStyle(true)}">✓ ${esc(info.label || defaultLbl)}: ${Number(info.count).toLocaleString()} photos</span>`;
+              return `<span style="${summaryChipStyle(true)}">✓ ${esc(info.label || defaultLbl)}: ${Number(info.count).toLocaleString()}</span>`;
             })
         ].filter(Boolean).join('');
 
+        const hasAnyData = items.length > 0 || Boolean(gd) || driveCount > 0 || localCount > 0 || nasCount > 0 || onedriveCount > 0 || gphotosCount > 0;
+        const hasAnyPhotos = items.length > 0 || driveCount > 0 || localCount > 0 || nasCount > 0 || onedriveCount > 0 || gphotosCount > 0;
+
         host.innerHTML = `
-          <div style="background:#ffffff;border:1.5px solid #cbd5e1;border-radius:12px;padding:14px 18px;margin-bottom:14px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-              <div>
-                <div style="font-size:15.5px;font-weight:800;color:#0f172a;">Connected Accounts</div>
-                <div class="muted" style="font-size:12.5px;">Log into your accounts here (red = not logged in, green = logged in). Pull photos &amp; trees using the source boxes below.</div>
-              </div>
+          <div style="background:#ffffff;border:1.5px solid #cbd5e1;border-radius:10px;padding:8px 12px;margin-bottom:9px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+              <span style="font-size:13.5px;font-weight:800;color:#0f172a;">Connected Accounts <span style="font-size:11.5px;font-weight:500;color:#475569;">— Optional: only sign into services you use. Don't have one? Skip that box.</span></span>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:10px;">
-              <div style="${acctCardStyle(fsSignedIn)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+              <div style="${acctCardStyle(fsSignedIn)}border-radius:8px;padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;gap:5px;min-width:0;">
                 <div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                    <strong style="font-size:13.5px;color:#0f172a;">🌳 FamilySearch</strong>
-                    <span style="font-size:11.5px;font-weight:700;color:${fsSignedIn ? '#15803d' : '#b91c1c'};">${fsSignedIn ? '● Logged In' : '● Signed Out'}</span>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <strong style="font-size:12.5px;color:#0f172a;">🌳 FamilySearch</strong>
+                    <span style="font-size:10.5px;font-weight:700;color:${fsSignedIn ? '#15803d' : '#b91c1c'};">${fsSignedIn ? '● Connected' : '● Optional'}</span>
                   </div>
-                  <div style="font-size:12px;color:#334155;margin-top:3px;">${fsSignedIn ? `Signed in as ${esc(fsUser.name || 'User')}` : 'Required to match PIDs, create relatives & upload memories.'}</div>
+                  <div style="font-size:11px;color:#475569;margin-top:2px;line-height:1.25;">${fsSignedIn ? `Signed in: ${esc(fsUser.name || 'User')}` : 'Needed only if uploading memories to FamilySearch.'}</div>
                 </div>
-                <div style="display:flex;gap:6px;align-items:center;">
-                  <button type="button" class="btn sm ${fsSignedIn ? 'success' : 'danger'}" id="gather-acct-fs" style="flex:1;">${fsSignedIn ? '✓ FamilySearch Logged In' : 'Sign in: FamilySearch'}</button>
-                  <button type="button" class="btn sm" id="gather-acct-fs-settings" title="FamilySearch Connection Settings">⚙️</button>
+                <div style="display:flex;gap:4px;align-items:center;">
+                  <button type="button" class="btn sm ${fsSignedIn ? 'success' : 'danger'}" id="gather-acct-fs" style="flex:1;height:26px;font-size:11.5px;padding:0 6px;">${fsSignedIn ? '✓ Logged In' : 'Sign In'}</button>
+                  <button type="button" class="btn sm" id="gather-acct-fs-settings" style="height:26px;padding:0 6px;" title="FamilySearch Connection Settings">⚙️</button>
                 </div>
               </div>
 
-              <div style="${acctCardStyle(driveSignedIn)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+              <div style="${acctCardStyle(driveSignedIn)}border-radius:8px;padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;gap:5px;min-width:0;">
                 <div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                    <strong style="font-size:13.5px;color:#0f172a;">☁️ Google Drive</strong>
-                    <span style="font-size:11.5px;font-weight:700;color:${driveSignedIn ? '#15803d' : '#b91c1c'};">${driveSignedIn ? '● Logged In' : (driveCount > 0 ? '● Session Expired' : '● Signed Out')}</span>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <strong style="font-size:12.5px;color:#0f172a;">☁️ Google Drive</strong>
+                    <span style="font-size:10.5px;font-weight:700;color:${driveSignedIn ? '#15803d' : '#b91c1c'};">${driveSignedIn ? '● Connected' : (driveCount > 0 ? '● Refresh' : '● Optional')}</span>
                   </div>
-                  <div style="font-size:12px;color:#334155;margin-top:3px;">${driveSignedIn ? `Signed in${driveUserLabel ? ` as ${esc(driveUserLabel)}` : ''} · Auto-renews while open. Use the Cloud box below to pull photos.` : (driveCount > 0 ? `${driveCount.toLocaleString()} photos cached${driveUserLabel ? ` (${esc(driveUserLabel)})` : ''}; sign in to refresh or pull more.` : 'Sign in to Google Drive, then pull photos below.')}</div>
+                  <div style="font-size:11px;color:#475569;margin-top:2px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(driveUserLabel)}">${driveSignedIn ? (driveUserLabel || 'Auto-renewing session') : (driveCount > 0 ? `${driveCount.toLocaleString()} cached — click to refresh` : 'Only if you store photos in Google Drive.')}</div>
                 </div>
-                <button type="button" class="btn sm ${driveSignedIn ? 'success' : 'danger'}" id="gather-acct-gdrive" style="width:100%;">${driveSignedIn ? '✓ Google Drive Logged In' : 'Sign in: Google Drive'}</button>
+                <button type="button" class="btn sm ${driveSignedIn ? 'success' : 'danger'}" id="gather-acct-gdrive" style="width:100%;height:26px;font-size:11.5px;padding:0 6px;">${driveSignedIn ? '✓ Logged In' : 'Sign In'}</button>
               </div>
 
-              <div style="${acctCardStyle(false)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+              <div style="${acctCardStyle(false)}border-radius:8px;padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;gap:5px;min-width:0;">
                 <div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                    <strong style="font-size:13.5px;color:#0f172a;">🌿 Ancestry</strong>
-                    <span style="font-size:11.5px;font-weight:700;color:#b91c1c;">● Not Logged In</span>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <strong style="font-size:12.5px;color:#0f172a;">🌿 Ancestry</strong>
+                    <span style="font-size:10.5px;font-weight:600;color:#64748b;">.ged Export</span>
                   </div>
-                  <div style="font-size:12px;color:#475569;margin-top:3px;">Direct connector coming soon. Export an Ancestry <code>.ged</code> file and load it below today.</div>
+                  <div style="font-size:11px;color:#475569;margin-top:2px;line-height:1.25;">Use an Ancestry <code>.ged</code> file below, or skip.</div>
                 </div>
-                <button type="button" class="btn sm danger" id="gather-acct-ancestry" style="width:100%;">Not Connected (Coming Soon)</button>
+                <button type="button" class="btn sm" id="gather-acct-ancestry" style="width:100%;height:26px;font-size:11px;padding:0 6px;">Direct API Coming Soon</button>
               </div>
 
-              <div style="${acctCardStyle(false)}border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;">
+              <div style="${acctCardStyle(false)}border-radius:8px;padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;gap:5px;min-width:0;">
                 <div>
-                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                    <strong style="font-size:13.5px;color:#0f172a;">🧬 MyHeritage</strong>
-                    <span style="font-size:11.5px;font-weight:700;color:#b91c1c;">● Not Logged In</span>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <strong style="font-size:12.5px;color:#0f172a;">🧬 MyHeritage</strong>
+                    <span style="font-size:10.5px;font-weight:600;color:#64748b;">.ged Export</span>
                   </div>
-                  <div style="font-size:12px;color:#475569;margin-top:3px;">Direct connector coming soon. Export a MyHeritage <code>.ged</code> file and load it below today.</div>
+                  <div style="font-size:11px;color:#475569;margin-top:2px;line-height:1.25;">Use a MyHeritage <code>.ged</code> file below, or skip.</div>
                 </div>
-                <button type="button" class="btn sm danger" id="gather-acct-myheritage" style="width:100%;">Not Connected (Coming Soon)</button>
+                <button type="button" class="btn sm" id="gather-acct-myheritage" style="width:100%;height:26px;font-size:11px;padding:0 6px;">Direct API Coming Soon</button>
               </div>
             </div>
           </div>
 
-          <div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:15px;font-weight:700;color:#0f172a;">
-                  Loaded Sources Summary
-                </div>
-                <div style="font-size:13px;color:#334155;margin-top:2px;">
-                  Collection: <strong>${esc(rootFolderName)}</strong> (${activeCount} active print${activeCount === 1 ? '' : 's'})
-                </div>
+          <div style="background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:10px;padding:8px 12px;display:flex;flex-direction:column;gap:6px;margin-bottom:9px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+                <span style="font-size:13.5px;font-weight:700;color:#0f172a;">Loaded Sources Summary</span>
+                <span style="font-size:12px;color:#475569;">Collection: <strong>${esc(rootFolderName)}</strong> (${activeCount} active print${activeCount === 1 ? '' : 's'})</span>
               </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                ${(items.length > 0 || gd || driveCount > 0 || localCount > 0 || onedriveCount > 0 || gphotosCount > 0) ? `
-                  <button type="button" class="btn success" id="gather-continue-step2">Continue to Step 2: Identify, Re-Link &amp; Tag (${activeCount}) →</button>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${hasAnyData ? `
+                  <button type="button" class="btn sm success" id="gather-continue-step2">Continue to Step 2: Identify &amp; Tag (${activeCount}) →</button>
                 ` : `
-                  <button type="button" class="btn primary" id="gather-reload-demo">↺ Load Practice Demo Photos</button>
+                  <button type="button" class="btn sm primary" id="gather-reload-demo">↺ Load Demo Photos</button>
                 `}
-                ${(items.length > 0 || driveCount > 0 || localCount > 0 || onedriveCount > 0 || gphotosCount > 0) ? `<button type="button" class="btn danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
+                ${hasAnyPhotos ? `<button type="button" class="btn sm danger" id="gather-clear-photos">✕ Clear Current Photos</button>` : ''}
               </div>
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:7px;">
-              <span style="${summaryChipStyle(Boolean(gd))}">${gd ? `✓ Family Tree: ${esc(gd.fileName || '.ged')} (${gd.peopleList.length.toLocaleString()} people)` : '✕ Family Tree (.ged): Not loaded'}</span>
-              <span style="${summaryChipStyle(driveCount > 0)}">${driveCount > 0 ? `✓ Google Drive: ${driveCount.toLocaleString()} photos` : '✕ Google Drive: Not pulled yet'}</span>
-              <span style="${summaryChipStyle(localCount > 0)}">${localCount > 0 ? `✓ Local Folder: ${localCount.toLocaleString()} photos` : '✕ Local Folder: Not scanned'}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;">
+              <span style="${summaryChipStyle(Boolean(gd))}">${gd ? `✓ Tree: ${esc(gd.fileName || '.ged')} (${gd.peopleList.length.toLocaleString()})` : '✕ Family Tree (.ged): Optional'}</span>
+              <span style="${summaryChipStyle(driveCount > 0)}">${driveCount > 0 ? `✓ Google Drive: ${driveCount.toLocaleString()}` : 'Google Drive: Skipped/None'}</span>
+              <span style="${summaryChipStyle(localCount > 0)}">${localCount > 0 ? `✓ Local Folder: ${localCount.toLocaleString()}` : 'Local Folder: None'}</span>
               ${extraChipsHtml}
-              <span style="${summaryChipStyle(activeCount > 0)}">${activeCount > 0 ? `✓ Working Album: ${activeCount} photo${activeCount === 1 ? '' : 's'}` : '✕ Working Album: Empty'}</span>
-              ${matchProg.totalMatches > 0 ? `<span style="${summaryChipStyle(matchProg.remainingMatches === 0)}">${matchProg.remainingMatches === 0 ? `✓ All ${matchProg.linkedMatches.toLocaleString()} PAF Matches Linked` : `⏳ Ready for Step 2: ${matchProg.remainingMatches.toLocaleString()} matches to review · ${matchProg.linkedMatches.toLocaleString()} linked`}</span>` : ''}
-              ${idxStats.duplicateExtraCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;">⚠️ Duplicates Detected: ${idxStats.duplicateExtraCount.toLocaleString()} copies (${idxStats.duplicateGroupCount.toLocaleString()} groups)</span>` : ''}
+              <span style="${summaryChipStyle(activeCount > 0)}">${activeCount > 0 ? `✓ Working Album: ${activeCount}` : 'Working Album: 0'}</span>
+              ${matchProg.totalMatches > 0 ? `<span style="${summaryChipStyle(matchProg.remainingMatches === 0)}">${matchProg.remainingMatches === 0 ? `✓ All ${matchProg.linkedMatches.toLocaleString()} PAF Linked` : `⏳ Step 2 Queue: ${matchProg.remainingMatches.toLocaleString()} matches (${matchProg.linkedMatches.toLocaleString()} linked)`}</span>` : ''}
+              ${idxStats.duplicateExtraCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;">⚠️ Duplicates: ${idxStats.duplicateExtraCount.toLocaleString()} copies · ${uniqueEstimate.toLocaleString()} unique</span>` : ''}
             </div>
           </div>
 
-          <div class="gather-grid">
-            <div class="gather-card">
+          <div class="gather-row-3">
+            <div class="gather-card-compact">
               <div>
-                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">🖼️ Pick a Few Photos (1–5+)</h2>
-                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
-                  Best when you want to work on just a handful of favorite pictures from your computer, phone, or camera.
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                  <h2 style="font-size:14.5px;font-weight:700;color:#0f172a;margin:0;">💻 Computer / USB Photos</h2>
+                  <span class="pill pos" style="font-size:10.5px;">Start Here</span>
+                </div>
+                <p style="font-size:12px;line-height:1.35;color:#334155;margin:0;">
+                  Pick a few pictures to edit right away, or scan an entire folder on your PC / external USB drive.
                 </p>
               </div>
-              <button type="button" class="btn primary" id="gather-btn-pick" style="width:100%;height:44px;font-size:15px;">🖼️ Pick Photos from Device</button>
-            </div>
-
-            <div class="gather-card">
-              <div>
-                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">📁 Open an Entire Photo Folder</h2>
-                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
-                  Opens a whole folder on your computer (and its subfolders) so you can organize everything in one place.
-                </p>
-              </div>
-              <button type="button" class="btn primary" id="gather-btn-folder" style="width:100%;height:44px;font-size:15px;">📁 Scan a Whole Folder</button>
-            </div>
-
-            <div class="gather-card">
-              <div>
-                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">🌳 Load PAF / GEDCOM (.ged) Family Tree</h2>
-                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
-                  Loads all people, birth/death dates, notes, and PAF photo filenames from your genealogy file and keeps them saved here. Re-linking, folder scanning, and face recognition happen next in Step 2.
-                </p>
-                ${gd && gedStats ? `
-                  <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#dcfce7;border:1px solid #86efac;color:#14532d;font-size:13.5px;line-height:1.45;">
-                    <strong>✓ Saved Tree Loaded:</strong> ${esc(gd.fileName || 'family-tree.ged')}<br>
-                    All <strong>${gedStats.total.toLocaleString()} people</strong> · <strong>${gd.totalPhotoLinks.toLocaleString()} PAF photo references</strong> imported &amp; ready for Step 2${gedStats.linked > 0 ? ` (${gedStats.linked.toLocaleString()} currently linked)` : ''}
-                  </div>
-                ` : ''}
-              </div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
-                <button type="button" class="btn primary" id="gather-btn-gedcom" style="width:100%;height:44px;font-size:15px;">${gd ? '🌳 Replace / Manage .ged File' : '🌳 Load PAF / GEDCOM (.ged) File'}</button>
-                ${gd ? `<button type="button" class="btn success" id="gather-btn-gedcom-step2" style="width:100%;height:42px;font-size:14.5px;">Continue to Step 2: Browse All ${gd.peopleList.length.toLocaleString()} People &amp; Re-Link →</button>` : ''}
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <button type="button" class="btn sm primary" id="gather-btn-pick">🖼️ Pick Photos</button>
+                <button type="button" class="btn sm primary" id="gather-btn-folder">📁 Scan Folder</button>
               </div>
             </div>
 
-            <div class="gather-card">
+            <div class="gather-card-compact">
               <div>
-                <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 8px;">☁️ Import from Google Drive / Cloud</h2>
-                <p style="font-size:15px;line-height:1.45;color:#334155;margin:0;">
-                  Pull family albums straight from Google Drive, Google Photos, Microsoft OneDrive, or a downloaded iCloud ZIP.
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                  <h2 style="font-size:14.5px;font-weight:700;color:#0f172a;margin:0;">☁️ Cloud Photos</h2>
+                  <span class="pill neu" style="font-size:10.5px;">Optional</span>
+                </div>
+                <p style="font-size:12px;line-height:1.35;color:#334155;margin:0;">
+                  Pull photos from Google Drive, Google Photos, OneDrive, or iCloud ZIP. Don't store photos in the cloud? Skip this box.
                 </p>
               </div>
-              <button type="button" class="btn primary" id="gather-btn-cloud" style="width:100%;height:44px;font-size:15px;">☁️ Import from Google Drive / Cloud</button>
+              <button type="button" class="btn sm primary" id="gather-btn-cloud" style="width:100%;">☁️ Import from Cloud...</button>
+            </div>
+
+            <div class="gather-card-compact">
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                  <h2 style="font-size:14.5px;font-weight:700;color:#0f172a;margin:0;">🖥️ NAS / Network Drive</h2>
+                  <span class="pill ${nasCount > 0 ? 'pos' : 'neu'}" style="font-size:10.5px;">${nasCount > 0 ? `${nasCount.toLocaleString()} Indexed` : 'Optional'}</span>
+                </div>
+                <p style="font-size:12px;line-height:1.35;color:#334155;margin:0;">
+                  Connect your QNAP, Synology, TrueNAS, WD, or mapped SMB network folder. Don't have a NAS? Skip this box.
+                </p>
+              </div>
+              <button type="button" class="btn sm primary" id="gather-btn-nas" style="width:100%;">🖥️ ${nasCount > 0 ? `Manage / Rescan ${esc(nasLabel)}...` : 'Connect & Scan NAS...'}</button>
+            </div>
+          </div>
+
+          <div class="gather-row-2">
+            <div class="gather-card-compact">
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                  <h2 style="font-size:14.5px;font-weight:700;color:#0f172a;margin:0;">🌳 PAF / GEDCOM Family Tree (.ged)</h2>
+                  <span class="pill ${gd ? 'pos' : 'neu'}" style="font-size:10.5px;">${gd ? `${gd.peopleList.length.toLocaleString()} People` : 'Optional'}</span>
+                </div>
+                <p style="font-size:12px;line-height:1.35;color:#334155;margin:0;">
+                  ${gd && gedStats
+                    ? `<strong>✓ Loaded:</strong> ${esc(gd.fileName || 'family-tree.ged')} · ${gd.totalPhotoLinks.toLocaleString()} PAF clues (${gedStats.linked.toLocaleString()} linked).`
+                    : 'Load a <code>.ged</code> export from PAF, Ancestry, or MyHeritage so Step 2 can suggest relative matches. No file? Skip.'}
+                </p>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button type="button" class="btn sm primary" id="gather-btn-gedcom" style="flex:1;">${gd ? '🌳 Replace .ged File' : '🌳 Load .ged Tree File'}</button>
+                ${gd ? `<button type="button" class="btn sm success" id="gather-btn-gedcom-step2" style="flex:1;">Browse ${gd.peopleList.length.toLocaleString()} People →</button>` : ''}
+              </div>
+            </div>
+
+            <div class="gather-card-compact" style="border-color:#93c5fd;background:#eff6ff;">
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                  <h2 style="font-size:14.5px;font-weight:700;color:#0f172a;margin:0;">📦 Move / Copy Unique Photos Only</h2>
+                  <span class="pill info" style="font-size:10.5px;">${idxStats.totalIndexed > 0 ? `${uniqueEstimate.toLocaleString()} Unique` : 'After Scanning'}</span>
+                </div>
+                <p style="font-size:12px;line-height:1.35;color:#1e3a8a;margin:0;">
+                  Copy or move <strong>only unique photos</strong> (auto-skipping all ${(idxStats.duplicateExtraCount || 0).toLocaleString()} duplicate copies!) to <strong>Google Drive (Google Cloud)</strong>, your <strong>NAS</strong>, or both at once.
+                </p>
+              </div>
+              <button type="button" class="btn sm success" id="gather-btn-consolidate" style="width:100%;">📦 Consolidate Unique Photos (Copy / Move)...</button>
             </div>
           </div>
         `;
@@ -17997,6 +18136,10 @@
           }
           document.getElementById('btn-open-cloud-hub').click();
         };
+        const gatherNasBtn = host.querySelector('#gather-btn-nas');
+        if (gatherNasBtn) gatherNasBtn.onclick = () => openNasConnectModal();
+        const gatherConsolidateBtn = host.querySelector('#gather-btn-consolidate');
+        if (gatherConsolidateBtn) gatherConsolidateBtn.onclick = () => openConsolidatePhotosModal();
       }
 
       function render() {
@@ -18059,6 +18202,8 @@
         if (catalogKpiEl) catalogKpiEl.hidden = isPeopleLayout;
         const chartsDrawerEl = document.getElementById('charts-drawer');
         if (chartsDrawerEl && isPeopleLayout) chartsDrawerEl.hidden = true;
+        const titleRowEl = document.querySelector('.title-row');
+        if (titleRowEl) titleRowEl.hidden = isGather;
 
         document.querySelectorAll('[data-layout]').forEach((b) => {
           b.setAttribute('aria-pressed', (isCatalog && b.getAttribute('data-layout') === layout) ? 'true' : 'false');
@@ -19162,14 +19307,16 @@
       async function clearAllPhotos() {
         const driveCnt = Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0;
         const localCnt = Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0;
+        const nasCnt = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0;
         const odCnt = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
         const gpCnt = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const activeCnt = items.length;
-        if (isCustomFolder || driveCnt > 0 || localCnt > 0 || odCnt > 0 || gpCnt > 0) {
+        if (isCustomFolder || driveCnt > 0 || localCnt > 0 || nasCnt > 0 || odCnt > 0 || gpCnt > 0) {
           const parts = [
             activeCnt > 0 ? `${activeCnt.toLocaleString()} active workspace print${activeCnt === 1 ? '' : 's'}` : '',
             driveCnt > 0 ? `${driveCnt.toLocaleString()} indexed Google Drive photos` : '',
             localCnt > 0 ? `${localCnt.toLocaleString()} indexed Local Folder photos` : '',
+            nasCnt > 0 ? `${nasCnt.toLocaleString()} indexed NAS photos` : '',
             odCnt > 0 ? `${odCnt.toLocaleString()} indexed OneDrive photos` : '',
             gpCnt > 0 ? `${gpCnt.toLocaleString()} indexed Google Photos` : ''
           ].filter(Boolean);
@@ -19179,9 +19326,13 @@
         await clearArchiveFromDb({ keepDemoCleared: true });
         if (typeof clearGdriveIndexFromDb === 'function') await clearGdriveIndexFromDb();
         if (typeof clearLocalIndexFromDb === 'function') await clearLocalIndexFromDb();
+        if (typeof clearNasIndexFromDb === 'function') await clearNasIndexFromDb();
         if (typeof clearOnedriveIndexFromDb === 'function') await clearOnedriveIndexFromDb();
         if (typeof clearGphotosIndexFromDb === 'function') await clearGphotosIndexFromDb();
-        if (typeof setMetaInDb === 'function') await setMetaInDb(LOCAL_ROOT_DIR_HANDLE_KEY, null);
+        if (typeof setMetaInDb === 'function') {
+          await setMetaInDb(LOCAL_ROOT_DIR_HANDLE_KEY, null);
+          await setMetaInDb(NAS_ROOT_DIR_HANDLE_KEY, null);
+        }
         try {
           localStorage.setItem('fhp_demo_cleared', '1');
           localStorage.removeItem('fhp_gathered_sources_v1');
@@ -19193,13 +19344,18 @@
         duplicateResolved = false;
         ignoredDupPairKeys = new Set();
         selectedIdxDupKeys.clear();
+        expandedIdxDupGroups.clear();
         selectedIdxListKeys.clear();
         _writableLocalRootHandle = null;
+        _nasRootDirHandle = null;
         photoLibraryIndex.gdrive = [];
         photoLibraryIndex.gdriveScannedAt = 0;
         photoLibraryIndex.gdriveFolderName = '';
         photoLibraryIndex.local = [];
         photoLibraryIndex.localFolderName = '';
+        photoLibraryIndex.nas = [];
+        photoLibraryIndex.nasScannedAt = 0;
+        photoLibraryIndex.nasFolderName = '';
         photoLibraryIndex.onedrive = [];
         photoLibraryIndex.onedriveScannedAt = 0;
         photoLibraryIndex.onedriveFolderName = '';
@@ -19221,7 +19377,7 @@
         activeQueue = 'all';
         catalogPage = 1;
         selectedId = null;
-        notify('Cleared all current photos and saved Cloud/Local indexes. Your Family Tree (.ged) is still saved.');
+        notify('Cleared all current photos and saved Cloud/NAS/Local indexes. Your Family Tree (.ged) is still saved.');
         render();
       }
 
@@ -19229,6 +19385,7 @@
         const hasAny = items.length > 0
           || (Array.isArray(photoLibraryIndex.gdrive) && photoLibraryIndex.gdrive.length > 0)
           || (Array.isArray(photoLibraryIndex.local) && photoLibraryIndex.local.length > 0)
+          || (Array.isArray(photoLibraryIndex.nas) && photoLibraryIndex.nas.length > 0)
           || (Array.isArray(photoLibraryIndex.onedrive) && photoLibraryIndex.onedrive.length > 0)
           || (Array.isArray(photoLibraryIndex.gphotos) && photoLibraryIndex.gphotos.length > 0);
         if (!hasAny) {
@@ -19906,8 +20063,10 @@
 
       restoreSavedGedcomFromDb().catch((e) => console.warn('GEDCOM restore failed:', e));
       restoreLocalRootHandleFromDb().catch(() => {});
+      restoreNasRootHandleFromDb().catch(() => {});
       restoreGdriveIndexFromDb().catch((e) => console.warn('Google Drive index restore failed:', e));
       restoreLocalIndexFromDb().catch((e) => console.warn('Local folder index restore failed:', e));
+      restoreNasIndexFromDb().catch((e) => console.warn('NAS photo index restore failed:', e));
       restoreOnedriveIndexFromDb().catch((e) => console.warn('OneDrive index restore failed:', e));
       restoreGphotosIndexFromDb().catch((e) => console.warn('Google Photos index restore failed:', e));
       
@@ -20080,7 +20239,7 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:17px;font-weight:700;margin:0;">☁️ Import from Cloud (Zero Hard Drive Space)</h2>
-                <p class="muted" style="font-size:12px;margin:2px 0 0;">Connect Google Drive, Google Photos, OneDrive, or drop an iCloud / Takeout ZIP.</p>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Only connect the cloud tabs where you store photos — skip any services you don't use.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="cloud-modal-close">✕ Close</button>
             </div>
@@ -23033,6 +23192,1109 @@
         }
       }
 
+      async function saveNasRootHandleToDb(handle) {
+        if (!handle || typeof setMetaInDb !== 'function') return false;
+        try {
+          await setMetaInDb(NAS_ROOT_DIR_HANDLE_KEY, handle);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function restoreNasRootHandleFromDb() {
+        if (typeof getMetaFromDb !== 'function') return null;
+        try {
+          const handle = await getMetaFromDb(NAS_ROOT_DIR_HANDLE_KEY);
+          if (handle && typeof handle.getDirectoryHandle === 'function') {
+            _nasRootDirHandle = handle;
+            return handle;
+          }
+        } catch (_) {}
+        return null;
+      }
+
+      async function ensureNasFolderHandle(mode = 'read', expectedRootName = '') {
+        if (typeof window.showDirectoryPicker !== 'function') {
+          throw new Error('Direct NAS / network folder access requires Chrome or Microsoft Edge on desktop.');
+        }
+        if (_nasRootDirHandle) {
+          try {
+            let perm = await _nasRootDirHandle.queryPermission({ mode });
+            if (perm !== 'granted') {
+              perm = await _nasRootDirHandle.requestPermission({ mode });
+            }
+            if (perm === 'granted') return _nasRootDirHandle;
+          } catch (_) {
+            _nasRootDirHandle = null;
+          }
+        }
+        const handle = await window.showDirectoryPicker({ mode });
+        let granted = true;
+        if (typeof handle.queryPermission === 'function') {
+          let perm = await handle.queryPermission({ mode });
+          if (perm !== 'granted' && typeof handle.requestPermission === 'function') {
+            perm = await handle.requestPermission({ mode });
+          }
+          granted = (perm === 'granted');
+        }
+        if (!granted) {
+          throw new Error(`Folder permission was denied for ${expectedRootName || 'NAS folder'}.`);
+        }
+        _nasRootDirHandle = handle;
+        await saveNasRootHandleToDb(handle);
+        return handle;
+      }
+
+      function mergeIntoNasIndex(newRecords) {
+        const byKey = new Map();
+        const existing = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas : [];
+        const recKey = (r) => String(r && (r.webkitRelativePath || `${r.path || ''}/${r.name || ''}` || r.id || '')).toLowerCase();
+        for (let i = 0; i < existing.length; i++) {
+          const r = existing[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        for (let i = 0; i < (newRecords || []).length; i++) {
+          const r = newRecords[i];
+          if (r) byKey.set(recKey(r), r);
+        }
+        return Array.from(byKey.values());
+      }
+
+      async function saveNasIndexToDb(records, folderName = 'NAS', nasLabel = 'NAS') {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return false;
+        try {
+          const prevMeta = await getMetaFromDb(NAS_INDEX_META_KEY);
+          const prevChunks = (prevMeta && Number(prevMeta.chunkCount)) || 0;
+          const totalCount = Array.isArray(records) ? records.length : 0;
+          const chunkCount = Math.ceil(totalCount / NAS_INDEX_CHUNK_SIZE);
+          for (let c = 0; c < chunkCount; c++) {
+            const slice = records.slice(c * NAS_INDEX_CHUNK_SIZE, (c + 1) * NAS_INDEX_CHUNK_SIZE);
+            const compact = slice.map((r) => [
+              r.id || '',
+              r.name || '',
+              r.path || '',
+              r.webkitRelativePath || '',
+              Number(r.size) || 0,
+              Number(r.lastModified) || 0,
+              r.type || 'image/jpeg'
+            ]);
+            await setMetaInDb(`${NAS_INDEX_CHUNK_PREFIX}${c}`, compact);
+          }
+          for (let c = chunkCount; c < prevChunks; c++) {
+            await setMetaInDb(`${NAS_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(NAS_INDEX_META_KEY, {
+            version: 1,
+            totalCount,
+            chunkCount,
+            scannedAt: Date.now(),
+            folderName: folderName || 'NAS',
+            nasLabel: nasLabel || 'NAS'
+          });
+          return true;
+        } catch (err) {
+          console.warn('Could not persist NAS photo index:', err);
+          return false;
+        }
+      }
+
+      async function clearNasIndexFromDb() {
+        if (typeof setMetaInDb !== 'function' || typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(NAS_INDEX_META_KEY);
+          const chunks = (meta && Number(meta.chunkCount)) || 0;
+          for (let c = 0; c < chunks; c++) {
+            await setMetaInDb(`${NAS_INDEX_CHUNK_PREFIX}${c}`, null);
+          }
+          await setMetaInDb(NAS_INDEX_META_KEY, null);
+        } catch (err) {
+          console.warn('Could not clear saved NAS photo index:', err);
+        }
+      }
+
+      async function restoreNasIndexFromDb() {
+        if (_nasIndexRestoreStarted) return;
+        _nasIndexRestoreStarted = true;
+        if (typeof getMetaFromDb !== 'function') return;
+        try {
+          const meta = await getMetaFromDb(NAS_INDEX_META_KEY);
+          if (!meta || !meta.totalCount || !meta.chunkCount) return;
+          const restored = [];
+          const nasLbl = meta.nasLabel || 'NAS';
+          for (let c = 0; c < meta.chunkCount; c++) {
+            const chunk = await getMetaFromDb(`${NAS_INDEX_CHUNK_PREFIX}${c}`);
+            if (!Array.isArray(chunk)) continue;
+            for (let i = 0; i < chunk.length; i++) {
+              const row = chunk[i];
+              if (!Array.isArray(row) || !row[1]) continue;
+              const path = row[2] || meta.folderName || nasLbl;
+              restored.push({
+                source: 'nas',
+                id: row[0] || `nas:${restored.length}:${row[1]}`,
+                name: row[1],
+                path,
+                webkitRelativePath: row[3] || `${path}/${row[1]}`,
+                size: Number(row[4]) || 0,
+                lastModified: Number(row[5]) || 0,
+                type: row[6] || 'image/jpeg',
+                fileObj: null
+              });
+            }
+          }
+          if (restored.length > 0) {
+            photoLibraryIndex.nas = restored;
+            photoLibraryIndex.nasScannedAt = meta.scannedAt || Date.now();
+            photoLibraryIndex.nasFolderName = meta.folderName || 'NAS';
+            photoLibraryIndex.nasLabel = nasLbl;
+            photoLibraryIndex.indexVersion++;
+            if (typeof recordGatheredSource === 'function') {
+              recordGatheredSource('nas', { label: nasLbl, count: restored.length });
+            }
+            if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+            if (window._activeGedcomData) {
+              await refreshGedcomIndexMatches();
+            }
+            render();
+          }
+        } catch (err) {
+          console.warn('Could not restore NAS photo index:', err);
+        }
+      }
+
+      function openNasConnectModal() {
+        const curNas = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas : [];
+        const savedLabel = photoLibraryIndex.nasLabel || 'QNAP NAS';
+        let activeBrand = 'qnap';
+        let scanning = false;
+        let stopRequested = false;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.58);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.28);overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">🖥️ Connect &amp; Scan Your NAS / Network Drive</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Works with QNAP, Synology, TrueNAS, WD My Cloud, Asustor, or any shared folder (zero hard drive space copied).</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="nas-close">✕ Close</button>
+            </div>
+            <div style="padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <span style="font-size:12px;font-weight:700;color:#334155;">NAS Guide:</span>
+                <button type="button" class="btn sm primary" data-nas-brand="qnap">QNAP</button>
+                <button type="button" class="btn sm" data-nas-brand="synology">Synology</button>
+                <button type="button" class="btn sm" data-nas-brand="other">TrueNAS / WD / Other NAS</button>
+              </div>
+              <div id="nas-brand-help" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#1e3a8a;line-height:1.45;"></div>
+
+              <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:1;min-width:200px;">
+                  <label for="inp-nas-label" style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:4px;">NAS Display Name</label>
+                  <input type="text" id="inp-nas-label" value="${esc(savedLabel)}" placeholder="e.g. QNAP NAS, Synology Photos" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:13px;">
+                </div>
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;padding-bottom:6px;cursor:pointer;">
+                  <input type="checkbox" id="chk-nas-merge" ${curNas.length > 0 ? 'checked' : ''} style="width:16px;height:16px;accent-color:#2563eb;">
+                  Merge with existing NAS scan (add another share)
+                </label>
+              </div>
+
+              ${curNas.length > 0 ? `
+                <div style="padding:8px 12px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12.5px;color:#14532d;">
+                  <span>✓ Currently indexed: <strong>${curNas.length.toLocaleString()}</strong> photos from <strong>${esc(photoLibraryIndex.nasFolderName || savedLabel)}</strong></span>
+                  <button type="button" class="btn sm danger" id="btn-nas-clear">✕ Clear NAS Index</button>
+                </div>` : ''}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn primary" id="btn-nas-scan-dir" style="flex:1;min-width:220px;">🖥️ Pick NAS Share Folder (Recommended)</button>
+                <button type="button" class="btn" id="btn-nas-scan-classic" title="Use classic folder chooser if your browser blocks direct UNC path selection">📂 Classic Folder Picker</button>
+                <button type="button" class="btn danger" id="btn-nas-stop" hidden>⏹ Stop</button>
+              </div>
+              <div id="nas-scan-status" class="muted" style="font-size:12.5px;min-height:18px;"></div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const helpEl = overlay.querySelector('#nas-brand-help');
+        const statusEl = overlay.querySelector('#nas-scan-status');
+        const stopBtn = overlay.querySelector('#btn-nas-stop');
+        const scanDirBtn = overlay.querySelector('#btn-nas-scan-dir');
+        const scanClassicBtn = overlay.querySelector('#btn-nas-scan-classic');
+        const mergeChk = overlay.querySelector('#chk-nas-merge');
+        const labelInput = overlay.querySelector('#inp-nas-label');
+
+        const closeModal = () => {
+          if (scanning) stopRequested = true;
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#nas-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+        const renderBrandHelp = () => {
+          overlay.querySelectorAll('[data-nas-brand]').forEach((b) => {
+            b.className = `btn sm ${b.getAttribute('data-nas-brand') === activeBrand ? 'primary' : ''}`;
+          });
+          if (activeBrand === 'qnap') {
+            helpEl.innerHTML = `<strong>QNAP (QTS / QuTS hero):</strong><br>
+              • <strong>Windows:</strong> Open File Explorer → map your QNAP share as a drive letter (e.g. <code>Z:</code> from <code>\\\\QNAP-IP\\Multimedia</code> or <code>Photos</code>), OR type <code>\\\\NAS-NAME</code> in the folder picker.<br>
+              • <strong>Mac:</strong> In Finder press <code>⌘K</code> → enter <code>smb://NAS-IP</code>, then pick the mounted volume under <strong>Locations</strong>.<br>
+              <em>Why SMB/Mapped Drive?</em> Direct NAS web logins are blocked by browser CORS security, whereas an SMB share lets this app read hashes, thumbnails, and photos privately at LAN speed.`;
+          } else if (activeBrand === 'synology') {
+            helpEl.innerHTML = `<strong>Synology (DSM):</strong><br>
+              • <strong>Windows:</strong> Map <code>\\\\DiskStation\\photo</code> (or your <code>home/Photos</code> share) as a network drive letter in File Explorer, then pick it below.<br>
+              • <strong>Mac:</strong> In Finder press <code>⌘K</code> → connect via <code>smb://DiskStation.local</code> and pick it below.`;
+          } else {
+            helpEl.innerHTML = `<strong>TrueNAS, WD My Cloud, Asustor, Unraid, or Windows File Share:</strong><br>
+              • Connect/mount your SMB share in Windows Explorer or Mac Finder (<code>smb://...</code>), then click <strong>Pick NAS Share Folder</strong> below to select the share or subfolder.`;
+          }
+        };
+        renderBrandHelp();
+        overlay.querySelectorAll('[data-nas-brand]').forEach((b) => {
+          b.onclick = () => { activeBrand = b.getAttribute('data-nas-brand') || 'qnap'; renderBrandHelp(); };
+        });
+
+        const finalizeNasScan = async (scannedRecords, rootName) => {
+          const nasLbl = (labelInput.value || '').trim() || 'NAS';
+          const shouldMerge = Boolean(mergeChk && mergeChk.checked);
+          const finalRecords = shouldMerge ? mergeIntoNasIndex(scannedRecords) : scannedRecords;
+          photoLibraryIndex.nas = finalRecords;
+          photoLibraryIndex.nasScannedAt = Date.now();
+          photoLibraryIndex.nasFolderName = rootName || nasLbl;
+          photoLibraryIndex.nasLabel = nasLbl;
+          photoLibraryIndex.indexVersion++;
+          if (typeof saveNasIndexToDb === 'function') {
+            await saveNasIndexToDb(finalRecords, photoLibraryIndex.nasFolderName, nasLbl);
+          }
+          if (typeof recordGatheredSource === 'function') {
+            recordGatheredSource('nas', { label: nasLbl, count: finalRecords.length });
+          }
+          if (typeof refreshGedcomIndexMatches === 'function') {
+            refreshGedcomIndexMatches().catch(() => {});
+          }
+          try { localStorage.setItem('fhp_demo_cleared', '1'); } catch (_) {}
+          if (items.length === 0 && finalRecords.length > 0 && finalRecords.some((r) => r && r.fileObj)) {
+            const firstFiles = finalRecords.filter((r) => r && r.fileObj).slice(0, 40).map((r) => r.fileObj);
+            if (firstFiles.length > 0) {
+              activeFolderImageFiles = firstFiles;
+              activeFolderBatchIndex = 0;
+              await loadFolderBatch(0);
+            }
+          }
+          render();
+          notify(`✓ Indexed ${finalRecords.length.toLocaleString()} photos from ${nasLbl}!`);
+          closeModal();
+        };
+
+        const imgRe = /\.(jpe?g|png|webp|gif|bmp|avif|heic|tif?f)$/i;
+        scanDirBtn.onclick = async () => {
+          if (typeof window.showDirectoryPicker !== 'function') {
+            statusEl.textContent = 'Direct folder picker requires desktop Chrome or Edge — try Classic Folder Picker.';
+            return;
+          }
+          try {
+            const rootHandle = await window.showDirectoryPicker({ mode: 'read' });
+            _nasRootDirHandle = rootHandle;
+            await saveNasRootHandleToDb(rootHandle);
+            scanning = true;
+            stopRequested = false;
+            scanDirBtn.disabled = true;
+            scanClassicBtn.disabled = true;
+            stopBtn.hidden = false;
+
+            const found = [];
+            const queue = [{ dir: rootHandle, relPath: rootHandle.name || 'NAS' }];
+            let dirsDone = 0;
+            let lastUiAt = 0;
+
+            while (queue.length > 0 && !stopRequested) {
+              const { dir, relPath } = queue.shift();
+              dirsDone++;
+              for await (const [entryName, handle] of dir.entries()) {
+                if (stopRequested) break;
+                if (handle.kind === 'directory') {
+                  if (/^(_duplicates_review|@eaDir|#recycle|\.@__thumb)$/i.test(entryName)) continue;
+                  queue.push({ dir: handle, relPath: `${relPath}/${entryName}` });
+                } else if (handle.kind === 'file' && imgRe.test(entryName)) {
+                  let size = 0;
+                  let lastModified = 0;
+                  let type = 'image/jpeg';
+                  try {
+                    const f = await handle.getFile();
+                    size = f.size || 0;
+                    lastModified = f.lastModified || 0;
+                    type = f.type || 'image/jpeg';
+                  } catch (_) {}
+                  found.push({
+                    source: 'nas',
+                    id: `nas:${relPath}/${entryName}`,
+                    name: entryName,
+                    path: relPath,
+                    webkitRelativePath: `${relPath}/${entryName}`,
+                    size,
+                    lastModified,
+                    type,
+                    fileObj: null
+                  });
+                }
+                const now = Date.now();
+                if (now - lastUiAt > 180) {
+                  lastUiAt = now;
+                  statusEl.textContent = `Scanning ${relPath}... (${dirsDone.toLocaleString()} folders · ${found.length.toLocaleString()} photos found)`;
+                  await new Promise((r) => setTimeout(r, 0));
+                }
+              }
+            }
+
+            scanning = false;
+            stopBtn.hidden = true;
+            scanDirBtn.disabled = false;
+            scanClassicBtn.disabled = false;
+
+            if (!found.length) {
+              statusEl.textContent = stopRequested ? 'Scan stopped before any photos were found.' : 'No supported image files found in the selected NAS share.';
+              return;
+            }
+            statusEl.textContent = `Saving ${found.length.toLocaleString()} NAS photo records...`;
+            await finalizeNasScan(found, rootHandle.name || 'NAS');
+          } catch (err) {
+            scanning = false;
+            stopBtn.hidden = true;
+            scanDirBtn.disabled = false;
+            scanClassicBtn.disabled = false;
+            if (err && err.name !== 'AbortError') {
+              statusEl.textContent = `NAS scan error: ${err.message}`;
+            }
+          }
+        };
+
+        stopBtn.onclick = () => {
+          stopRequested = true;
+          stopBtn.disabled = true;
+          stopBtn.textContent = 'Stopping...';
+        };
+
+        scanClassicBtn.onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.multiple = true;
+          inp.accept = 'image/*';
+          inp.setAttribute('webkitdirectory', '');
+          inp.setAttribute('directory', '');
+          inp.onchange = async () => {
+            const raw = Array.from(inp.files || []);
+            const imgs = raw.filter((f) => imgRe.test(f.name) || (f.type && f.type.startsWith('image/')));
+            if (!imgs.length) {
+              statusEl.textContent = 'No supported images found in selected NAS folder.';
+              return;
+            }
+            const firstRel = imgs[0].webkitRelativePath || '';
+            const nasFolder = (firstRel.split('/').filter(Boolean)[0]) || 'NAS';
+            const mapped = imgs.map((f, idx) => ({
+              source: 'nas',
+              id: `nas:${idx}:${f.webkitRelativePath || f.name}`,
+              name: f.name,
+              path: f.webkitRelativePath ? f.webkitRelativePath.replace(/\/[^/]+$/, '') : nasFolder,
+              webkitRelativePath: f.webkitRelativePath || `${nasFolder}/${f.name}`,
+              size: f.size || 0,
+              lastModified: f.lastModified || 0,
+              type: f.type || 'image/jpeg',
+              fileObj: f
+            }));
+            await finalizeNasScan(mapped, nasFolder);
+          };
+          inp.click();
+        };
+
+        const clearBtn = overlay.querySelector('#btn-nas-clear');
+        if (clearBtn) {
+          clearBtn.onclick = async () => {
+            if (!window.confirm(`Clear all ${curNas.length.toLocaleString()} indexed NAS photos? (No files on your NAS are touched.)`)) return;
+            photoLibraryIndex.nas = [];
+            photoLibraryIndex.nasFolderName = '';
+            photoLibraryIndex.nasScannedAt = 0;
+            photoLibraryIndex.indexVersion++;
+            _nasRootDirHandle = null;
+            await clearNasIndexFromDb();
+            if (typeof setMetaInDb === 'function') await setMetaInDb(NAS_ROOT_DIR_HANDLE_KEY, null);
+            render();
+            closeModal();
+            notify('Cleared saved NAS photo index.');
+          };
+        }
+      }
+
+      function getUniqueMasterPhotoList(options = {}) {
+        const idxStats = typeof getIndexedLibraryStats === 'function'
+          ? getIndexedLibraryStats()
+          : { totalIndexed: 0, duplicateGroups: [], indexedScreenshots: [] };
+        const srcFilter = options.sources || { gdrive: true, onedrive: true, local: true, nas: true, gphotos: true };
+        const skipDuplicates = options.skipDuplicates !== false;
+        const skipScreenshots = Boolean(options.skipScreenshots);
+
+        const dupCopyKeys = new Set();
+        const groups = Array.isArray(idxStats.duplicateGroups) ? idxStats.duplicateGroups : [];
+        for (let i = 0; i < groups.length; i++) {
+          const g = groups[i];
+          if (!g || !Array.isArray(g.items)) continue;
+          for (let j = 1; j < g.items.length; j++) {
+            if (g.items[j] && g.items[j].recKey) dupCopyKeys.add(g.items[j].recKey);
+          }
+        }
+        const screenshotKeys = new Set();
+        const shots = Array.isArray(idxStats.indexedScreenshots) ? idxStats.indexedScreenshots : [];
+        for (let i = 0; i < shots.length; i++) {
+          if (shots[i] && shots[i].recKey) screenshotKeys.add(shots[i].recKey);
+        }
+
+        const reviewFolderRe = /(^|[\\/])_duplicates_review([\\/]|$)/i;
+        const srcPrefix = { gdrive: 'g', local: 'l', nas: 'n', onedrive: 'o', gphotos: 'gp' };
+        const defaultPathFor = {
+          gdrive: 'My Drive',
+          local: photoLibraryIndex.localFolderName || 'Local Folder',
+          nas: photoLibraryIndex.nasLabel || 'NAS',
+          onedrive: 'OneDrive',
+          gphotos: 'Google Photos'
+        };
+
+        const uniqueItems = [];
+        const bySource = { gdrive: 0, onedrive: 0, local: 0, nas: 0, gphotos: 0 };
+        let totalScanned = 0;
+        let duplicateCopiesSkipped = 0;
+        let screenshotsSkipped = 0;
+        let totalBytes = 0;
+        const seenKeys = new Set();
+
+        const collect = (list, src) => {
+          if (!srcFilter[src] || !Array.isArray(list)) return;
+          const pfx = srcPrefix[src] || src;
+          const fallbackPath = defaultPathFor[src] || src;
+          for (let i = 0; i < list.length; i++) {
+            const r = list[i];
+            if (!r || !r.name) continue;
+            if (reviewFolderRe.test(r.webkitRelativePath || '') || reviewFolderRe.test(r.path || '')) continue;
+            const recKey = `${pfx}:${r.cloudId || r.id || i}`;
+            if (seenKeys.has(recKey)) continue;
+            seenKeys.add(recKey);
+            totalScanned++;
+            if (skipDuplicates && dupCopyKeys.has(recKey)) {
+              duplicateCopiesSkipped++;
+              continue;
+            }
+            if (skipScreenshots && screenshotKeys.has(recKey)) {
+              screenshotsSkipped++;
+              continue;
+            }
+            const size = Number(r.size) || 0;
+            totalBytes += size;
+            bySource[src] = (bySource[src] || 0) + 1;
+            uniqueItems.push({
+              recKey,
+              source: src,
+              rec: { ...r, source: src },
+              name: r.name,
+              path: r.path || fallbackPath,
+              size,
+              lastModified: Number(r.lastModified) || 0,
+              md5: String(r.md5Checksum || '').trim().toLowerCase()
+            });
+          }
+        };
+
+        collect(photoLibraryIndex.gdrive, 'gdrive');
+        collect(photoLibraryIndex.local, 'local');
+        collect(photoLibraryIndex.nas, 'nas');
+        collect(photoLibraryIndex.onedrive, 'onedrive');
+        collect(photoLibraryIndex.gphotos, 'gphotos');
+
+        return {
+          uniqueItems,
+          totalScanned,
+          duplicateCopiesSkipped,
+          screenshotsSkipped,
+          totalBytes,
+          bySource
+        };
+      }
+
+      function openConsolidatePhotosModal() {
+        const srcList = [
+          { key: 'gdrive', label: '☁️ Google Drive', count: Array.isArray(photoLibraryIndex.gdrive) ? photoLibraryIndex.gdrive.length : 0 },
+          { key: 'onedrive', label: '🟦 Microsoft OneDrive', count: Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0 },
+          { key: 'local', label: '📁 Local Folder', count: Array.isArray(photoLibraryIndex.local) ? photoLibraryIndex.local.length : 0 },
+          { key: 'nas', label: `🖥️ ${photoLibraryIndex.nasLabel || 'NAS'}`, count: Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0 },
+          { key: 'gphotos', label: '📷 Google Photos', count: Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0 }
+        ].filter((s) => s.count > 0);
+
+        let destDirHandle = null;
+        let running = false;
+        let paused = false;
+        let stopRequested = false;
+        const reportRows = [];
+
+        const fmtBytes = (b) => {
+          const n = Number(b) || 0;
+          if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+          if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+          if (n >= 1024) return `${Math.round(n / 1024).toLocaleString()} KB`;
+          return `${n} B`;
+        };
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-backdrop';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,15,14,0.62);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:780px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.32);overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <h2 style="font-size:17px;font-weight:700;margin:0;">📦 Consolidate Unique Photos (Copy / Move Utility)</h2>
+                <p class="muted" style="font-size:12px;margin:2px 0 0;">Transfer ONLY unique master photos — automatically skipping duplicate copies — to Google Drive (Google Cloud), your NAS / folder, or both.</p>
+              </div>
+              <button type="button" class="btn-close-prominent" id="con-close">✕ Close</button>
+            </div>
+            <div style="padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
+              ${srcList.length === 0 ? `
+                <div style="padding:18px;border:1px dashed #cbd5e1;border-radius:10px;text-align:center;color:#475569;font-size:13.5px;">
+                  No scanned sources indexed yet. First scan your Computer folder, Cloud accounts, or NAS in Step 1, then open this utility to consolidate all unique photos.
+                </div>
+              ` : `
+                <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+                  <div style="font-size:12.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">1. Source Libraries to Include:</div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    ${srcList.map((s) => `
+                      <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 9px;background:#ffffff;border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;">
+                        <input type="checkbox" class="con-src-chk" value="${esc(s.key)}" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                        <span>${esc(s.label)} (${s.count.toLocaleString()})</span>
+                      </label>
+                    `).join('')}
+                  </div>
+                  <div id="con-plan-banner" style="margin-top:8px;padding:7px 10px;border-radius:7px;background:#dcfce7;border:1px solid #86efac;color:#14532d;font-size:12.5px;font-weight:600;"></div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
+                  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+                    <div style="font-size:12.5px;font-weight:700;color:#0f172a;">2. Deduplication &amp; Mode:</div>
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;">
+                      <input type="checkbox" id="con-skip-dups" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                      <span>Skip duplicate copies (keep 1 ★ Master per group)</span>
+                    </label>
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;">
+                      <input type="checkbox" id="con-skip-shots" style="width:15px;height:15px;accent-color:#2563eb;">
+                      <span>Also skip screenshots</span>
+                    </label>
+                    <div>
+                      <label for="con-mode" style="display:block;font-size:11.5px;font-weight:700;color:#334155;margin-bottom:3px;">Action Mode:</label>
+                      <select id="con-mode" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:12.5px;background:#ffffff;">
+                        <option value="copy">Copy Unique Photos (Recommended — keeps originals safe)</option>
+                        <option value="move">Move Unique Photos (Copy &amp; verify, then delete/trash originals)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="con-layout" style="display:block;font-size:11.5px;font-weight:700;color:#334155;margin-bottom:3px;">Folder Organization at Destination:</label>
+                      <select id="con-layout" style="width:100%;padding:6px 8px;border:1px solid var(--control);border-radius:6px;font-size:12.5px;background:#ffffff;">
+                        <option value="ym">By Year / Month (e.g. 1998/07/photo.jpg)</option>
+                        <option value="source_path">Keep Source &amp; Original Folder</option>
+                        <option value="flat">Single Flat Folder (all files together)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+                    <div style="font-size:12.5px;font-weight:700;color:#0f172a;">3. Destinations (Pick 1 or Both):</div>
+                    <div style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;background:#ffffff;display:flex;flex-direction:column;gap:6px;">
+                      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;">
+                        <input type="checkbox" id="con-dest-nas-chk" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                        <span>🖥️ NAS / Local Folder</span>
+                      </label>
+                      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <button type="button" class="btn sm primary" id="btn-con-pick-nas">Pick NAS / Folder...</button>
+                        <span id="con-dest-nas-lbl" class="muted" style="font-size:11.5px;">Not selected yet</span>
+                      </div>
+                    </div>
+                    <div style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;background:#ffffff;display:flex;flex-direction:column;gap:6px;">
+                      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;">
+                        <input type="checkbox" id="con-dest-gd-chk" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                        <span>☁️ Google Drive (Google Cloud)</span>
+                      </label>
+                      <input type="text" id="inp-con-gd-folder" value="Family_History_Unique_Master" placeholder="Destination folder name in My Drive" style="width:100%;padding:5px 8px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                      <label style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#334155;cursor:pointer;">
+                        <input type="checkbox" id="con-skip-already-gd" checked style="width:14px;height:14px;accent-color:#2563eb;">
+                        <span>Skip photos whose ★ Master already lives in Google Drive</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button type="button" class="btn success" id="btn-con-start" style="flex:1;min-width:220px;">▶ Start Resumable Transfer</button>
+                    <button type="button" class="btn" id="btn-con-pause" hidden>⏸ Pause</button>
+                    <button type="button" class="btn danger" id="btn-con-stop" hidden>⏹ Stop</button>
+                    <button type="button" class="btn" id="btn-con-csv" hidden>📄 Download CSV Report</button>
+                  </div>
+                  <div id="con-prog-wrap" hidden style="display:flex;flex-direction:column;gap:6px;">
+                    <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;border:1px solid var(--border);">
+                      <div id="con-prog-bar" style="height:100%;width:0%;background:#16a34a;transition:width 0.12s ease;"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:600;color:#0f172a;">
+                      <span id="con-prog-counts">0 / 0</span>
+                      <span id="con-prog-file" class="muted" style="font-weight:500;">Ready</span>
+                    </div>
+                  </div>
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => {
+          if (running) {
+            if (!window.confirm('Stop the active photo consolidation transfer? (Already copied files are safely saved and can be resumed later.)')) return;
+            stopRequested = true;
+          }
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        overlay.querySelector('#con-close').onclick = closeModal;
+        overlay.onclick = (e) => { if (e.target === overlay && !running) closeModal(); };
+        if (srcList.length === 0) return;
+
+        const planBannerEl = overlay.querySelector('#con-plan-banner');
+        const skipDupsChk = overlay.querySelector('#con-skip-dups');
+        const skipShotsChk = overlay.querySelector('#con-skip-shots');
+        const modeSel = overlay.querySelector('#con-mode');
+        const layoutSel = overlay.querySelector('#con-layout');
+        const destNasChk = overlay.querySelector('#con-dest-nas-chk');
+        const pickNasBtn = overlay.querySelector('#btn-con-pick-nas');
+        const destNasLbl = overlay.querySelector('#con-dest-nas-lbl');
+        const destGdChk = overlay.querySelector('#con-dest-gd-chk');
+        const gdFolderInp = overlay.querySelector('#inp-con-gd-folder');
+        const skipAlreadyGdChk = overlay.querySelector('#con-skip-already-gd');
+        const startBtn = overlay.querySelector('#btn-con-start');
+        const pauseBtn = overlay.querySelector('#btn-con-pause');
+        const stopBtn = overlay.querySelector('#btn-con-stop');
+        const csvBtn = overlay.querySelector('#btn-con-csv');
+        const progWrap = overlay.querySelector('#con-prog-wrap');
+        const progBar = overlay.querySelector('#con-prog-bar');
+        const progCounts = overlay.querySelector('#con-prog-counts');
+        const progFile = overlay.querySelector('#con-prog-file');
+
+        const getCurrentPlan = () => {
+          const sources = {};
+          overlay.querySelectorAll('.con-src-chk').forEach((chk) => {
+            sources[chk.value] = Boolean(chk.checked);
+          });
+          return getUniqueMasterPhotoList({
+            sources,
+            skipDuplicates: Boolean(skipDupsChk.checked),
+            skipScreenshots: Boolean(skipShotsChk.checked)
+          });
+        };
+
+        const refreshPlanBanner = () => {
+          const plan = getCurrentPlan();
+          const skipParts = [];
+          if (plan.duplicateCopiesSkipped > 0) skipParts.push(`${plan.duplicateCopiesSkipped.toLocaleString()} duplicate copies skipped`);
+          if (plan.screenshotsSkipped > 0) skipParts.push(`${plan.screenshotsSkipped.toLocaleString()} screenshots skipped`);
+          planBannerEl.textContent = `✓ ${plan.uniqueItems.length.toLocaleString()} unique photos selected (${fmtBytes(plan.totalBytes)})${skipParts.length ? ` · ${skipParts.join(', ')}` : ''}.`;
+        };
+        overlay.querySelectorAll('.con-src-chk').forEach((c) => { c.onchange = refreshPlanBanner; });
+        skipDupsChk.onchange = refreshPlanBanner;
+        skipShotsChk.onchange = refreshPlanBanner;
+        refreshPlanBanner();
+
+        pickNasBtn.onclick = async () => {
+          if (typeof window.showDirectoryPicker !== 'function') {
+            notify('Picking a destination folder requires desktop Chrome or Microsoft Edge.');
+            return;
+          }
+          try {
+            const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            destDirHandle = handle;
+            destNasChk.checked = true;
+            destNasLbl.textContent = `✓ ${handle.name}`;
+            destNasLbl.style.color = '#15803d';
+            destNasLbl.style.fontWeight = '700';
+          } catch (err) {
+            if (err && err.name !== 'AbortError') notify(err.message || String(err));
+          }
+        };
+
+        pauseBtn.onclick = () => {
+          paused = !paused;
+          pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+        };
+        stopBtn.onclick = () => {
+          stopRequested = true;
+          paused = false;
+          stopBtn.disabled = true;
+          stopBtn.textContent = 'Stopping...';
+        };
+        csvBtn.onclick = () => {
+          const header = ['Filename', 'Source', 'Original Path', 'Destination Path', 'Status', 'Detail'];
+          const escCsv = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
+          const lines = [header.map(escCsv).join(','), ...reportRows.map((r) => r.map(escCsv).join(','))];
+          const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `unique-photos-transfer-${new Date().toISOString().slice(0, 10)}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+        };
+
+        const safeSeg = (s, fallback = 'Unknown') => String(s || '')
+          .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+          .replace(/\.+$/g, '')
+          .trim() || fallback;
+
+        const computeDestRelPath = (entry, layoutMode) => {
+          const fileName = safeSeg(entry.name || 'photo.jpg', 'photo.jpg');
+          if (layoutMode === 'flat') return { dirParts: [], fileName, relPath: fileName };
+          if (layoutMode === 'ym') {
+            const ms = Number(entry.lastModified) || 0;
+            if (ms > 0) {
+              const dt = new Date(ms);
+              if (!Number.isNaN(dt.getTime()) && dt.getFullYear() >= 1900 && dt.getFullYear() <= 2100) {
+                const yr = String(dt.getFullYear());
+                const mo = String(dt.getMonth() + 1).padStart(2, '0');
+                return { dirParts: [yr, mo], fileName, relPath: `${yr}/${mo}/${fileName}` };
+              }
+            }
+            return { dirParts: ['Undated'], fileName, relPath: `Undated/${fileName}` };
+          }
+          const srcName = ({ gdrive: 'Google_Drive', onedrive: 'OneDrive', local: 'Local_Folder', nas: 'NAS', gphotos: 'Google_Photos' }[entry.source]) || 'Photos';
+          const origParts = String(entry.path || '').replace(/\\/g, '/').split('/').filter(Boolean).slice(0, 6).map((p) => safeSeg(p, 'Folder'));
+          const dirParts = [srcName, ...origParts];
+          return { dirParts, fileName, relPath: `${dirParts.join('/')}/${fileName}` };
+        };
+
+        startBtn.onclick = async () => {
+          const useNasDest = Boolean(destNasChk.checked);
+          const useGdDest = Boolean(destGdChk.checked);
+          if (!useNasDest && !useGdDest) {
+            notify('Check at least one destination (NAS / Local Folder or Google Drive).');
+            return;
+          }
+          if (useNasDest && !destDirHandle) {
+            notify('Click "Pick NAS / Folder..." first to choose your destination folder.');
+            return;
+          }
+          const plan = getCurrentPlan();
+          if (plan.uniqueItems.length === 0) {
+            notify('No unique photos selected.');
+            return;
+          }
+          const actionMode = modeSel.value === 'move' ? 'move' : 'copy';
+          if (actionMode === 'move') {
+            const ok = window.confirm(`MOVE ${plan.uniqueItems.length.toLocaleString()} unique photos and remove/trash the originals after verification?\n\nTip: Most people choose COPY first so originals remain untouched until you verify your destination.`);
+            if (!ok) return;
+          }
+
+          const layoutMode = layoutSel.value || 'ym';
+          const gdFolderName = (gdFolderInp.value || '').trim() || 'Family_History_Unique_Master';
+          const skipAlreadyInDrive = Boolean(skipAlreadyGdChk.checked);
+          const hub = window.CloudImportHub;
+          const driveUtil = window.DriveSyncUtil;
+
+          let driveToken = '';
+          let odToken = '';
+          let srcLocalHandle = null;
+          let srcNasHandle = null;
+          let gdTargetRootId = '';
+
+          const needsGdToken = useGdDest || plan.uniqueItems.some((x) => x.source === 'gdrive');
+          const needsOdToken = plan.uniqueItems.some((x) => x.source === 'onedrive' && x.rec && !x.rec.isLocalDiskCopy && x.rec.cloudId);
+          const needsLocalDisk = (actionMode === 'move' || plan.uniqueItems.some((x) => x.source === 'local' && !x.rec.fileObj)) && plan.uniqueItems.some((x) => x.source === 'local');
+          const needsNasDisk = (actionMode === 'move' || plan.uniqueItems.some((x) => x.source === 'nas' && !x.rec.fileObj)) && plan.uniqueItems.some((x) => x.source === 'nas');
+
+          try {
+            if (needsGdToken) {
+              if (!driveUtil || !hub) throw new Error('Google Drive module is still loading.');
+              driveToken = (useGdDest || actionMode === 'move')
+                ? await ensureGoogleDriveWriteToken(false)
+                : await ensureGoogleDriveToken(false);
+            }
+            if (needsOdToken) {
+              odToken = (actionMode === 'move')
+                ? await ensureOneDriveWriteToken()
+                : await ensureOneDriveReadToken(false);
+            }
+            if (needsLocalDisk) {
+              srcLocalHandle = await ensureWritableLocalFolderHandle(photoLibraryIndex.localFolderName || rootFolderName || '');
+            }
+            if (needsNasDisk) {
+              srcNasHandle = await ensureNasFolderHandle(actionMode === 'move' ? 'readwrite' : 'read', photoLibraryIndex.nasFolderName || '');
+            }
+            if (useGdDest) {
+              gdTargetRootId = await driveUtil.ensureDriveFolderPath(driveToken, 'root', [safeSeg(gdFolderName, 'Family_History_Unique_Master')], new Map(), new Map());
+            }
+          } catch (prepErr) {
+            notify(`Transfer setup cancelled: ${prepErr && prepErr.message ? prepErr.message : prepErr}`);
+            return;
+          }
+
+          running = true;
+          paused = false;
+          stopRequested = false;
+          reportRows.length = 0;
+          startBtn.disabled = true;
+          pauseBtn.hidden = false;
+          pauseBtn.textContent = '⏸ Pause';
+          stopBtn.hidden = false;
+          stopBtn.disabled = false;
+          stopBtn.textContent = '⏹ Stop';
+          csvBtn.hidden = true;
+          progWrap.hidden = false;
+
+          const nasDirCache = new Map();
+          const nasFilesCache = new Map();
+          const gdFolderCache = new Map();
+          const gdFolderPromiseCache = new Map();
+          const gdFilesCache = new Map();
+
+          const getNasDirAndFiles = async (dirParts) => {
+            const pathKey = dirParts.join('/');
+            if (nasDirCache.has(pathKey)) {
+              return { dirHandle: nasDirCache.get(pathKey), filesMap: nasFilesCache.get(pathKey) };
+            }
+            let cur = destDirHandle;
+            for (let k = 0; k < dirParts.length; k++) {
+              cur = await cur.getDirectoryHandle(dirParts[k], { create: true });
+            }
+            const filesMap = new Map();
+            try {
+              for await (const [name, handle] of cur.entries()) {
+                if (handle.kind === 'file') {
+                  let sz = 0;
+                  try { sz = (await handle.getFile()).size || 0; } catch (_) {}
+                  filesMap.set(name.toLowerCase(), { name, size: sz });
+                }
+              }
+            } catch (_) {}
+            nasDirCache.set(pathKey, cur);
+            nasFilesCache.set(pathKey, filesMap);
+            return { dirHandle: cur, filesMap };
+          };
+
+          const resolveUniqueTargetName = (filesMap, desiredName) => {
+            const dot = desiredName.lastIndexOf('.');
+            const base = dot > 0 ? desiredName.slice(0, dot) : desiredName;
+            const ext = dot > 0 ? desiredName.slice(dot) : '';
+            for (let n = 2; n <= 99; n++) {
+              const cand = `${base}_${n}${ext}`;
+              if (!filesMap.has(cand.toLowerCase())) return cand;
+            }
+            return `${base}_${Date.now()}${ext}`;
+          };
+
+          const readEntryFile = async (entry) => {
+            if (entry.rec && entry.rec.fileObj) return entry.rec.fileObj;
+            if (entry.source === 'local') {
+              const res = await resolveLocalFileInRoot(srcLocalHandle, entry.rec);
+              return await res.fileHandle.getFile();
+            }
+            if (entry.source === 'nas') {
+              const res = await resolveLocalFileInRoot(srcNasHandle, entry.rec);
+              return await res.fileHandle.getFile();
+            }
+            if (entry.source === 'gdrive') {
+              try {
+                return await hub.downloadGoogleDriveFile(driveToken, entry.rec);
+              } catch (e) {
+                if (String(e && e.message || '').includes('session expired')) {
+                  driveToken = (useGdDest || actionMode === 'move') ? await ensureGoogleDriveWriteToken(true) : await ensureGoogleDriveToken(true);
+                  return await hub.downloadGoogleDriveFile(driveToken, entry.rec);
+                }
+                throw e;
+              }
+            }
+            if (entry.source === 'onedrive') {
+              if (entry.rec && entry.rec.isLocalDiskCopy) {
+                throw new Error('Local PC OneDrive folder needs live File handle (re-pick folder in this session to copy its bytes).');
+              }
+              try {
+                return await hub.downloadOneDriveFile(odToken, entry.rec);
+              } catch (e) {
+                if (String(e && e.message || '').includes('session expired')) {
+                  odToken = actionMode === 'move' ? await ensureOneDriveWriteToken() : await ensureOneDriveReadToken(true);
+                  return await hub.downloadOneDriveFile(odToken, entry.rec);
+                }
+                throw e;
+              }
+            }
+            if (entry.source === 'gphotos') {
+              if (entry.rec && entry.rec.thumbnailLink) {
+                const resp = await fetch(`${entry.rec.thumbnailLink}=d`);
+                if (resp.ok) {
+                  const blob = await resp.blob();
+                  return new File([blob], entry.name, { type: blob.type || 'image/jpeg', lastModified: entry.lastModified || Date.now() });
+                }
+              }
+              throw new Error('Google Photos Picker download URL expired (re-select via Picker or Google Takeout ZIP).');
+            }
+            throw new Error(`Unsupported source: ${entry.source}`);
+          };
+
+          let transferred = 0;
+          let skipped = 0;
+          let failed = 0;
+          let bytesMoved = 0;
+          const total = plan.uniqueItems.length;
+          const movedRemoveDrive = new Set();
+          const movedRemoveOd = new Set();
+          const movedRemoveLocal = new Set();
+          const movedRemoveNas = new Set();
+          let lastUiAt = 0;
+
+          try {
+            for (let i = 0; i < total; i++) {
+              if (stopRequested) break;
+              while (paused && !stopRequested) {
+                await new Promise((r) => setTimeout(r, 250));
+              }
+              if (stopRequested) break;
+
+              const entry = plan.uniqueItems[i];
+              const destInfo = computeDestRelPath(entry, layoutMode);
+              let nasNeedsWrite = false;
+              let gdNeedsWrite = false;
+              let nasTargetName = destInfo.fileName;
+              let gdTargetName = destInfo.fileName;
+              let nasCtx = null;
+              let gdFolderId = '';
+              let gdFilesMap = null;
+
+              try {
+                if (useNasDest) {
+                  nasCtx = await getNasDirAndFiles(destInfo.dirParts);
+                  const existingNas = nasCtx.filesMap.get(destInfo.fileName.toLowerCase());
+                  if (existingNas && (entry.size === 0 || existingNas.size === entry.size)) {
+                    nasNeedsWrite = false;
+                  } else {
+                    nasNeedsWrite = true;
+                    if (existingNas) nasTargetName = resolveUniqueTargetName(nasCtx.filesMap, destInfo.fileName);
+                  }
+                }
+
+                if (useGdDest) {
+                  if (skipAlreadyInDrive && entry.source === 'gdrive') {
+                    gdNeedsWrite = false;
+                  } else {
+                    gdFolderId = await driveUtil.ensureDriveFolderPath(driveToken, gdTargetRootId, destInfo.dirParts, gdFolderCache, gdFolderPromiseCache);
+                    if (!gdFilesCache.has(gdFolderId)) {
+                      gdFilesCache.set(gdFolderId, await driveUtil.listDriveFolderFilesMap(driveToken, gdFolderId));
+                    }
+                    gdFilesMap = gdFilesCache.get(gdFolderId);
+                    const existingGd = gdFilesMap.get(destInfo.fileName.toLowerCase());
+                    if (existingGd && ((entry.md5 && existingGd.md5Checksum && entry.md5 === existingGd.md5Checksum) || entry.size === 0 || existingGd.size === entry.size)) {
+                      gdNeedsWrite = false;
+                    } else {
+                      gdNeedsWrite = true;
+                      if (existingGd) gdTargetName = resolveUniqueTargetName(gdFilesMap, destInfo.fileName);
+                    }
+                  }
+                }
+
+                if (!nasNeedsWrite && !gdNeedsWrite) {
+                  skipped++;
+                  reportRows.push([entry.name, entry.source, entry.path, destInfo.relPath, 'Skipped', 'Already present at destination']);
+                } else {
+                  const fileObj = await readEntryFile(entry);
+                  if (nasNeedsWrite && nasCtx) {
+                    const dstHandle = await nasCtx.dirHandle.getFileHandle(nasTargetName, { create: true });
+                    const writable = await dstHandle.createWritable();
+                    try {
+                      await writable.write(fileObj);
+                    } finally {
+                      try { await writable.close(); } catch (_) {}
+                    }
+                    nasCtx.filesMap.set(nasTargetName.toLowerCase(), { name: nasTargetName, size: fileObj.size || entry.size || 0 });
+                  }
+                  if (gdNeedsWrite && gdFolderId) {
+                    const gdRel = [...destInfo.dirParts, gdTargetName].join('/');
+                    const up = await driveUtil.uploadFileToDrive(driveToken, gdTargetRootId, gdRel, fileObj, gdFolderCache, gdFolderPromiseCache);
+                    if (gdFilesMap && up && up.id) {
+                      gdFilesMap.set(gdTargetName.toLowerCase(), {
+                        id: up.id,
+                        name: gdTargetName,
+                        size: Number(up.size) || fileObj.size || 0,
+                        md5Checksum: (up.md5Checksum || '').toLowerCase()
+                      });
+                    }
+                  }
+                  if (actionMode === 'move') {
+                    const sameLocalDest = entry.source === 'local' && useNasDest && srcLocalHandle && destDirHandle && await srcLocalHandle.isSameEntry(destDirHandle).catch(() => false) && layoutMode === 'source_path';
+                    const sameNasDest = entry.source === 'nas' && useNasDest && srcNasHandle && destDirHandle && await srcNasHandle.isSameEntry(destDirHandle).catch(() => false) && layoutMode === 'source_path';
+                    if (entry.source === 'gdrive' && !(useGdDest && skipAlreadyInDrive)) {
+                      await driveUtil.trashDriveFile(driveToken, entry.rec.cloudId || entry.rec.id);
+                      movedRemoveDrive.add(String(entry.rec.cloudId || entry.rec.id));
+                    } else if (entry.source === 'onedrive' && !entry.rec.isLocalDiskCopy && entry.rec.cloudId) {
+                      await hub.deleteOneDriveFile(odToken, entry.rec.cloudId);
+                      movedRemoveOd.add(String(entry.rec.cloudId));
+                    } else if (entry.source === 'local' && srcLocalHandle && !sameLocalDest) {
+                      await applyLocalDiskAction(entry.rec, 'delete', '', srcLocalHandle);
+                      movedRemoveLocal.add(entry.rec.id);
+                    } else if (entry.source === 'nas' && srcNasHandle && !sameNasDest) {
+                      await applyLocalDiskAction(entry.rec, 'delete', '', srcNasHandle);
+                      movedRemoveNas.add(entry.rec.id);
+                    }
+                  }
+                  transferred++;
+                  bytesMoved += Number(fileObj.size) || Number(entry.size) || 0;
+                  reportRows.push([entry.name, entry.source, entry.path, destInfo.relPath, actionMode === 'move' ? 'Moved' : 'Copied', fmtBytes(fileObj.size || entry.size)]);
+                }
+              } catch (itemErr) {
+                failed++;
+                reportRows.push([entry.name, entry.source, entry.path, destInfo.relPath, 'Failed', itemErr && itemErr.message ? itemErr.message : String(itemErr)]);
+              }
+
+              const now = Date.now();
+              if (now - lastUiAt > 150 || i === total - 1) {
+                lastUiAt = now;
+                const pct = Math.max(2, Math.round(((i + 1) / total) * 100));
+                progBar.style.width = `${pct}%`;
+                progCounts.textContent = `${(i + 1).toLocaleString()} / ${total.toLocaleString()} · ${transferred.toLocaleString()} copied · ${skipped.toLocaleString()} skipped · ${failed.toLocaleString()} failed (${fmtBytes(bytesMoved)})`;
+                progFile.textContent = entry.name;
+                await new Promise((r) => setTimeout(r, 0));
+              }
+            }
+          } finally {
+            running = false;
+            startBtn.disabled = false;
+            pauseBtn.hidden = true;
+            stopBtn.hidden = true;
+            csvBtn.hidden = reportRows.length === 0;
+          }
+
+          if (movedRemoveDrive.size > 0 && Array.isArray(photoLibraryIndex.gdrive)) {
+            photoLibraryIndex.gdrive = photoLibraryIndex.gdrive.filter((r) => !movedRemoveDrive.has(String(r.cloudId || r.id || '')));
+            if (typeof saveGdriveIndexToDb === 'function') await saveGdriveIndexToDb(photoLibraryIndex.gdrive, photoLibraryIndex.gdriveFolderName || 'My Drive');
+          }
+          if (movedRemoveOd.size > 0 && Array.isArray(photoLibraryIndex.onedrive)) {
+            photoLibraryIndex.onedrive = photoLibraryIndex.onedrive.filter((r) => !movedRemoveOd.has(String(r.cloudId || r.id || '')));
+            if (typeof saveOnedriveIndexToDb === 'function') await saveOnedriveIndexToDb(photoLibraryIndex.onedrive, photoLibraryIndex.onedriveFolderName || 'OneDrive');
+          }
+          if (movedRemoveLocal.size > 0 && Array.isArray(photoLibraryIndex.local)) {
+            photoLibraryIndex.local = photoLibraryIndex.local.filter((r) => !movedRemoveLocal.has(r.id));
+            if (typeof saveLocalIndexToDb === 'function') await saveLocalIndexToDb(photoLibraryIndex.local, photoLibraryIndex.localFolderName || 'Local Folder');
+          }
+          if (movedRemoveNas.size > 0 && Array.isArray(photoLibraryIndex.nas)) {
+            photoLibraryIndex.nas = photoLibraryIndex.nas.filter((r) => !movedRemoveNas.has(r.id));
+            if (typeof saveNasIndexToDb === 'function') await saveNasIndexToDb(photoLibraryIndex.nas, photoLibraryIndex.nasFolderName || 'NAS', photoLibraryIndex.nasLabel || 'NAS');
+          }
+          if (movedRemoveDrive.size + movedRemoveOd.size + movedRemoveLocal.size + movedRemoveNas.size > 0) {
+            photoLibraryIndex.indexVersion++;
+            render();
+          }
+          notify(`${stopRequested ? 'Stopped' : '✓ Finished'}: ${transferred.toLocaleString()} transferred, ${skipped.toLocaleString()} already at destination, ${failed.toLocaleString()} failed.`);
+        };
+      }
+
       function getUnifiedSearchablePhotoRecords(options = {}) {
         const out = [];
         const loadedByCloudId = new Map();
@@ -23080,6 +24342,19 @@
             out.push({
               ...l,
               source: 'local',
+              alreadyLoadedId: loadedId
+            });
+          }
+        }
+
+        if (options.includeNas !== false && Array.isArray(photoLibraryIndex.nas)) {
+          for (let i = 0; i < photoLibraryIndex.nas.length; i++) {
+            const n = photoLibraryIndex.nas[i];
+            const loadedId = loadedByName.get(String(n.name || '').trim().toLowerCase()) || '';
+            if (options.dedupeLoaded && loadedId) continue;
+            out.push({
+              ...n,
+              source: 'nas',
               alreadyLoadedId: loadedId
             });
           }
@@ -26727,6 +28002,7 @@
         const activePhotos = items.filter((x) => x && !x.inReview);
         const totalIdxCount = (photoLibraryIndex.gdrive.length || 0)
           + (photoLibraryIndex.local.length || 0)
+          + (Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0)
           + (Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0)
           + (Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0);
         let sourceFilter = (opts && opts.initialSource) ? opts.initialSource : (totalIdxCount > 0 ? 'all' : 'loaded');
@@ -26738,6 +28014,7 @@
         let liveResults = [];
         const tempUrls = [];
 
+        const nasCnt = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas.length : 0;
         const odCnt = Array.isArray(photoLibraryIndex.onedrive) ? photoLibraryIndex.onedrive.length : 0;
         const gpCnt = Array.isArray(photoLibraryIndex.gphotos) ? photoLibraryIndex.gphotos.length : 0;
         const overlay = document.createElement('div');
@@ -26748,7 +28025,7 @@
             <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div>
                 <h2 style="font-size:17.5px;font-weight:700;margin:0;">🔍 Search Photo Library &amp; Link to Family Tree</h2>
-                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across Loaded (${activePhotos.length}), Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), Local Folder (${photoLibraryIndex.local.length.toLocaleString()}), OneDrive (${odCnt.toLocaleString()}), and Google Photos (${gpCnt.toLocaleString()}) and attach any photo to any relative.</p>
+                <p class="muted" style="font-size:13px;margin:3px 0 0;">Search across Loaded (${activePhotos.length}), Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()}), Local Folder (${photoLibraryIndex.local.length.toLocaleString()}), NAS (${nasCnt.toLocaleString()}), OneDrive (${odCnt.toLocaleString()}), and Google Photos (${gpCnt.toLocaleString()}) and attach any photo to any relative.</p>
               </div>
               <button type="button" class="btn-close-prominent" id="pib-close">✕ Close</button>
             </div>
@@ -26756,6 +28033,7 @@
               <button type="button" class="btn sm" data-pib-src="all">All Sources</button>
               <button type="button" class="btn sm" data-pib-src="gdrive">☁️ Google Drive (${photoLibraryIndex.gdrive.length.toLocaleString()})</button>
               <button type="button" class="btn sm" data-pib-src="local">📁 Local Folder (${photoLibraryIndex.local.length.toLocaleString()})</button>
+              ${nasCnt > 0 ? `<button type="button" class="btn sm" data-pib-src="nas">🖥️ NAS (${nasCnt.toLocaleString()})</button>` : ''}
               ${odCnt > 0 ? `<button type="button" class="btn sm" data-pib-src="onedrive">🟦 OneDrive (${odCnt.toLocaleString()})</button>` : ''}
               ${gpCnt > 0 ? `<button type="button" class="btn sm" data-pib-src="gphotos">📷 Google Photos (${gpCnt.toLocaleString()})</button>` : ''}
               <button type="button" class="btn sm" data-pib-src="loaded">🖼️ Loaded (${activePhotos.length})</button>

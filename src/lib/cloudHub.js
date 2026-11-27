@@ -1203,6 +1203,64 @@ export async function fetchOneDriveThumbnailLinks(token, itemIds, options = {}) 
   return resultMap;
 }
 
+export async function downloadOneDriveFile(token, fileRec) {
+  const itemId = String(fileRec?.cloudId || fileRec?.id || '').trim();
+  if (!itemId) throw new Error('Missing OneDrive file ID.');
+
+  const metaUrl = `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(itemId)}?$select=@microsoft.graph.downloadUrl`;
+  let metaRes = await fetch(metaUrl, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (metaRes.status === 429 || metaRes.status >= 500) {
+    const retryHeader = Number(metaRes.headers.get('Retry-After'));
+    const waitMs = Number.isFinite(retryHeader) && retryHeader > 0
+      ? Math.min(2000, retryHeader * 1000)
+      : 600;
+    await new Promise((r) => setTimeout(r, waitMs));
+    metaRes = await fetch(metaUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }
+  if (metaRes.status === 401) {
+    clearCachedOneDriveToken();
+    throw new Error('OneDrive session expired — please reconnect Personal OneDrive.');
+  }
+  if (!metaRes.ok) {
+    throw new Error(`OneDrive download metadata failed (${metaRes.status}) for ${fileRec?.name || itemId}`);
+  }
+  const meta = await metaRes.json();
+  const dlUrl = meta && meta['@microsoft.graph.downloadUrl'];
+  if (!dlUrl) {
+    throw new Error(`No OneDrive download URL available for ${fileRec?.name || itemId}`);
+  }
+
+  let dlRes = await fetch(dlUrl);
+  if ((dlRes.status === 429 || dlRes.status >= 500)) {
+    await new Promise((r) => setTimeout(r, 600));
+    dlRes = await fetch(dlUrl);
+  }
+  if (!dlRes.ok) {
+    throw new Error(`Failed to download ${fileRec?.name || itemId} from OneDrive (${dlRes.status})`);
+  }
+  const blob = await dlRes.blob();
+  const modMs = Number(fileRec?.lastModified) || Date.now();
+  const file = new File([blob], fileRec?.name || 'onedrive_photo.jpg', {
+    type: blob.type || fileRec?.type || 'image/jpeg',
+    lastModified: modMs
+  });
+  if (fileRec?.webkitRelativePath) {
+    try {
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: fileRec.webkitRelativePath,
+        configurable: true
+      });
+    } catch {
+      // ignore if non-configurable
+    }
+  }
+  return file;
+}
+
 export async function launchOneDrivePickerSdk(clientId) {
   const effectiveClientId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
   if (!effectiveClientId) {

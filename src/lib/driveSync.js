@@ -323,6 +323,48 @@ export async function ensureDriveFolderPath(token, rootFolderId, folderParts, fo
   return parentId;
 }
 
+export async function listDriveFolderFilesMap(token, folderId) {
+  const byNameLower = new Map();
+  if (!token || !folderId) return byNameLower;
+
+  let pageToken = '';
+  do {
+    const q = `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
+    const params = new URLSearchParams({
+      q,
+      fields: 'nextPageToken,files(id,name,size,md5Checksum)',
+      pageSize: '1000',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true'
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const res = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status === 401) {
+      const e = new Error('Google Drive session expired (401)');
+      e.status = 401;
+      throw e;
+    }
+    if (!res.ok) break;
+    const data = await res.json();
+    for (const f of (data.files || [])) {
+      if (!f || !f.name) continue;
+      byNameLower.set(f.name.trim().toLowerCase(), {
+        id: f.id,
+        name: f.name,
+        size: Number(f.size) || 0,
+        md5Checksum: (f.md5Checksum || '').toLowerCase()
+      });
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+
+  return byNameLower;
+}
+
 export async function uploadFileToDrive(token, rootFolderId, relPath, file, folderCache = new Map(), folderPromiseCache = new Map()) {
   const parts = String(relPath || file.name).split('/').filter(Boolean);
   const fileName = parts.pop() || file.name;
