@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 const CLOUD_SETTINGS_KEY = 'fhp_cloud_settings_v1';
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|avif|heic|tiff?)$/i;
 export const DEFAULT_GOOGLE_CLIENT_ID = '1061905446657-a8qontau11bbj658t7jk3q4r7i6m54fa.apps.googleusercontent.com';
+export const DEFAULT_MICROSOFT_CLIENT_ID = '';
 
 export function getCloudSettings() {
   try {
@@ -10,10 +11,14 @@ export function getCloudSettings() {
     const parsed = raw ? JSON.parse(raw) : {};
     return {
       ...parsed,
-      googleClientId: (parsed && parsed.googleClientId) || DEFAULT_GOOGLE_CLIENT_ID
+      googleClientId: (parsed && parsed.googleClientId) || DEFAULT_GOOGLE_CLIENT_ID,
+      microsoftClientId: (parsed && parsed.microsoftClientId) || DEFAULT_MICROSOFT_CLIENT_ID
     };
   } catch {
-    return { googleClientId: DEFAULT_GOOGLE_CLIENT_ID };
+    return {
+      googleClientId: DEFAULT_GOOGLE_CLIENT_ID,
+      microsoftClientId: DEFAULT_MICROSOFT_CLIENT_ID
+    };
   }
 }
 
@@ -887,13 +892,16 @@ export async function launchGooglePhotosPicker(clientId, onStatus = null, option
    2. MICROSOFT ONEDRIVE
    ============================================================================ */
 
-export async function requestOneDriveToken(clientId) {
-  const cleanId = String(clientId || '').trim();
-  if (!cleanId) throw new Error('Please enter your Microsoft Entra / Azure Client ID first.');
+export async function requestOneDriveToken(clientId, options = {}) {
+  const cleanId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
+  if (!cleanId) {
+    throw new Error('One-time Microsoft App Client ID needed for direct cloud sign-in (or use "Pick Personal OneDrive Folder on This PC" above with zero setup).');
+  }
 
+  const tenant = (options && options.tenant) === 'common' ? 'common' : 'consumers';
   const redirectUri = `${window.location.origin}${window.location.pathname}`;
   const state = `od_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-  const authUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+  const authUrl = new URL(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`);
   authUrl.searchParams.set('client_id', cleanId);
   authUrl.searchParams.set('response_type', 'token');
   authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -1026,9 +1034,12 @@ export async function scanOneDriveFolder(token, itemId = 'root', folderName = 'O
 }
 
 export async function launchOneDrivePickerSdk(clientId) {
+  const effectiveClientId = String(clientId || '').trim() || DEFAULT_MICROSOFT_CLIENT_ID;
+  if (!effectiveClientId) {
+    throw new Error('One-time Microsoft App Client ID needed for direct cloud sign-in (or use "Pick Personal OneDrive Folder on This PC" above with zero setup).');
+  }
   await loadScriptOnce('https://js.live.net/v7.2/OneDrive.js');
   if (!window.OneDrive) throw new Error('OneDrive Picker SDK could not be loaded.');
-  const effectiveClientId = String(clientId || '').trim() || '23f66817-f4a4-4367-93ae-c9dfadba2a57';
 
   return new Promise((resolve, reject) => {
     window.OneDrive.open({
@@ -1036,7 +1047,10 @@ export async function launchOneDrivePickerSdk(clientId) {
       action: 'download',
       multiSelect: true,
       openInNewWindow: true,
-      advanced: { filter: '.jpg,.jpeg,.png,.webp,.bmp,.gif' },
+      advanced: {
+        filter: '.jpg,.jpeg,.png,.webp,.bmp,.gif',
+        redirectUri: `${window.location.origin}${window.location.pathname}`
+      },
       success: (response) => {
         const values = response?.values || [];
         const items = values

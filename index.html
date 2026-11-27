@@ -19655,23 +19655,122 @@
               await loadCloudFilesIntoArchive(extracted, 'Google_Photos_ZIP');
             };
           } else if (activeTab === 'onedrive') {
+            const redirectUrl = `${window.location.origin}${window.location.pathname}`;
+            const curTenant = cur.microsoftTenant || 'consumers';
             body.innerHTML = `
-              <p style="font-size:13px;margin:0 0 10px;">Connect <strong>Microsoft OneDrive</strong> to scan a folder recursively, or use the quick OneDrive File Picker.</p>
-              <div class="field" style="margin-bottom:10px;">
-                <label style="font-size:12px;font-weight:600;">Microsoft Entra / Azure Client ID</label>
-                <input type="text" id="inp-od-cid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${esc(cur.microsoftClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
-                <div class="muted" style="font-size:11px;margin-top:4px;">In Azure App Registration → Authentication (SPA), add <code>${esc(window.location.origin + window.location.pathname)}</code> as Redirect URI and enable implicit Access Tokens.</div>
+              <div style="padding:12px 14px;border-radius:10px;border:1.5px solid #93c5fd;background:#eff6ff;margin-bottom:12px;">
+                <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-bottom:4px;">⚡ Instant Personal OneDrive Import (No Setup Needed)</div>
+                <p style="font-size:12.5px;color:#1e3a8a;margin:0 0 10px;line-height:1.45;">
+                  Windows &amp; Mac automatically show your Personal OneDrive folder on your computer (even cloud-only <em>Files On-Demand</em>), or you can import a <code>.zip</code> downloaded from <a href="https://onedrive.live.com" target="_blank" rel="noopener" style="color:#1d4ed8;text-decoration:underline;">onedrive.live.com</a>.
+                </p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                  <button type="button" class="btn primary sm" id="btn-od-local-folder">📁 Pick Personal OneDrive Folder on This PC</button>
+                  <button type="button" class="btn sm" id="btn-od-local-files">🖼️ Pick Individual OneDrive Photos</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#1e3a8a;">
+                  <label style="font-weight:600;">Or drop a OneDrive.com <code>.zip</code>:</label>
+                  <input type="file" id="inp-od-zip" accept=".zip" style="font-size:12px;">
+                </div>
               </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-                <button type="button" class="btn primary sm" id="btn-od-connect">${odToken ? '✓ Connected — Refresh Folders' : '🔗 Connect OneDrive Folders'}</button>
-                ${odToken ? `<button type="button" class="btn accent sm" id="btn-od-scan-cur">📂 Scan "${esc(odStack[odStack.length - 1].name)}"</button>` : ''}
-                <button type="button" class="btn sm" id="btn-od-picker">Picker SDK (Individual Photos)</button>
+
+              <div style="border-top:1px solid var(--border);padding-top:12px;">
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px;">☁️ Direct Cloud Sign-In (Personal OneDrive Web Account)</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+                  <button type="button" class="btn primary sm" id="btn-od-connect">${odToken ? '✓ Connected — Refresh Folders' : '☁️ Connect Personal OneDrive (Cloud)'}</button>
+                  ${odToken ? `<button type="button" class="btn accent sm" id="btn-od-scan-cur">📂 Scan "${esc(odStack[odStack.length - 1].name)}"</button>` : ''}
+                  <button type="button" class="btn sm" id="btn-od-picker">📷 OneDrive Cloud Picker</button>
+                </div>
+                <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;">
+                  <label for="sel-od-tenant" style="font-weight:600;">Account Type:</label>
+                  <select id="sel-od-tenant" style="padding:4px 8px;border:1px solid var(--control);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+                    <option value="consumers" ${curTenant === 'consumers' ? 'selected' : ''}>Personal Microsoft Account (@outlook / @hotmail / @live)</option>
+                    <option value="common" ${curTenant === 'common' ? 'selected' : ''}>Personal, Work or School Account</option>
+                  </select>
+                </div>
+                <details id="od-advanced-cid" ${cur.microsoftClientId ? '' : ''} style="margin-bottom:8px;font-size:11.5px;">
+                  <summary class="muted" style="cursor:pointer;font-weight:600;">Advanced: Microsoft App Client ID (One-time setup for Cloud sign-in)</summary>
+                  <div class="field" style="margin-top:6px;">
+                    <input type="text" id="inp-od-cid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${esc(cur.microsoftClientId || '')}" style="width:100%;padding:7px 10px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                    <div class="muted" style="font-size:11px;margin-top:5px;line-height:1.45;">
+                      Microsoft requires an App ID even for Personal OneDrive cloud login: open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Microsoft App Registration</a> → choose <strong>Personal Microsoft accounts only</strong> → add SPA Redirect URI <code>${esc(redirectUrl)}</code> → under <em>Authentication</em> enable <strong>Access tokens</strong>.
+                    </div>
+                  </div>
+                </details>
+                <div id="od-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+                <div id="od-folders" style="border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;"></div>
               </div>
-              <div id="od-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
-              <div id="od-folders" style="border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;"></div>
             `;
             const cidInput = body.querySelector('#inp-od-cid');
+            const tenantSel = body.querySelector('#sel-od-tenant');
+            const advDetails = body.querySelector('#od-advanced-cid');
             cidInput.onchange = () => hub.saveCloudSettings({ microsoftClientId: cidInput.value.trim() });
+            tenantSel.onchange = () => hub.saveCloudSettings({ microsoftTenant: tenantSel.value });
+
+            body.querySelector('#btn-od-local-folder').onclick = () => {
+              const inp = document.createElement('input');
+              inp.type = 'file';
+              inp.multiple = true;
+              inp.accept = 'image/*';
+              if (!isMobile()) {
+                inp.setAttribute('webkitdirectory', '');
+                inp.setAttribute('directory', '');
+              }
+              inp.onchange = async () => {
+                const rawFiles = Array.from(inp.files || []);
+                const imgFiles = rawFiles.filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+                if (!imgFiles.length) {
+                  body.querySelector('#od-status').textContent = 'No image files were found in the selected OneDrive folder.';
+                  return;
+                }
+                const firstRel = imgFiles[0].webkitRelativePath || '';
+                const odFolderName = (firstRel.split('/').filter(Boolean)[0]) || 'OneDrive';
+                photoLibraryIndex.local = imgFiles.map((f, idx) => ({
+                  source: 'local',
+                  id: `local:${idx}:${f.name}`,
+                  name: f.name,
+                  path: f.webkitRelativePath || odFolderName,
+                  webkitRelativePath: f.webkitRelativePath || `${odFolderName}/${f.name}`,
+                  size: f.size || 0,
+                  lastModified: f.lastModified || Date.now(),
+                  type: f.type || 'image/jpeg',
+                  fileObj: f
+                }));
+                photoLibraryIndex.localFolderName = odFolderName;
+                photoLibraryIndex.indexVersion++;
+                if (typeof saveLocalIndexToDb === 'function') {
+                  saveLocalIndexToDb(photoLibraryIndex.local, odFolderName).catch(() => {});
+                }
+                closeModal();
+                await loadCloudFilesIntoArchive(imgFiles, `OneDrive_${odFolderName}`);
+              };
+              inp.click();
+            };
+
+            body.querySelector('#btn-od-local-files').onclick = () => {
+              const inp = document.createElement('input');
+              inp.type = 'file';
+              inp.multiple = true;
+              inp.accept = 'image/*';
+              inp.onchange = async () => {
+                const imgFiles = Array.from(inp.files || []).filter((f) => /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name) || (f.type && f.type.startsWith('image/')));
+                if (!imgFiles.length) return;
+                closeModal();
+                await loadCloudFilesIntoArchive(imgFiles, 'OneDrive_Photos');
+              };
+              inp.click();
+            };
+
+            body.querySelector('#inp-od-zip').onchange = async (e) => {
+              const zf = e.target.files && e.target.files[0];
+              if (!zf) return;
+              const status = body.querySelector('#od-status');
+              status.textContent = 'Unpacking OneDrive ZIP in memory...';
+              const extracted = await hub.extractImagesFromZip(zf, 'OneDrive', (p) => {
+                status.textContent = `Unpacking ${p.extracted} / ${p.total} photos...`;
+              });
+              closeModal();
+              await loadCloudFilesIntoArchive(extracted, 'OneDrive_ZIP');
+            };
 
             const loadOdList = async () => {
               const status = body.querySelector('#od-status');
@@ -19722,11 +19821,13 @@
 
             body.querySelector('#btn-od-connect').onclick = async () => {
               const cid = cidInput.value.trim();
-              hub.saveCloudSettings({ microsoftClientId: cid });
+              const tenant = tenantSel.value || 'consumers';
+              hub.saveCloudSettings({ microsoftClientId: cid, microsoftTenant: tenant });
               const status = body.querySelector('#od-status');
-              status.textContent = 'Opening Microsoft sign-in...';
+              if (!cid && advDetails) advDetails.open = true;
+              status.textContent = 'Opening Microsoft Personal OneDrive sign-in...';
               try {
-                odToken = await hub.requestOneDriveToken(cid);
+                odToken = await hub.requestOneDriveToken(cid, { tenant });
                 renderTab();
                 await loadOdList();
               } catch (err) {
@@ -19753,7 +19854,8 @@
             body.querySelector('#btn-od-picker').onclick = async () => {
               const cid = cidInput.value.trim();
               const status = body.querySelector('#od-status');
-              status.textContent = 'Opening OneDrive Picker...';
+              if (!cid && advDetails) advDetails.open = true;
+              status.textContent = 'Opening Personal OneDrive Picker...';
               try {
                 const picked = await hub.launchOneDrivePickerSdk(cid);
                 if (picked.length > 0) {
