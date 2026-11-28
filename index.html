@@ -4205,6 +4205,10 @@
         shareTotal: 0,
         dirsDone: 0,
         skippedDirs: 0,
+        skippedSystemDirs: 0,
+        skippedTinyFiles: 0,
+        lastCheckpointCount: 0,
+        startedAt: 0,
         photosFound: 0,
         currentPath: '',
         stopRequested: false,
@@ -4216,6 +4220,21 @@
       function notifyNasScanListeners() {
         _nasScanState.listeners.forEach((fn) => {
           try { fn(_nasScanState); } catch (_) {}
+        });
+      }
+      const _nasYieldQueue = [];
+      const _nasYieldChannel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+      if (_nasYieldChannel) {
+        _nasYieldChannel.port1.onmessage = () => {
+          const fn = _nasYieldQueue.shift();
+          if (fn) fn();
+        };
+      }
+      function yieldEventLoop() {
+        if (!_nasYieldChannel) return new Promise((r) => setTimeout(r, 0));
+        return new Promise((resolve) => {
+          _nasYieldQueue.push(resolve);
+          _nasYieldChannel.port2.postMessage(null);
         });
       }
       const ONEDRIVE_INDEX_META_KEY = 'onedrive_photo_index_meta_v1';
@@ -23452,7 +23471,43 @@
       }
 
       const NAS_IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif|heic|tif?f)$/i;
-      const NAS_SKIP_DIR_RE = /^(_duplicates_review|@eaDir|@Recycle|#recycle|\.@__thumb|\.streams|System Volume Information|\$RECYCLE\.BIN|\.Trash.*|\.Spotlight-V100|\.fseventsd)$/i;
+      const NAS_SKIP_DIR_RE = /^(_duplicates_review|@Recently-Snapshot|#snapshot|@Snapshot|\.snapshots|\.zfs|@eaDir|@Recycle|#recycle|@Transcode|\.@__thumb|\.@__thumb_tmp|\.@__qini|\.@upload_cache|\.@twonkymedia\.db|\.qpkg|\.system|\.streams|System Volume Information|\$RECYCLE\.BIN|\.Trash.*|\.Spotlight-V100|\.fseventsd|\.AppleDouble|__MACOSX|AppData|Windows|WinSxS|Program Files|Program Files \(x86\)|ProgramData|node_modules|\.git|\.cache|Cache|Code Cache|GPUCache|\.thumbnails|Thumbnails|\.picasaoriginals|Lightroom Previews\.lrdata|Smart Previews\.lrdata|WindowsImageBackup)$/i;
+      const NAS_TINY_ICON_BYTES = 15360;
+
+      function buildCustomExcludeSet(rawText) {
+        const out = new Set();
+        const parts = String(rawText || '').split(',');
+        for (let i = 0; i < parts.length; i++) {
+          const clean = parts[i].trim().toLowerCase();
+          if (clean) out.add(clean);
+        }
+        return out;
+      }
+
+      function shouldSkipNasFolderName(name, opts = {}) {
+        if (!name) return false;
+        if (opts.skipSnapshotsAndJunk !== false && NAS_SKIP_DIR_RE.test(name)) return true;
+        if (opts.customExcludes && opts.customExcludes.size > 0 && opts.customExcludes.has(String(name).trim().toLowerCase())) return true;
+        return false;
+      }
+
+      async function saveNasScanCheckpoint(scannedSnapshot, rootName, options = {}) {
+        const nasLbl = String(options.nasLabel || photoLibraryIndex.nasLabel || 'NAS').trim() || 'NAS';
+        const shouldMerge = options.shouldMerge !== false;
+        const finalRecords = shouldMerge ? mergeIntoNasIndex(scannedSnapshot) : scannedSnapshot;
+        photoLibraryIndex.nas = finalRecords;
+        photoLibraryIndex.nasScannedAt = Date.now();
+        photoLibraryIndex.nasFolderName = rootName || nasLbl;
+        photoLibraryIndex.nasLabel = nasLbl;
+        photoLibraryIndex.indexVersion++;
+        if (typeof saveNasIndexToDb === 'function') {
+          await saveNasIndexToDb(finalRecords, photoLibraryIndex.nasFolderName, nasLbl);
+        }
+        if (typeof recordGatheredSource === 'function') {
+          recordGatheredSource('nas', { label: nasLbl, count: finalRecords.length });
+        }
+        if (typeof renderSidebarCounts === 'function') renderSidebarCounts();
+      }
 
       async function finalizeNasScanRecords(scannedRecords, rootName, options = {}) {
         const nasLbl = String(options.nasLabel || photoLibraryIndex.nasLabel || 'NAS').trim() || 'NAS';
@@ -23486,107 +23541,156 @@
         return finalRecords;
       }
 
-      async function scanSingleNasDirHandle(rootHandle, foundOut) {
+      async function scanSingleNasDirHandle(rootHandle, foundOut, scanOpts = {}) {
         _nasRootDirHandle = rootHandle;
         await saveNasRootHandleToDb(rootHandle);
         const rootName = rootHandle.name || 'NAS';
+        const skipTinyIcons = scanOpts.skipTinyIcons !== false;
+        const onCheckpoint = typeof scanOpts.onCheckpoint === 'function' ? scanOpts.onCheckpoint : null;
         const queue = [{ dir: rootHandle, parentDir: null, dirName: rootName, relPath: rootName }];
         let lastUiAt = 0;
-
-        while (queue.length > 0 && !_nasScanState.stopRequested) {
-          const item = queue.shift();
-          const { parentDir, dirName, relPath } = item;
-          let activeDir = item.dir;
-          _nasScanState.dirsDone++;
-          _nasScanState.currentPath = relPath;
-
-          const seenEntryNames = new Set();
-          const dirFiles = [];
-          let dirReadOk = false;
-
-          for (let attempt = 0; attempt < 2 && !_nasScanState.stopRequested; attempt++) {
-            try {
-              for await (const [entryName, handle] of activeDir.entries()) {
-                if (_nasScanState.stopRequested) break;
-                if (seenEntryNames.has(entryName)) continue;
-                seenEntryNames.add(entryName);
-
-                if (handle.kind === 'directory') {
-                  if (NAS_SKIP_DIR_RE.test(entryName)) continue;
-                  queue.push({
-                    dir: handle,
-                    parentDir: activeDir,
-                    dirName: entryName,
-                    relPath: `${relPath}/${entryName}`
-                  });
-                } else if (handle.kind === 'file' && NAS_IMG_RE.test(entryName)) {
-                  dirFiles.push({ entryName, handle, relPath });
-                }
-
-                const now = Date.now();
-                if (now - lastUiAt > 160) {
-                  lastUiAt = now;
-                  _nasScanState.photosFound = foundOut.length;
-                  notifyNasScanListeners();
-                  await new Promise((r) => setTimeout(r, 0));
-                }
-              }
-              dirReadOk = true;
-              break;
-            } catch (_) {
-              if (attempt === 0 && !_nasScanState.stopRequested) {
-                await new Promise((r) => setTimeout(r, 80));
-                if (parentDir && dirName) {
-                  try {
-                    activeDir = await parentDir.getDirectoryHandle(dirName);
-                  } catch (_) {}
-                }
-              }
-            }
+        let activeWorkers = 0;
+        let checkpointBusy = false;
+        const waiters = [];
+        const wakeWaiters = () => {
+          while (waiters.length > 0) {
+            const w = waiters.shift();
+            if (w) w();
           }
-
-          if (!dirReadOk && !_nasScanState.stopRequested) {
-            _nasScanState.skippedDirs++;
+        };
+        const maybePublishAndYield = async (forceYield = false) => {
+          const now = Date.now();
+          const shouldCheckpoint = onCheckpoint
+            && !checkpointBusy
+            && (foundOut.length - _nasScanState.lastCheckpointCount >= 25000);
+          if (shouldCheckpoint) {
+            checkpointBusy = true;
+            _nasScanState.lastCheckpointCount = foundOut.length;
+            Promise.resolve(onCheckpoint(foundOut.slice())).catch(() => {}).finally(() => {
+              checkpointBusy = false;
+            });
           }
-
-          for (let i = 0; i < dirFiles.length && !_nasScanState.stopRequested; i += 8) {
-            const batch = dirFiles.slice(i, i + 8);
-            const batchRecords = await Promise.all(batch.map(async (fItem) => {
-              let f = null;
-              try {
-                f = await fItem.handle.getFile();
-              } catch (err) {
-                if (err && /InvalidState/i.test(String(err.name || err.message || '')) && activeDir) {
-                  try {
-                    const fresh = await activeDir.getFileHandle(fItem.entryName);
-                    f = await fresh.getFile();
-                  } catch (_) {}
-                }
-              }
-              return {
-                source: 'nas',
-                id: `nas:${fItem.relPath}/${fItem.entryName}`,
-                name: fItem.entryName,
-                path: fItem.relPath,
-                webkitRelativePath: `${fItem.relPath}/${fItem.entryName}`,
-                size: (f && f.size) || 0,
-                lastModified: (f && f.lastModified) || 0,
-                type: (f && f.type) || 'image/jpeg',
-                fileObj: null
-              };
-            }));
-            for (let k = 0; k < batchRecords.length; k++) {
-              foundOut.push(batchRecords[k]);
-            }
-            _nasScanState.photosFound = foundOut.length;
-            const now = Date.now();
+          if (now - lastUiAt > 160 || forceYield) {
             if (now - lastUiAt > 160) {
               lastUiAt = now;
+              _nasScanState.photosFound = foundOut.length;
               notifyNasScanListeners();
-              await new Promise((r) => setTimeout(r, 0));
+            }
+            await yieldEventLoop();
+          }
+        };
+
+        const worker = async () => {
+          while (!_nasScanState.stopRequested) {
+            const item = queue.shift();
+            if (!item) {
+              if (activeWorkers === 0) {
+                wakeWaiters();
+                return;
+              }
+              await new Promise((resolve) => waiters.push(resolve));
+              continue;
+            }
+            activeWorkers++;
+            try {
+              const { parentDir, dirName, relPath } = item;
+              let activeDir = item.dir;
+              _nasScanState.dirsDone++;
+              _nasScanState.currentPath = relPath;
+
+              const seenEntryNames = new Set();
+              const dirFiles = [];
+              let dirReadOk = false;
+
+              for (let attempt = 0; attempt < 2 && !_nasScanState.stopRequested; attempt++) {
+                try {
+                  for await (const [entryName, handle] of activeDir.entries()) {
+                    if (_nasScanState.stopRequested) break;
+                    if (seenEntryNames.has(entryName)) continue;
+                    seenEntryNames.add(entryName);
+
+                    if (handle.kind === 'directory') {
+                      if (shouldSkipNasFolderName(entryName, scanOpts)) {
+                        _nasScanState.skippedSystemDirs++;
+                        continue;
+                      }
+                      queue.push({
+                        dir: handle,
+                        parentDir: activeDir,
+                        dirName: entryName,
+                        relPath: `${relPath}/${entryName}`
+                      });
+                      wakeWaiters();
+                    } else if (handle.kind === 'file' && NAS_IMG_RE.test(entryName)) {
+                      dirFiles.push({ entryName, handle, relPath });
+                    }
+
+                    await maybePublishAndYield(false);
+                  }
+                  dirReadOk = true;
+                  break;
+                } catch (_) {
+                  if (attempt === 0 && !_nasScanState.stopRequested) {
+                    await yieldEventLoop();
+                    if (parentDir && dirName) {
+                      try {
+                        activeDir = await parentDir.getDirectoryHandle(dirName);
+                      } catch (_) {}
+                    }
+                  }
+                }
+              }
+
+              if (!dirReadOk && !_nasScanState.stopRequested) {
+                _nasScanState.skippedDirs++;
+              }
+
+              for (let i = 0; i < dirFiles.length && !_nasScanState.stopRequested; i += 24) {
+                const batch = dirFiles.slice(i, i + 24);
+                const batchRecords = await Promise.all(batch.map(async (fItem) => {
+                  let f = null;
+                  try {
+                    f = await fItem.handle.getFile();
+                  } catch (err) {
+                    if (err && /InvalidState/i.test(String(err.name || err.message || '')) && activeDir) {
+                      try {
+                        const fresh = await activeDir.getFileHandle(fItem.entryName);
+                        f = await fresh.getFile();
+                      } catch (_) {}
+                    }
+                  }
+                  const size = (f && f.size) || 0;
+                  if (skipTinyIcons && size > 0 && size < NAS_TINY_ICON_BYTES) {
+                    _nasScanState.skippedTinyFiles++;
+                    return null;
+                  }
+                  return {
+                    source: 'nas',
+                    id: `nas:${fItem.relPath}/${fItem.entryName}`,
+                    name: fItem.entryName,
+                    path: fItem.relPath,
+                    webkitRelativePath: `${fItem.relPath}/${fItem.entryName}`,
+                    size,
+                    lastModified: (f && f.lastModified) || 0,
+                    type: (f && f.type) || 'image/jpeg',
+                    fileObj: null
+                  };
+                }));
+                for (let k = 0; k < batchRecords.length; k++) {
+                  if (batchRecords[k]) foundOut.push(batchRecords[k]);
+                }
+                _nasScanState.photosFound = foundOut.length;
+                await maybePublishAndYield(false);
+              }
+            } finally {
+              activeWorkers--;
+              if (queue.length === 0 && activeWorkers === 0) wakeWaiters();
             }
           }
-        }
+          wakeWaiters();
+        };
+
+        await Promise.all([worker(), worker(), worker(), worker()]);
       }
 
       function readAllWebkitDirEntries(dirEntry) {
@@ -23611,70 +23715,272 @@
         });
       }
 
-      async function scanSingleWebkitDirEntry(rootEntry, foundOut) {
+      async function scanSingleWebkitDirEntry(rootEntry, foundOut, scanOpts = {}) {
         const rootName = (rootEntry && rootEntry.name) || 'NAS';
+        const skipTinyIcons = scanOpts.skipTinyIcons !== false;
+        const onCheckpoint = typeof scanOpts.onCheckpoint === 'function' ? scanOpts.onCheckpoint : null;
         const queue = [{ entry: rootEntry, relPath: rootName }];
         let lastUiAt = 0;
-
-        while (queue.length > 0 && !_nasScanState.stopRequested) {
-          const { entry, relPath } = queue.shift();
-          _nasScanState.dirsDone++;
-          _nasScanState.currentPath = relPath;
-
-          let entries = [];
-          try {
-            entries = await readAllWebkitDirEntries(entry);
-          } catch (_) {
-            _nasScanState.skippedDirs++;
-            continue;
+        let activeWorkers = 0;
+        let checkpointBusy = false;
+        const waiters = [];
+        const wakeWaiters = () => {
+          while (waiters.length > 0) {
+            const w = waiters.shift();
+            if (w) w();
           }
+        };
 
-          const dirFiles = [];
-          for (let i = 0; i < entries.length && !_nasScanState.stopRequested; i++) {
-            const child = entries[i];
-            if (!child) continue;
-            if (child.isDirectory) {
-              if (NAS_SKIP_DIR_RE.test(child.name)) continue;
-              queue.push({ entry: child, relPath: `${relPath}/${child.name}` });
-            } else if (child.isFile && NAS_IMG_RE.test(child.name)) {
-              dirFiles.push({ entry: child, relPath });
+        const worker = async () => {
+          while (!_nasScanState.stopRequested) {
+            const item = queue.shift();
+            if (!item) {
+              if (activeWorkers === 0) {
+                wakeWaiters();
+                return;
+              }
+              await new Promise((resolve) => waiters.push(resolve));
+              continue;
             }
-          }
+            activeWorkers++;
+            try {
+              const { entry, relPath } = item;
+              _nasScanState.dirsDone++;
+              _nasScanState.currentPath = relPath;
 
-          for (let i = 0; i < dirFiles.length && !_nasScanState.stopRequested; i += 8) {
-            const batch = dirFiles.slice(i, i + 8);
-            const batchRecords = await Promise.all(batch.map(async (fItem) => {
-              const f = await new Promise((resolve) => {
-                try {
-                  fItem.entry.file(resolve, () => resolve(null));
-                } catch (_) {
-                  resolve(null);
+              let entries = [];
+              try {
+                entries = await readAllWebkitDirEntries(entry);
+              } catch (_) {
+                _nasScanState.skippedDirs++;
+                continue;
+              }
+
+              const dirFiles = [];
+              for (let i = 0; i < entries.length && !_nasScanState.stopRequested; i++) {
+                const child = entries[i];
+                if (!child) continue;
+                if (child.isDirectory) {
+                  if (shouldSkipNasFolderName(child.name, scanOpts)) {
+                    _nasScanState.skippedSystemDirs++;
+                    continue;
+                  }
+                  queue.push({ entry: child, relPath: `${relPath}/${child.name}` });
+                  wakeWaiters();
+                } else if (child.isFile && NAS_IMG_RE.test(child.name)) {
+                  dirFiles.push({ entry: child, relPath });
                 }
-              });
-              return {
-                source: 'nas',
-                id: `nas:${fItem.relPath}/${fItem.entry.name}`,
-                name: fItem.entry.name,
-                path: fItem.relPath,
-                webkitRelativePath: `${fItem.relPath}/${fItem.entry.name}`,
-                size: (f && f.size) || 0,
-                lastModified: (f && f.lastModified) || 0,
-                type: (f && f.type) || 'image/jpeg',
-                fileObj: f || null
-              };
-            }));
-            for (let k = 0; k < batchRecords.length; k++) {
-              foundOut.push(batchRecords[k]);
+              }
+
+              for (let i = 0; i < dirFiles.length && !_nasScanState.stopRequested; i += 24) {
+                const batch = dirFiles.slice(i, i + 24);
+                const batchRecords = await Promise.all(batch.map(async (fItem) => {
+                  const f = await new Promise((resolve) => {
+                    try {
+                      fItem.entry.file(resolve, () => resolve(null));
+                    } catch (_) {
+                      resolve(null);
+                    }
+                  });
+                  const size = (f && f.size) || 0;
+                  if (skipTinyIcons && size > 0 && size < NAS_TINY_ICON_BYTES) {
+                    _nasScanState.skippedTinyFiles++;
+                    return null;
+                  }
+                  return {
+                    source: 'nas',
+                    id: `nas:${fItem.relPath}/${fItem.entry.name}`,
+                    name: fItem.entry.name,
+                    path: fItem.relPath,
+                    webkitRelativePath: `${fItem.relPath}/${fItem.entry.name}`,
+                    size,
+                    lastModified: (f && f.lastModified) || 0,
+                    type: (f && f.type) || 'image/jpeg',
+                    fileObj: f || null
+                  };
+                }));
+                for (let k = 0; k < batchRecords.length; k++) {
+                  if (batchRecords[k]) foundOut.push(batchRecords[k]);
+                }
+                _nasScanState.photosFound = foundOut.length;
+                if (onCheckpoint && !checkpointBusy && (foundOut.length - _nasScanState.lastCheckpointCount >= 25000)) {
+                  checkpointBusy = true;
+                  _nasScanState.lastCheckpointCount = foundOut.length;
+                  Promise.resolve(onCheckpoint(foundOut.slice())).catch(() => {}).finally(() => {
+                    checkpointBusy = false;
+                  });
+                }
+                const now = Date.now();
+                if (now - lastUiAt > 160) {
+                  lastUiAt = now;
+                  notifyNasScanListeners();
+                  await yieldEventLoop();
+                }
+              }
+            } finally {
+              activeWorkers--;
+              if (queue.length === 0 && activeWorkers === 0) wakeWaiters();
             }
-            _nasScanState.photosFound = foundOut.length;
-            const now = Date.now();
-            if (now - lastUiAt > 160) {
-              lastUiAt = now;
-              notifyNasScanListeners();
-              await new Promise((r) => setTimeout(r, 0));
-            }
+          }
+          wakeWaiters();
+        };
+
+        await Promise.all([worker(), worker(), worker(), worker()]);
+      }
+
+      function buildNasExcludeRegexForPs(excludeList) {
+        const base = [
+          '_duplicates_review', '@Recently-Snapshot', '#snapshot', '@Snapshot', '\\.snapshots', '\\.zfs',
+          '@eaDir', '@Recycle', '#recycle', '@Transcode', '\\.@__thumb', '\\.@__thumb_tmp', '\\.@__qini',
+          '\\.@upload_cache', '\\.@twonkymedia\\.db', '\\.qpkg', '\\.system', '\\.streams',
+          'System Volume Information', '\\$RECYCLE\\.BIN', '\\.Trash.*', '\\.Spotlight-V100', '\\.fseventsd',
+          '\\.AppleDouble', '__MACOSX', 'AppData', 'Windows', 'WinSxS', 'Program Files', 'Program Files \\(x86\\)',
+          'ProgramData', 'node_modules', '\\.git', '\\.cache', 'Cache', 'Code Cache', 'GPUCache',
+          '\\.thumbnails', 'Thumbnails', '\\.picasaoriginals', 'Lightroom Previews\\.lrdata',
+          'Smart Previews\\.lrdata', 'WindowsImageBackup'
+        ];
+        const extras = (Array.isArray(excludeList) ? excludeList : [])
+          .map((s) => String(s || '').trim())
+          .filter(Boolean)
+          .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        return `^(${base.concat(extras).join('|')})$`;
+      }
+
+      function buildNasTurboPowerShellScript(excludeList = [], skipTinyIcons = true) {
+        const skipDirRe = buildNasExcludeRegexForPs(excludeList);
+        const minBytes = skipTinyIcons ? NAS_TINY_ICON_BYTES : 0;
+        const lines = [
+          '# Family History Photos - Fast NAS Photo Indexer (Windows PowerShell)',
+          '# Reads SMB folder listings directly via .NET (100x faster than browser API). Zero files modified.',
+          '$ErrorActionPreference = "SilentlyContinue"',
+          'Write-Host ""',
+          'Write-Host "=== Family History Photos - NAS Turbo Scanner ===" -ForegroundColor Cyan',
+          '$raw = Read-Host "Enter NAS folder path(s), comma-separated (e.g. \\\\QNAP-viola\\homes, \\\\QNAP-viola\\Multimedia or Z:\\)"',
+          'if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "No path entered."; exit 1 }',
+          '$roots = $raw -split "," | ForEach-Object { $_.Trim().Trim([char]34,[char]39) } | Where-Object { $_ -ne "" }',
+          `$skipRe = '${skipDirRe.replace(/'/g, "''")}'`,
+          '$imgRe = "\\.(jpe?g|png|webp|gif|bmp|avif|heic|tif?f)$"',
+          `$minBytes = ${minBytes}`,
+          '$files = [System.Collections.Generic.List[object]]::new()',
+          '$rootNames = [System.Collections.Generic.List[string]]::new()',
+          '$dirsDone = 0; $skippedDirs = 0; $skippedTiny = 0',
+          '$sw = [System.Diagnostics.Stopwatch]::StartNew()',
+          'foreach ($rootPath in $roots) {',
+          '  if (-not (Test-Path -LiteralPath $rootPath)) {',
+          '    Write-Host "Path not found: $rootPath" -ForegroundColor Yellow',
+          '    continue',
+          '  }',
+          '  $rootDi = [System.IO.DirectoryInfo]::new($rootPath)',
+          '  $rootName = $rootDi.Name',
+          '  if (-not $rootName -or $rootName -match ":\\\\$") { $rootName = $rootDi.FullName.TrimEnd("\\").Replace(":", "") }',
+          '  [void]$rootNames.Add($rootName)',
+          '  $q = [System.Collections.Generic.Queue[object]]::new()',
+          '  $q.Enqueue(@($rootDi, $rootName))',
+          '  while ($q.Count -gt 0) {',
+          '    $pair = $q.Dequeue()',
+          '    $di = $pair[0]; $rel = $pair[1]',
+          '    $dirsDone++',
+          '    if ($dirsDone % 250 -eq 0) {',
+          '      $rate = [int]($files.Count / [Math]::Max(0.1, $sw.Elapsed.TotalSeconds))',
+          '      Write-Host ("Scanning: {0:N0} folders | {1:N0} photos ({2:N0}/sec) | {3}" -f $dirsDone, $files.Count, $rate, $rel)',
+          '    }',
+          '    try {',
+          '      foreach ($sub in $di.EnumerateDirectories()) {',
+          '        if ($sub.Name -imatch $skipRe) { $skippedDirs++; continue }',
+          '        $q.Enqueue(@($sub, ($rel + "/" + $sub.Name)))',
+          '      }',
+          '    } catch {}',
+          '    try {',
+          '      foreach ($fi in $di.EnumerateFiles()) {',
+          '        if ($fi.Name -inotmatch $imgRe) { continue }',
+          '        if ($minBytes -gt 0 -and $fi.Length -gt 0 -and $fi.Length -lt $minBytes) { $skippedTiny++; continue }',
+          '        $ms = [long](([DateTimeOffset]$fi.LastWriteTimeUtc).ToUnixTimeMilliseconds())',
+          '        [void]$files.Add(@($rel, $fi.Name, [long]$fi.Length, $ms))',
+          '      }',
+          '    } catch {}',
+          '  }',
+          '}',
+          '$sw.Stop()',
+          '$outPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "nas-photo-index.json"',
+          '$payload = [ordered]@{ version = 1; generatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); rootNames = @($rootNames.ToArray()); skippedDirs = $skippedDirs; skippedTiny = $skippedTiny; files = @($files.ToArray()) }',
+          '$json = $payload | ConvertTo-Json -Depth 4 -Compress',
+          '[System.IO.File]::WriteAllText($outPath, $json, [System.Text.UTF8Encoding]::new($false))',
+          'Write-Host ""',
+          'Write-Host ("DONE in {0:N1}s! Indexed {1:N0} photos across {2:N0} folders (skipped {3:N0} snapshot/system folders, {4:N0} tiny icons)." -f $sw.Elapsed.TotalSeconds, $files.Count, $dirsDone, $skippedDirs, $skippedTiny) -ForegroundColor Green',
+          'Write-Host ("Saved: $outPath") -ForegroundColor Cyan',
+          'Write-Host "Now switch back to Family History Photos and click [Import nas-photo-index.json]." -ForegroundColor Yellow',
+          'Read-Host "Press Enter to close"'
+        ];
+        return lines.join('\r\n');
+      }
+
+      function buildNasTurboOneLiner(excludeList = [], skipTinyIcons = true) {
+        const skipDirRe = buildNasExcludeRegexForPs(excludeList).replace(/'/g, "''");
+        const minBytes = skipTinyIcons ? NAS_TINY_ICON_BYTES : 0;
+        return `$raw=Read-Host 'Enter NAS path(s) e.g. \\\\QNAP-viola\\homes, \\\\QNAP-viola\\Multimedia';$roots=$raw-split','|%{$_.Trim().Trim('"''')}|?{$_};$skip='${skipDirRe}';$img='\\.(jpe?g|png|webp|gif|bmp|avif|heic|tif?f)$';$min=${minBytes};$f=[System.Collections.Generic.List[object]]::new();$rn=[System.Collections.Generic.List[string]]::new();$d=0;$sd=0;$st=0;$sw=[Diagnostics.Stopwatch]::StartNew();foreach($rp in $roots){if(!(Test-Path -LiteralPath $rp)){continue};$di=[IO.DirectoryInfo]::new($rp);$n=$di.Name;if(!$n-or $n-match':\\\\$'){$n=$di.FullName.TrimEnd('\\').Replace(':','')};[void]$rn.Add($n);$q=[Collections.Generic.Queue[object]]::new();$q.Enqueue(@($di,$n));while($q.Count-gt 0){$p=$q.Dequeue();$c=$p[0];$r=$p[1];$d++;if($d%250-eq 0){Write-Host "$d folders, $($f.Count) photos..."};try{foreach($s in $c.EnumerateDirectories()){if($s.Name-imatch $skip){$sd++;continue};$q.Enqueue(@($s,"$r/$($s.Name)"))}}catch{};try{foreach($fi in $c.EnumerateFiles()){if($fi.Name-inotmatch $img){continue};if($min-gt 0-and $fi.Length-gt 0-and $fi.Length-lt $min){$st++;continue};[void]$f.Add(@($r,$fi.Name,[long]$fi.Length,[long]([DateTimeOffset]$fi.LastWriteTimeUtc).ToUnixTimeMilliseconds()))}}catch{}}};$out=Join-Path ([Environment]::GetFolderPath('Desktop')) 'nas-photo-index.json';[IO.File]::WriteAllText($out,(ConvertTo-Json @{version=1;rootNames=@($rn.ToArray());skippedDirs=$sd;skippedTiny=$st;files=@($f.ToArray())} -Depth 4 -Compress),[Text.UTF8Encoding]::new($false));Write-Host "DONE in $([int]$sw.Elapsed.TotalSeconds)s! $($f.Count) photos -> $out" -ForegroundColor Green`;
+      }
+
+      async function importNasFastIndexJson(jsonText, options = {}) {
+        const parsed = JSON.parse(String(jsonText || '').replace(/^\uFEFF/, ''));
+        const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed && parsed.files) ? parsed.files : null);
+        if (!rows) {
+          throw new Error('Selected JSON file is not a valid nas-photo-index.json export.');
+        }
+        const nasLbl = String(options.nasLabel || photoLibraryIndex.nasLabel || 'NAS').trim() || 'NAS';
+        const rootNames = Array.isArray(parsed && parsed.rootNames) ? parsed.rootNames.filter(Boolean) : [];
+        const fallbackRoot = rootNames[0] || nasLbl;
+        const mapped = [];
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (Array.isArray(row)) {
+            const relDir = String(row[0] || fallbackRoot).replace(/\\/g, '/');
+            const name = String(row[1] || '').trim();
+            if (!name || !NAS_IMG_RE.test(name)) continue;
+            mapped.push({
+              source: 'nas',
+              id: `nas:${relDir}/${name}`,
+              name,
+              path: relDir,
+              webkitRelativePath: `${relDir}/${name}`,
+              size: Number(row[2]) || 0,
+              lastModified: Number(row[3]) || 0,
+              type: 'image/jpeg',
+              fileObj: null
+            });
+          } else if (row && row.name) {
+            const relDir = String(row.path || fallbackRoot).replace(/\\/g, '/');
+            const name = String(row.name).trim();
+            if (!NAS_IMG_RE.test(name)) continue;
+            mapped.push({
+              source: 'nas',
+              id: row.id || `nas:${relDir}/${name}`,
+              name,
+              path: relDir,
+              webkitRelativePath: row.webkitRelativePath || `${relDir}/${name}`,
+              size: Number(row.size) || 0,
+              lastModified: Number(row.lastModified) || 0,
+              type: row.type || 'image/jpeg',
+              fileObj: null
+            });
           }
         }
+        if (mapped.length === 0) {
+          throw new Error('The JSON index contained 0 supported image files.');
+        }
+        const rootNamesLabel = rootNames.length > 1
+          ? `${rootNames[0]} + ${rootNames.length - 1} more`
+          : fallbackRoot;
+        const finalRecords = await finalizeNasScanRecords(mapped, rootNamesLabel, {
+          nasLabel: nasLbl,
+          shouldMerge: options.shouldMerge !== false
+        });
+        return {
+          importedCount: mapped.length,
+          totalCount: finalRecords.length,
+          rootNamesLabel,
+          skippedDirs: Number(parsed && parsed.skippedDirs) || 0,
+          skippedTiny: Number(parsed && parsed.skippedTiny) || 0
+        };
       }
 
       async function runNasBatchScan(targets, options = {}) {
@@ -23690,6 +23996,12 @@
 
         const nasLabel = String(options.nasLabel || photoLibraryIndex.nasLabel || 'NAS').trim() || 'NAS';
         const shouldMerge = options.shouldMerge !== false;
+        const skipSnapshotsAndJunk = options.skipSnapshotsAndJunk !== false;
+        const skipTinyIcons = options.skipTinyIcons !== false;
+        const customExcludes = buildCustomExcludeSet(options.customExcludeText || '');
+        const rootNamesLabel = targetList.length === 1
+          ? (targetList[0].name || nasLabel)
+          : `${targetList[0].name || nasLabel} + ${targetList.length - 1} more`;
 
         _nasScanState.active = true;
         _nasScanState.phase = 'scanning';
@@ -23698,6 +24010,10 @@
         _nasScanState.shareName = targetList[0].name || nasLabel;
         _nasScanState.dirsDone = 0;
         _nasScanState.skippedDirs = 0;
+        _nasScanState.skippedSystemDirs = 0;
+        _nasScanState.skippedTinyFiles = 0;
+        _nasScanState.lastCheckpointCount = 0;
+        _nasScanState.startedAt = Date.now();
         _nasScanState.photosFound = 0;
         _nasScanState.currentPath = targetList[0].name || nasLabel;
         _nasScanState.stopRequested = false;
@@ -23705,7 +24021,14 @@
         _nasScanState.lastError = '';
         _nasScanState.lastErrorIsPickerBusy = false;
         notifyNasScanListeners();
-        await new Promise((r) => setTimeout(r, 0));
+        await yieldEventLoop();
+
+        const scanOpts = {
+          skipSnapshotsAndJunk,
+          skipTinyIcons,
+          customExcludes,
+          onCheckpoint: (snap) => saveNasScanCheckpoint(snap, rootNamesLabel, { nasLabel, shouldMerge })
+        };
 
         const found = [];
         try {
@@ -23717,77 +24040,92 @@
             notifyNasScanListeners();
 
             if (tgt.kind === 'handle' && tgt.handle) {
-              await scanSingleNasDirHandle(tgt.handle, found);
+              await scanSingleNasDirHandle(tgt.handle, found, scanOpts);
             } else if (tgt.kind === 'entry' && tgt.entry) {
-              await scanSingleWebkitDirEntry(tgt.entry, found);
+              await scanSingleWebkitDirEntry(tgt.entry, found, scanOpts);
             } else if (tgt.kind === 'fileHandle' && tgt.handle) {
               let f = null;
               try { f = await tgt.handle.getFile(); } catch (_) {}
               const nm = tgt.name || (f && f.name) || 'photo.jpg';
-              found.push({
-                source: 'nas',
-                id: `nas:${nasLabel}/${nm}`,
-                name: nm,
-                path: nasLabel,
-                webkitRelativePath: `${nasLabel}/${nm}`,
-                size: (f && f.size) || 0,
-                lastModified: (f && f.lastModified) || 0,
-                type: (f && f.type) || 'image/jpeg',
-                fileObj: f || null
-              });
-              _nasScanState.photosFound = found.length;
+              const size = (f && f.size) || 0;
+              if (skipTinyIcons && size > 0 && size < NAS_TINY_ICON_BYTES) {
+                _nasScanState.skippedTinyFiles++;
+              } else {
+                found.push({
+                  source: 'nas',
+                  id: `nas:${nasLabel}/${nm}`,
+                  name: nm,
+                  path: nasLabel,
+                  webkitRelativePath: `${nasLabel}/${nm}`,
+                  size,
+                  lastModified: (f && f.lastModified) || 0,
+                  type: (f && f.type) || 'image/jpeg',
+                  fileObj: f || null
+                });
+                _nasScanState.photosFound = found.length;
+              }
             } else if (tgt.kind === 'entryFile' && tgt.entry) {
               const f = await new Promise((resolve) => {
                 try { tgt.entry.file(resolve, () => resolve(null)); } catch (_) { resolve(null); }
               });
               const nm = tgt.name || (f && f.name) || 'photo.jpg';
-              found.push({
-                source: 'nas',
-                id: `nas:${nasLabel}/${nm}`,
-                name: nm,
-                path: nasLabel,
-                webkitRelativePath: `${nasLabel}/${nm}`,
-                size: (f && f.size) || 0,
-                lastModified: (f && f.lastModified) || 0,
-                type: (f && f.type) || 'image/jpeg',
-                fileObj: f || null
-              });
-              _nasScanState.photosFound = found.length;
+              const size = (f && f.size) || 0;
+              if (skipTinyIcons && size > 0 && size < NAS_TINY_ICON_BYTES) {
+                _nasScanState.skippedTinyFiles++;
+              } else {
+                found.push({
+                  source: 'nas',
+                  id: `nas:${nasLabel}/${nm}`,
+                  name: nm,
+                  path: nasLabel,
+                  webkitRelativePath: `${nasLabel}/${nm}`,
+                  size,
+                  lastModified: (f && f.lastModified) || 0,
+                  type: (f && f.type) || 'image/jpeg',
+                  fileObj: f || null
+                });
+                _nasScanState.photosFound = found.length;
+              }
             } else if (tgt.kind === 'fileObj' && tgt.file) {
               const f = tgt.file;
-              found.push({
-                source: 'nas',
-                id: `nas:${nasLabel}/${f.name}`,
-                name: f.name,
-                path: nasLabel,
-                webkitRelativePath: f.webkitRelativePath || `${nasLabel}/${f.name}`,
-                size: f.size || 0,
-                lastModified: f.lastModified || 0,
-                type: f.type || 'image/jpeg',
-                fileObj: f
-              });
-              _nasScanState.photosFound = found.length;
+              const size = f.size || 0;
+              if (skipTinyIcons && size > 0 && size < NAS_TINY_ICON_BYTES) {
+                _nasScanState.skippedTinyFiles++;
+              } else {
+                found.push({
+                  source: 'nas',
+                  id: `nas:${nasLabel}/${f.name}`,
+                  name: f.name,
+                  path: nasLabel,
+                  webkitRelativePath: f.webkitRelativePath || `${nasLabel}/${f.name}`,
+                  size,
+                  lastModified: f.lastModified || 0,
+                  type: f.type || 'image/jpeg',
+                  fileObj: f
+                });
+                _nasScanState.photosFound = found.length;
+              }
             }
           }
 
+          const skippedParts = [];
+          if (_nasScanState.skippedSystemDirs > 0) skippedParts.push(`${_nasScanState.skippedSystemDirs.toLocaleString()} snapshot/system folder${_nasScanState.skippedSystemDirs === 1 ? '' : 's'}`);
+          if (_nasScanState.skippedTinyFiles > 0) skippedParts.push(`${_nasScanState.skippedTinyFiles.toLocaleString()} tiny icon${_nasScanState.skippedTinyFiles === 1 ? '' : 's'} (<15 KB)`);
+          if (_nasScanState.skippedDirs > 0) skippedParts.push(`${_nasScanState.skippedDirs.toLocaleString()} locked/busy subfolder${_nasScanState.skippedDirs === 1 ? '' : 's'}`);
+          const skipSummary = skippedParts.length > 0 ? ` (${skippedParts.join(', ')} skipped)` : '';
+
           if (found.length === 0) {
-            const skipNote = _nasScanState.skippedDirs > 0
-              ? ` (${_nasScanState.skippedDirs.toLocaleString()} restricted/changing NAS subfolder${_nasScanState.skippedDirs === 1 ? '' : 's'} skipped)`
-              : '';
             _nasScanState.lastMessage = _nasScanState.stopRequested
-              ? `Scan stopped before any photos were found.${skipNote}`
-              : `No supported image files found in the selected NAS folder(s).${skipNote}`;
+              ? `Scan stopped before any photos were found.${skipSummary}`
+              : `No supported image files found in the selected NAS folder(s).${skipSummary}`;
             return;
           }
 
-          const rootNamesLabel = targetList.length === 1
-            ? (targetList[0].name || nasLabel)
-            : `${targetList[0].name || nasLabel} + ${targetList.length - 1} more`;
           _nasScanState.phase = 'saving';
           notifyNasScanListeners();
           const finalRecords = await finalizeNasScanRecords(found, rootNamesLabel, { nasLabel, shouldMerge });
-          const skipHtml = _nasScanState.skippedDirs > 0
-            ? ` <span style="color:#b45309;">(${_nasScanState.skippedDirs.toLocaleString()} locked/busy subfolder${_nasScanState.skippedDirs === 1 ? '' : 's'} safely skipped)</span>`
+          const skipHtml = skippedParts.length > 0
+            ? ` <span style="color:#b45309;">(${skippedParts.join(', ')} skipped)</span>`
             : '';
           const stoppedHtml = _nasScanState.stopRequested ? ' <em>(Stopped early — partial results saved!)</em>' : '';
           _nasScanState.lastMessage = `<span style="color:#15803d;font-weight:700;">✓ Added ${found.length.toLocaleString()} photos from "${esc(rootNamesLabel)}"!</span>${stoppedHtml}${skipHtml} Total NAS photos: <strong>${finalRecords.length.toLocaleString()}</strong>. Drop or add another QNAP share above or click <strong>✓ Done — Back to Step 1</strong>.`;
@@ -23840,6 +24178,23 @@
                 </label>
               </div>
 
+              <div style="padding:9px 11px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer;">
+                    <input type="checkbox" id="chk-nas-skip-junk" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                    Skip QNAP/Synology snapshots (<code>@Recently-Snapshot</code>), thumbnails &amp; OS backup junk
+                  </label>
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer;">
+                    <input type="checkbox" id="chk-nas-skip-tiny" checked style="width:15px;height:15px;accent-color:#2563eb;">
+                    Skip tiny icons/thumbnails (&lt; 15 KB)
+                  </label>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <label for="inp-nas-exclude" style="font-size:12px;font-weight:600;color:#334155;">Skip specific folder names (optional, comma-separated):</label>
+                  <input type="text" id="inp-nas-exclude" placeholder="e.g. QsyncBackup, Backups, Temp" style="flex:1;min-width:200px;padding:5px 9px;border:1px solid var(--control);border-radius:6px;font-size:12px;">
+                </div>
+              </div>
+
               <div id="nas-shares-box" hidden style="padding:8px 12px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:#14532d;"></div>
 
               <div id="nas-drop-zone" style="border:2px dashed #60a5fa;border-radius:10px;background:#f8fafc;padding:12px 14px;text-align:center;transition:all 0.15s ease;">
@@ -23855,6 +24210,24 @@
 
               <div id="nas-live-progress" hidden style="padding:10px 12px;border-radius:8px;background:#eff6ff;border:1px solid #60a5fa;color:#1e3a8a;display:flex;flex-direction:column;gap:6px;font-size:12.5px;"></div>
               <div id="nas-scan-status" class="muted" style="font-size:12.5px;min-height:18px;"></div>
+
+              <details id="nas-turbo-details" style="border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;padding:9px 12px;">
+                <summary style="font-size:13px;font-weight:700;color:#0f172a;cursor:pointer;">⚡ Turbo Scan for Huge NAS (100,000+ photos in ~30 seconds via Windows PowerShell)</summary>
+                <div style="margin-top:8px;font-size:12px;color:#334155;line-height:1.45;display:flex;flex-direction:column;gap:8px;">
+                  <div>
+                    <strong>Why this is 100× faster:</strong> Browsers query each file over SMB one-by-one, whereas Windows PowerShell reads whole SMB folders natively in one pass (250,000 photos in ~30 seconds). When you later run <strong>Consolidate / Copy / Move</strong>, the app will simply ask once to pick the share folder so it can copy the unique photos.
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button type="button" class="btn sm primary" id="btn-nas-ps-download">⬇️ Download scan-nas-fast.ps1</button>
+                    <button type="button" class="btn sm" id="btn-nas-ps-copy">📋 Copy PowerShell One-Liner</button>
+                    <button type="button" class="btn sm success" id="btn-nas-json-import">📥 Import nas-photo-index.json</button>
+                  </div>
+                  <div style="font-size:11.5px;color:#475569;">
+                    <strong>Step 1:</strong> Download <code>scan-nas-fast.ps1</code> (right-click → <em>Run with PowerShell</em>) OR click <strong>Copy PowerShell One-Liner</strong>, press <code>Win+X</code> → <strong>Terminal / PowerShell</strong>, paste &amp; press Enter. It saves <code>nas-photo-index.json</code> on your Desktop.<br>
+                    <strong>Step 2:</strong> Click <strong>📥 Import nas-photo-index.json</strong> right here to load every NAS photo instantly.
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         `;
@@ -23870,6 +24243,20 @@
         const scanClassicBtn = overlay.querySelector('#btn-nas-scan-classic');
         const mergeChk = overlay.querySelector('#chk-nas-merge');
         const labelInput = overlay.querySelector('#inp-nas-label');
+        const skipJunkChk = overlay.querySelector('#chk-nas-skip-junk');
+        const skipTinyChk = overlay.querySelector('#chk-nas-skip-tiny');
+        const excludeInput = overlay.querySelector('#inp-nas-exclude');
+        const psDownloadBtn = overlay.querySelector('#btn-nas-ps-download');
+        const psCopyBtn = overlay.querySelector('#btn-nas-ps-copy');
+        const jsonImportBtn = overlay.querySelector('#btn-nas-json-import');
+
+        const getNasFilterOpts = () => {
+          const skipSnapshotsAndJunk = skipJunkChk ? Boolean(skipJunkChk.checked) : true;
+          const skipTinyIcons = skipTinyChk ? Boolean(skipTinyChk.checked) : true;
+          const customExcludeText = excludeInput ? String(excludeInput.value || '') : '';
+          const customExcludeList = customExcludeText.split(',').map((s) => s.trim()).filter(Boolean);
+          return { skipSnapshotsAndJunk, skipTinyIcons, customExcludeText, customExcludeList };
+        };
 
         const renderSharesBox = () => {
           const list = Array.isArray(photoLibraryIndex.nas) ? photoLibraryIndex.nas : [];
@@ -24009,8 +24396,17 @@
             } else if (state.phase === 'scanning') {
               scanDirBtn.textContent = `⏳ Scanning "${state.shareName || 'NAS'}"...`;
               const sharePart = state.shareTotal > 1 ? `Share ${state.shareIndex} of ${state.shareTotal}: ` : '';
-              const skipPart = state.skippedDirs > 0 ? ` · ${state.skippedDirs.toLocaleString()} restricted/busy folder${state.skippedDirs === 1 ? '' : 's'} skipped` : '';
-              headline = `⏳ ${sharePart}Scanning "${esc(state.shareName || 'NAS')}" — ${state.dirsDone.toLocaleString()} folders · ${state.photosFound.toLocaleString()} photos found${skipPart}`;
+              const elapsedSec = state.startedAt ? Math.max(1, Math.round((Date.now() - state.startedAt) / 1000)) : 1;
+              const mins = Math.floor(elapsedSec / 60);
+              const secs = elapsedSec % 60;
+              const elapsedStr = `${mins}:${String(secs).padStart(2, '0')}`;
+              const rate = Math.round((state.photosFound || 0) / elapsedSec);
+              const skipItems = [];
+              if (state.skippedSystemDirs > 0) skipItems.push(`${state.skippedSystemDirs.toLocaleString()} snapshot/junk folder${state.skippedSystemDirs === 1 ? '' : 's'}`);
+              if (state.skippedTinyFiles > 0) skipItems.push(`${state.skippedTinyFiles.toLocaleString()} tiny icon${state.skippedTinyFiles === 1 ? '' : 's'} (<15 KB)`);
+              if (state.skippedDirs > 0) skipItems.push(`${state.skippedDirs.toLocaleString()} locked folder${state.skippedDirs === 1 ? '' : 's'}`);
+              const skipPart = skipItems.length > 0 ? ` · Skipped: ${skipItems.join(', ')}` : '';
+              headline = `⏳ ${sharePart}Scanning "${esc(state.shareName || 'NAS')}" — ${state.dirsDone.toLocaleString()} folders · ${state.photosFound.toLocaleString()} photos (${rate.toLocaleString()}/sec · ${elapsedStr})${skipPart}`;
               subtext = state.currentPath ? `Current folder: ${esc(state.currentPath)}` : 'Reading folders over local network...';
               actionBtnHtml = `<button type="button" class="btn sm danger" id="btn-nas-stop-live" ${state.stopRequested ? 'disabled' : ''}>${state.stopRequested ? 'Stopping...' : '⏹ Stop &amp; Save Found'}</button>`;
             } else if (state.phase === 'saving') {
@@ -24150,7 +24546,8 @@
 
           const nasLbl = (labelInput.value || '').trim() || 'NAS';
           const shouldMerge = mergeChk ? mergeChk.checked : true;
-          await runNasBatchScan(targets, { nasLabel: nasLbl, shouldMerge });
+          const filterOpts = getNasFilterOpts();
+          await runNasBatchScan(targets, { nasLabel: nasLbl, shouldMerge, ...filterOpts });
         };
 
         scanDirBtn.onclick = async () => {
@@ -24172,9 +24569,10 @@
             const rootHandle = await window.showDirectoryPicker({ mode: 'read' });
             const nasLbl = (labelInput.value || '').trim() || 'NAS';
             const shouldMerge = mergeChk ? mergeChk.checked : true;
+            const filterOpts = getNasFilterOpts();
             await runNasBatchScan(
               [{ kind: 'handle', handle: rootHandle, name: rootHandle.name || 'NAS' }],
-              { nasLabel: nasLbl, shouldMerge, alreadyLocked: true }
+              { nasLabel: nasLbl, shouldMerge, alreadyLocked: true, ...filterOpts }
             );
           } catch (err) {
             _nasScanState.active = false;
@@ -24189,6 +24587,77 @@
             notifyNasScanListeners();
           }
         };
+
+        if (psDownloadBtn) {
+          psDownloadBtn.onclick = () => {
+            const filterOpts = getNasFilterOpts();
+            const scriptText = buildNasTurboPowerShellScript(filterOpts.customExcludeList, filterOpts.skipTinyIcons);
+            const blob = new Blob([scriptText], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'scan-nas-fast.ps1';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            statusEl.innerHTML = '<span style="color:#1e40af;">⬇️ Downloaded <strong>scan-nas-fast.ps1</strong>! Right-click it in your Downloads folder → <em>Run with PowerShell</em>, then click <strong>📥 Import nas-photo-index.json</strong> above.</span>';
+          };
+        }
+
+        if (psCopyBtn) {
+          psCopyBtn.onclick = async () => {
+            const filterOpts = getNasFilterOpts();
+            const cmd = buildNasTurboOneLiner(filterOpts.customExcludeList, filterOpts.skipTinyIcons);
+            try {
+              await navigator.clipboard.writeText(cmd);
+              statusEl.innerHTML = '<span style="color:#15803d;font-weight:600;">✓ Copied PowerShell Turbo command!</span> Press <code>Win+X</code> → <strong>Terminal / PowerShell</strong>, paste (<code>Ctrl+V</code>) and press Enter. When finished, click <strong>📥 Import nas-photo-index.json</strong>.';
+            } catch (_) {
+              window.prompt('Copy this PowerShell command and paste it into PowerShell:', cmd);
+            }
+          };
+        }
+
+        if (jsonImportBtn) {
+          jsonImportBtn.onclick = () => {
+            if (_nasScanState.active) return;
+            const jInp = document.createElement('input');
+            jInp.type = 'file';
+            jInp.accept = '.json,application/json';
+            jInp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+            document.body.appendChild(jInp);
+            jInp.onchange = async () => {
+              const file = jInp.files && jInp.files[0];
+              jInp.remove();
+              if (!file) return;
+              _nasScanState.active = true;
+              _nasScanState.phase = 'saving';
+              _nasScanState.photosFound = 0;
+              _nasScanState.lastError = '';
+              _nasScanState.lastErrorIsPickerBusy = false;
+              notifyNasScanListeners();
+              try {
+                const text = await file.text();
+                const nasLbl = (labelInput.value || '').trim() || 'NAS';
+                const shouldMerge = mergeChk ? mergeChk.checked : true;
+                const res = await importNasFastIndexJson(text, { nasLabel: nasLbl, shouldMerge });
+                const skipParts = [];
+                if (res.skippedDirs > 0) skipParts.push(`${res.skippedDirs.toLocaleString()} snapshot/junk folders`);
+                if (res.skippedTiny > 0) skipParts.push(`${res.skippedTiny.toLocaleString()} tiny icons`);
+                const skipHtml = skipParts.length > 0 ? ` <span style="color:#b45309;">(${skipParts.join(', ')} skipped by script)</span>` : '';
+                _nasScanState.lastMessage = `<span style="color:#15803d;font-weight:700;">✓ Imported ${res.importedCount.toLocaleString()} NAS photos from "${esc(res.rootNamesLabel)}"!</span>${skipHtml} Total NAS photos: <strong>${res.totalCount.toLocaleString()}</strong>.`;
+              } catch (err) {
+                _nasScanState.lastError = (err && err.message) ? err.message : String(err || 'Failed to import NAS JSON index');
+                _nasScanState.lastErrorIsPickerBusy = false;
+              } finally {
+                _nasScanState.active = false;
+                _nasScanState.phase = '';
+                notifyNasScanListeners();
+              }
+            };
+            jInp.click();
+          };
+        }
 
         scanClassicBtn.onclick = () => {
           if (_nasScanState.active) return;
@@ -24261,9 +24730,35 @@
             cleanupClassic();
             try {
               const raw = Array.from(inp.files || []);
-              const imgs = raw.filter((f) => NAS_IMG_RE.test(f.name) || (f.type && f.type.startsWith('image/')));
+              const filterOpts = getNasFilterOpts();
+              const customExcludes = buildCustomExcludeSet(filterOpts.customExcludeText);
+              const folderFilterOpts = {
+                skipSnapshotsAndJunk: filterOpts.skipSnapshotsAndJunk,
+                customExcludes
+              };
+              let skippedJunk = 0;
+              let skippedTiny = 0;
+              const imgs = raw.filter((f) => {
+                if (!(NAS_IMG_RE.test(f.name) || (f.type && f.type.startsWith('image/')))) return false;
+                const rel = String(f.webkitRelativePath || '');
+                const segs = rel.split(/[\\/]/).filter(Boolean);
+                for (let s = 0; s < segs.length - 1; s++) {
+                  if (shouldSkipNasFolderName(segs[s], folderFilterOpts)) {
+                    skippedJunk++;
+                    return false;
+                  }
+                }
+                if (filterOpts.skipTinyIcons && (f.size || 0) > 0 && (f.size || 0) < NAS_TINY_ICON_BYTES) {
+                  skippedTiny++;
+                  return false;
+                }
+                return true;
+              });
               if (!imgs.length) {
-                _nasScanState.lastMessage = 'No supported images found in selected NAS folder.';
+                const parts = [];
+                if (skippedJunk > 0) parts.push(`${skippedJunk.toLocaleString()} snapshot/junk files`);
+                if (skippedTiny > 0) parts.push(`${skippedTiny.toLocaleString()} tiny icons`);
+                _nasScanState.lastMessage = `No supported images found in selected NAS folder${parts.length ? ` (${parts.join(', ')} skipped)` : ''}.`;
                 return;
               }
               _nasScanState.phase = 'saving';
@@ -24286,7 +24781,11 @@
               const nasLbl = (labelInput.value || '').trim() || 'NAS';
               const shouldMerge = mergeChk ? mergeChk.checked : true;
               const finalRecords = await finalizeNasScanRecords(mapped, nasFolder, { nasLabel: nasLbl, shouldMerge });
-              _nasScanState.lastMessage = `<span style="color:#15803d;font-weight:700;">✓ Added ${mapped.length.toLocaleString()} photos from "${esc(nasFolder)}"!</span> Total NAS photos: <strong>${finalRecords.length.toLocaleString()}</strong>. Drop or add another QNAP share above or click <strong>✓ Done — Back to Step 1</strong>.`;
+              const skipParts = [];
+              if (skippedJunk > 0) skipParts.push(`${skippedJunk.toLocaleString()} snapshot/junk files`);
+              if (skippedTiny > 0) skipParts.push(`${skippedTiny.toLocaleString()} tiny icons (<15 KB)`);
+              const skipHtml = skipParts.length ? ` <span style="color:#b45309;">(${skipParts.join(', ')} skipped)</span>` : '';
+              _nasScanState.lastMessage = `<span style="color:#15803d;font-weight:700;">✓ Added ${mapped.length.toLocaleString()} photos from "${esc(nasFolder)}"!</span>${skipHtml} Total NAS photos: <strong>${finalRecords.length.toLocaleString()}</strong>. Drop or add another QNAP share above or click <strong>✓ Done — Back to Step 1</strong>.`;
             } catch (err) {
               _nasScanState.lastError = (err && err.message) ? err.message : String(err || 'Classic NAS scan failed');
               _nasScanState.lastErrorIsPickerBusy = false;
